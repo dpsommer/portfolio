@@ -1,4 +1,4 @@
-import { FOREGROUND, FOREGROUND_WORN } from './palette.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
 import { GLYPH_HEIGHT, textPixels, textWidth } from './pixelFont.ts'
 import { createRandom } from './random.ts'
 import type { Pixel } from './types.ts'
@@ -62,24 +62,37 @@ function boardPixels(random: () => number): Pixel[] {
   ].filter((p) => !(p.x === 30 && p.y === bottom)) // the crack breaks the bottom edge
 }
 
+function layout(canvasWidth: number, canvasHeight: number) {
+  const centreX = Math.floor(canvasWidth / 2)
+  const boardLeft = centreX - BOARD_WIDTH / 2
+  const boardTop = Math.floor(canvasHeight * 0.33)
+  const postLeft = centreX - POST_WIDTH / 2
+  return {
+    centreX,
+    boardLeft,
+    boardTop,
+    // Where the post meets the floor, in front of the far wall.
+    groundY: Math.floor(canvasHeight * 0.85),
+    postLeft,
+    postRight: postLeft + POST_WIDTH - 1,
+    // Maps a board-local point to the canvas, tilting it along BOARD_SLOPE.
+    placeOnBoard: <T extends Point>(p: T): T => ({
+      ...p,
+      x: boardLeft + p.x,
+      y: boardTop + p.y + Math.round((p.x - BOARD_WIDTH / 2) * BOARD_SLOPE),
+    }),
+  }
+}
+
 // Pixels for the welcome signpost: a tilted, weathered board on a single post,
 // standing on a short stretch of ground. Coordinates are canvas pixels.
 export function signpostPixels(canvasWidth: number, canvasHeight: number): Pixel[] {
   const random = createRandom(SEED)
-  const centreX = Math.floor(canvasWidth / 2)
-  const boardLeft = centreX - BOARD_WIDTH / 2
-  const boardTop = Math.floor(canvasHeight * 0.3)
-  const groundY = Math.floor(canvasHeight * 0.78)
+  const { centreX, boardTop, groundY, postLeft, postRight, placeOnBoard } = layout(canvasWidth, canvasHeight)
 
-  const board = boardPixels(random).map((p) => ({
-    ...p,
-    x: boardLeft + p.x,
-    y: boardTop + p.y + Math.round((p.x - BOARD_WIDTH / 2) * BOARD_SLOPE),
-  }))
+  const board = boardPixels(random).map(placeOnBoard)
 
   const post: Pixel[] = []
-  const postLeft = centreX - POST_WIDTH / 2
-  const postRight = postLeft + POST_WIDTH - 1
   for (let y = boardTop + BOARD_HEIGHT; y < groundY; y++) {
     for (const x of [postLeft, postRight]) {
       post.push({ x, y, colour: random() < 0.3 ? FOREGROUND_WORN : FOREGROUND })
@@ -90,14 +103,31 @@ export function signpostPixels(canvasWidth: number, canvasHeight: number): Pixel
     }
   }
 
-  // Ground that fades out with distance from the post.
+  // Ground at the foot of the post, fading out with distance from it.
   const ground: Pixel[] = []
-  const groundHalfWidth = 60
+  const groundHalfWidth = 30
   for (let dx = -groundHalfWidth; dx <= groundHalfWidth; dx++) {
     if (random() < 1 - Math.abs(dx) / groundHalfWidth) {
-      ground.push({ x: centreX + dx, y: groundY, colour: Math.abs(dx) < 20 ? FOREGROUND : FOREGROUND_WORN })
+      ground.push({ x: centreX + dx, y: groundY, colour: Math.abs(dx) < 12 ? FOREGROUND : FOREGROUND_WORN })
     }
   }
 
   return [...board, ...post, ...ground]
+}
+
+// Background-coloured pixels covering the board and post, drawn before the
+// signpost so the room behind it doesn't show through.
+export function signpostBackingPixels(canvasWidth: number, canvasHeight: number): Pixel[] {
+  const { boardTop, groundY, postLeft, postRight, placeOnBoard } = layout(canvasWidth, canvasHeight)
+  const pixels: Pixel[] = []
+  for (let y = 0; y < BOARD_HEIGHT; y++) {
+    for (let x = 0; x < BOARD_WIDTH; x++) {
+      if (BOARD_WIDTH - 1 - x + y < CHIP_SIZE) continue
+      pixels.push(placeOnBoard({ x, y, colour: BACKGROUND }))
+    }
+  }
+  for (let y = boardTop + BOARD_HEIGHT; y < groundY; y++) {
+    for (let x = postLeft; x <= postRight; x++) pixels.push({ x, y, colour: BACKGROUND })
+  }
+  return pixels
 }

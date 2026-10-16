@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { drawPixels, drawScene } from './draw.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
-import { signpostPixels } from './signpost.ts'
+import { roomPixels } from './room.ts'
+import { signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
 type Call = { args: number[]; fillStyle: string }
@@ -49,15 +50,18 @@ describe('drawScene', () => {
     expect(calls[0]).toEqual({ args: [0, 0, 320, 240], fillStyle: BACKGROUND })
   })
 
-  it('then draws the signpost pixels', () => {
+  it('then draws the room, the signpost backing and the signpost, in that order', () => {
     const { ctx, calls } = createFakeContext()
 
     drawScene(ctx)
 
-    const expected = signpostPixels(320, 240).map(({ x, y, colour }) => ({
-      args: [x, y, 1, 1],
-      fillStyle: colour,
-    }))
-    expect(calls.slice(1)).toEqual(expected)
+    const toCalls = (pixels: Pixel[]) =>
+      pixels.map(({ x, y, colour }) => ({ args: [x, y, 1, 1], fillStyle: colour }))
+    expect(calls).toEqual([
+      { args: [0, 0, 320, 240], fillStyle: BACKGROUND },
+      ...toCalls(roomPixels(320, 240)),
+      ...toCalls(signpostBackingPixels(320, 240)),
+      ...toCalls(signpostPixels(320, 240)),
+    ])
   })
 })
