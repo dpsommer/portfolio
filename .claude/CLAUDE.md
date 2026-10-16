@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-React 19 + TypeScript 6 + Vite 8, linted with oxlint (no ESLint/Prettier). The entry point is `index.html` → `src/main.tsx` → `src/App.tsx`. `src/App.tsx`, `src/App.css` and the files in `src/assets/` are still the Vite starter template and should be replaced.
+React 19 + TypeScript 6 + Vite 8, linted with oxlint (no ESLint/Prettier). The entry point is `index.html` → `src/main.tsx` → `src/App.tsx`. Styles are per-component `.scss` files (compiled by `sass-embedded`); `src/index.css` holds only global page styles and colour variables.
 
 TypeScript settings that affect how code is written (`tsconfig.app.json`):
 - `verbatimModuleSyntax`: type-only imports must use `import type`.
