@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { CURSORS } from './cursors.ts'
 import ViewPane, { VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
 
 describe('ViewPane', () => {
@@ -32,5 +33,52 @@ describe('ViewPane', () => {
     render(<ViewPane />)
 
     expect(screen.getByRole('img')).toHaveClass('view-pane')
+  })
+
+  describe('cursor', () => {
+    function renderWithRect(left: number, width: number) {
+      render(<ViewPane />)
+      const canvas = screen.getByRole('img')
+      vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(left, 0, width, 300),
+      )
+      return canvas
+    }
+
+    it('defaults to the forward cursor', () => {
+      render(<ViewPane />)
+
+      expect(screen.getByRole('img').style.cursor).toBe(CURSORS.forward)
+    })
+
+    it.each([
+      [110, 'turn-left'],
+      [300, 'forward'],
+      [490, 'turn-right'],
+    ] as const)('at clientX %s uses the %s cursor', (clientX, zone) => {
+      const canvas = renderWithRect(100, 400)
+
+      fireEvent.mouseMove(canvas, { clientX })
+
+      expect(canvas.style.cursor).toBe(CURSORS[zone])
+    })
+
+    it('returns to the forward cursor after leaving an edge zone', () => {
+      const canvas = renderWithRect(100, 400)
+
+      fireEvent.mouseMove(canvas, { clientX: 110 })
+      fireEvent.mouseMove(canvas, { clientX: 300 })
+
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
+
+    it('ignores mouse moves when the canvas has zero width', () => {
+      // Without the guard, (600 - 100) / 0 is Infinity and would select turn-right.
+      const canvas = renderWithRect(100, 0)
+
+      fireEvent.mouseMove(canvas, { clientX: 600 })
+
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
   })
 })
