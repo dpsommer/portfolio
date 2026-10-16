@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
+import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
 import { drawScene } from '../scene/draw.ts'
 import { TURN_YAW, turn } from '../scene/heading.ts'
 import type { Heading, TurnDirection } from '../scene/heading.ts'
+import { PLACES, forwardFrom } from '../scene/places.ts'
+import type { PlaceName } from '../scene/places.ts'
 import { signBoardBounds } from '../scene/signpost.ts'
 import './ViewPane.scss'
 
@@ -12,8 +14,9 @@ import './ViewPane.scss'
 export const VIEW_WIDTH = 320
 export const VIEW_HEIGHT = 240
 
-// How long a quarter turn takes to animate.
+// How long a quarter turn and a step forward take to animate.
 export const TURN_DURATION_MS = 250
+export const MOVE_DURATION_MS = 350
 
 const SIGN_BOUNDS = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
 
@@ -32,23 +35,63 @@ function prefersReducedMotion(): boolean {
 const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
 
 type Pointer = { zone: CursorZone; overSign: boolean }
+// What the camera is drawing: where it stands and which way it faces.
+type View = { x: number; z: number; yaw: number }
+
+function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw }: View) {
+  drawScene(ctx, yaw, { x, z })
+}
 
 function ViewPane() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [pointer, setPointer] = useState<Pointer>({ zone: 'forward', overSign: false })
+  const [place, setPlace] = useState<PlaceName>('start')
   const [heading, setHeading] = useState<Heading>('north')
-  const [turning, setTurning] = useState(false)
-  // The drawn camera yaw. It isn't wrapped, so each turn animates the short way round.
-  const yawRef = useRef(0)
+  const [animating, setAnimating] = useState(false)
+  // The drawn view. Yaw isn't wrapped, so each turn animates the short way round.
+  const viewRef = useRef<View>({ x: PLACES.start.x, z: PLACES.start.z, yaw: 0 })
   const frameRef = useRef<number | null>(null)
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawScene(ctx, yawRef.current)
+    if (ctx) drawView(ctx, viewRef.current)
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
   }, [])
+
+  // Animates the drawn view to `to`, or jumps there with reduced motion or no canvas.
+  function animateTo(to: View, duration: number) {
+    const from = viewRef.current
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx || prefersReducedMotion()) {
+      viewRef.current = to
+      if (ctx) drawView(ctx, to)
+      return
+    }
+    setAnimating(true)
+    const start = performance.now()
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - start) / duration)
+      const eased = easeInOut(progress)
+      viewRef.current =
+        progress < 1
+          ? {
+              x: from.x + (to.x - from.x) * eased,
+              z: from.z + (to.z - from.z) * eased,
+              yaw: from.yaw + (to.yaw - from.yaw) * eased,
+            }
+          : to
+      drawView(ctx, viewRef.current)
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(step)
+      } else {
+        frameRef.current = null
+        setAnimating(false)
+      }
+    }
+    frameRef.current = requestAnimationFrame(step)
+  }
 
   // Mouse position as fractions of the canvas's on-screen size, so hit areas scale with the pane.
   function pointerAt(event: MouseEvent<HTMLCanvasElement>): Pointer | null {
@@ -70,35 +113,28 @@ function ViewPane() {
 
   function handleClick(event: MouseEvent<HTMLCanvasElement>) {
     const at = pointerAt(event)
-    const direction = at && TURNS[at.zone]
-    if (!direction || turning) return
-    setHeading(turn(heading, direction))
-
-    const from = yawRef.current
-    const to = from + TURN_YAW[direction]
-    const ctx = canvasRef.current?.getContext('2d')
-    if (!ctx || prefersReducedMotion()) {
-      yawRef.current = to
-      if (ctx) drawScene(ctx, to)
+    if (!at || animating) return
+    const direction = TURNS[at.zone]
+    if (direction) {
+      setHeading(turn(heading, direction))
+      animateTo({ ...viewRef.current, yaw: viewRef.current.yaw + TURN_YAW[direction] }, TURN_DURATION_MS)
       return
     }
-    setTurning(true)
-    const start = performance.now()
-    const step = (now: number) => {
-      const progress = Math.min(1, (now - start) / TURN_DURATION_MS)
-      yawRef.current = progress < 1 ? from + (to - from) * easeInOut(progress) : to
-      drawScene(ctx, yawRef.current)
-      if (progress < 1) {
-        frameRef.current = requestAnimationFrame(step)
-      } else {
-        frameRef.current = null
-        setTurning(false)
-      }
-    }
-    frameRef.current = requestAnimationFrame(step)
+    const next = forwardFrom(place, heading)
+    // A click on the sign is for the sign, even if there's a way forward behind it.
+    if (!next || showHand) return
+    setPlace(next)
+    animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS)
   }
 
-  const showHand = pointer.overSign && heading === 'north' && !turning
+  // The sign is only clickable from where it was designed to be seen.
+  const showHand = pointer.overSign && place === 'start' && heading === 'north' && !animating
+  const canMoveForward = forwardFrom(place, heading) !== null
+  const cursor = showHand
+    ? HAND_CURSOR
+    : pointer.zone === 'forward' && !canMoveForward
+      ? BLOCKED_CURSOR
+      : CURSORS[pointer.zone]
   return (
     <div className="view-pane-frame">
       <canvas
@@ -108,8 +144,9 @@ function ViewPane() {
         height={VIEW_HEIGHT}
         role="img"
         aria-label="Dungeon view"
+        data-place={place}
         data-heading={heading}
-        style={{ cursor: showHand ? HAND_CURSOR : CURSORS[pointer.zone] }}
+        style={{ cursor }}
         onMouseMove={handleMouseMove}
         onClick={handleClick}
       />

@@ -37,6 +37,25 @@ const TURN_LEFT_SHAPE: FloorPoint[][] = [
   [[0.4, 0.2], [0.4, 1], [0.02, 0.6]],
 ]
 
+// An open hand lying on the floor, fingers spread away from the viewer: "can't
+// go this way". The fingers fan out slightly so each lands on its own pixel
+// column once foreshortened.
+const finger = (baseX: number, baseZ: number, tipX: number, tipZ: number, width: number): FloorPoint[] => [
+  [baseX - width / 2, baseZ],
+  [baseX + width / 2, baseZ],
+  [tipX + width / 2, tipZ],
+  [tipX - width / 2, tipZ],
+]
+const BLOCKED_SHAPE: FloorPoint[][] = [
+  [[0.37, 0], [0.85, 0], [0.89, 0.48], [0.33, 0.48]],
+  finger(0.37, 0.4, 0.33, 0.88, 0.07),
+  finger(0.53, 0.4, 0.53, 1, 0.07),
+  finger(0.69, 0.4, 0.72, 1, 0.07),
+  finger(0.85, 0.4, 0.91, 0.88, 0.07),
+  // The thumb, out to the left.
+  finger(0.37, 0.08, 0.13, 0.36, 0.12),
+]
+
 const COS_45 = Math.SQRT1_2
 // Width of the arrow's near edge in map pixels.
 const FACE_WIDTH = 14
@@ -149,6 +168,10 @@ export const CURSORS: Record<CursorZone, string> = {
   forward: pixelMapToCursor(CURSOR_MAPS.forward, 'n-resize'),
   'turn-right': pixelMapToCursor(CURSOR_MAPS['turn-right'], 'e-resize'),
 }
+
+// Shown in the centre of the view when there's no way forward.
+export const BLOCKED_MAP = projectArrow(BLOCKED_SHAPE)
+export const BLOCKED_CURSOR = pixelMapToCursor(BLOCKED_MAP, 'not-allowed')
 
 // A pointing hand for clickable things in the scene. Unlike the arrows it is
 // upright rather than lying on the floor; '+' marks the creases between fingers.

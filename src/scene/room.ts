@@ -1,5 +1,5 @@
-import { BACK_Z, CEILING_Y, FAR_Z, FLOOR_Y, NOOK_FRONT_Z, NOOK_X, ROOM_HALF_WIDTH, projectSegment } from './camera.ts'
-import type { Vec3 } from './camera.ts'
+import { BACK_Z, CEILING_Y, FAR_Z, FLOOR_Y, NOOK_FRONT_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, projectSegment } from './camera.ts'
+import type { FloorPoint, Vec3 } from './camera.ts'
 import { linePoints } from './line.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
@@ -10,8 +10,8 @@ import type { Pixel } from './types.ts'
 // view and the wall edges run out to the view's corners. A nook to the left of
 // the start breaks the box. Everything is sparse, so the viewer fills in the
 // rest. All detail is placed in world space with per-element seeds, so it stays
-// put while the view turns. Every wall can be seen in full from the camera's
-// position, so nothing needs hiding.
+// put while the view turns and moves. Walls run from floor to ceiling, so
+// whether something is hidden only depends on the floor plan: see `isVisible`.
 
 const BRICK_WIDTH = 0.25
 const BRICK_HEIGHT = 0.125
@@ -40,7 +40,6 @@ const distance = (a: Vec3, b: Vec3) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.
 // points to the right, so wall-local (u, v) runs right and down. `seed` keeps
 // each wall's bricks independent of the others.
 type Wall = { start: Vec3; along: Vec3; length: number; seed: number }
-type FloorPoint = { x: number; z: number }
 
 const LEFT = -ROOM_HALF_WIDTH
 const RIGHT = ROOM_HALF_WIDTH
@@ -174,26 +173,88 @@ function floorSegments(): Segment[] {
   return segments
 }
 
+// Whether `point` can be seen from `eye`: the line between them on the floor
+// plan doesn't cross a wall. Points on a wall (or its corners) aren't hidden by it.
+export function isVisible(point: FloorPoint, eye: FloorPoint): boolean {
+  const dx = point.x - eye.x
+  const dz = point.z - eye.z
+  for (let i = 0; i < FLOOR_PLAN.length; i++) {
+    const a = FLOOR_PLAN[i]
+    const b = FLOOR_PLAN[(i + 1) % FLOOR_PLAN.length]
+    const wx = b.x - a.x
+    const wz = b.z - a.z
+    const denominator = dx * wz - dz * wx
+    if (denominator === 0) continue
+    // t is how far along eye → point the crossing is; u how far along the wall.
+    const t = ((a.x - eye.x) * wz - (a.z - eye.z) * wx) / denominator
+    const u = ((a.x - eye.x) * dz - (a.z - eye.z) * dx) / denominator
+    if (t > 1e-9 && t < 1 - 1e-6 && u >= 0 && u <= 1) return false
+  }
+  return true
+}
+
+// Sample spacing (world units) when finding which parts of a segment are hidden.
+const VISIBILITY_STEP = 0.05
+const VISIBILITY_REFINEMENTS = 10
+
+// The parts of a segment that can be seen from `eye`. Samples along it, then
+// narrows down each point where it passes behind or out from behind a wall.
+function visibleParts([a, b]: Segment, eye: FloorPoint): Segment[] {
+  const seen = (t: number) => isVisible(lerp(a, b, t), eye)
+  const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / VISIBILITY_STEP)
+  if (steps === 0) return seen(0) ? [[a, b]] : []
+  const parts: Segment[] = []
+  let runStart = seen(0) ? 0 : null
+  let previous = 0
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps
+    const visible = seen(t)
+    if (visible !== (runStart !== null)) {
+      // Bisect between the last two samples for where visibility changes.
+      let low = previous
+      let high = t
+      for (let j = 0; j < VISIBILITY_REFINEMENTS; j++) {
+        const middle = (low + high) / 2
+        if (seen(middle) === visible) high = middle
+        else low = middle
+      }
+      if (visible) runStart = high
+      else if (runStart !== null) {
+        parts.push([lerp(a, b, runStart), lerp(a, b, low)])
+        runStart = null
+      }
+    }
+    previous = t
+  }
+  if (runStart !== null) parts.push([lerp(a, b, runStart), b])
+  return parts
+}
+
 // The room's detail doesn't depend on the view, so it's built once.
 const BRICKS = brickSegments()
 const FLOOR = floorSegments()
 const EDGES = edgeSegments()
 
-function rasterise(segments: Segment[], colour: string, yaw: number, width: number, height: number): Pixel[] {
-  return segments.flatMap(([a, b]) => {
-    const projected = projectSegment(a, b, yaw, width, height)
-    if (!projected) return []
-    const [p, q] = projected
-    return linePoints(p.x, p.y, q.x, q.y).map((point) => ({ ...point, colour }))
-  })
+type View = { yaw: number; eye: FloorPoint; width: number; height: number }
+
+function rasterise(segments: Segment[], colour: string, { yaw, eye, width, height }: View): Pixel[] {
+  return segments.flatMap((segment) =>
+    visibleParts(segment, eye).flatMap(([a, b]) => {
+      const projected = projectSegment(a, b, yaw, width, height, eye)
+      if (!projected) return []
+      const [p, q] = projected
+      return linePoints(p.x, p.y, q.x, q.y).map((point) => ({ ...point, colour }))
+    }),
+  )
 }
 
-// Pixels for the room seen with the camera turned `yaw` radians left of north.
-export function roomPixels(canvasWidth: number, canvasHeight: number, yaw = 0): Pixel[] {
+// Pixels for the room seen from `eye` with the camera turned `yaw` radians left of north.
+export function roomPixels(canvasWidth: number, canvasHeight: number, yaw = 0, eye: FloorPoint = ORIGIN): Pixel[] {
+  const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
   const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
   return [
-    ...rasterise(BRICKS, FOREGROUND_DIM, yaw, canvasWidth, canvasHeight),
-    ...rasterise(FLOOR, FOREGROUND_DIM, yaw, canvasWidth, canvasHeight),
-    ...rasterise(EDGES, FOREGROUND_WORN, yaw, canvasWidth, canvasHeight),
+    ...rasterise(BRICKS, FOREGROUND_DIM, view),
+    ...rasterise(FLOOR, FOREGROUND_DIM, view),
+    ...rasterise(EDGES, FOREGROUND_WORN, view),
   ].filter(inCanvas)
 }

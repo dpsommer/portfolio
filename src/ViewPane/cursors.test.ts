@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BLOCKED_CURSOR,
+  BLOCKED_MAP,
   CURSOR_MAPS,
   CURSORS,
   EDGE_ZONE_FRACTION,
@@ -326,5 +328,108 @@ describe('HAND_CURSOR', () => {
     expect(HAND_MAP[y - 1][x]).toBe('.')
     const topRow = HAND_MAP.findIndex((row) => /[#+]/.test(row))
     expect(y).toBe(topRow)
+  })
+})
+
+describe('BLOCKED_MAP', () => {
+  const fingerRow = topFaceRows(BLOCKED_MAP)[1]
+
+  // Leftmost '#' column of the row across the fingers, i.e. the palm's left edge.
+  const palmLeft = BLOCKED_MAP[fingerRow].indexOf('#')
+
+  it('is 16 rows of 16 characters', () => {
+    expect(BLOCKED_MAP).toHaveLength(16)
+    for (const row of BLOCKED_MAP) expect(row).toHaveLength(16)
+  })
+
+  it('only contains "#", "+" and "."', () => {
+    for (const row of BLOCKED_MAP) expect(row).toMatch(/^[#+.]+$/)
+  })
+
+  it('leaves a transparent 1-pixel border', () => {
+    expect(BLOCKED_MAP[0]).toBe('.'.repeat(16))
+    expect(BLOCKED_MAP[15]).toBe('.'.repeat(16))
+    for (const row of BLOCKED_MAP) {
+      expect(row[0]).toBe('.')
+      expect(row[15]).toBe('.')
+    }
+  })
+
+  it('has both top face and side face cells', () => {
+    const text = BLOCKED_MAP.join('')
+    expect(text).toContain('#')
+    expect(text).toContain('+')
+  })
+
+  it('has a "#" within 2 rows above every "+"', () => {
+    for (let y = 0; y < BLOCKED_MAP.length; y++) {
+      for (let x = 0; x < BLOCKED_MAP[y].length; x++) {
+        if (BLOCKED_MAP[y][x] !== '+') continue
+        expect(BLOCKED_MAP[y - 1]?.[x] === '#' || BLOCKED_MAP[y - 2]?.[x] === '#').toBe(true)
+      }
+    }
+  })
+
+  it('shows the side face below the top face in every column', () => {
+    for (let x = 0; x < 16; x++) {
+      const column = BLOCKED_MAP.map((row) => row[x]).join('')
+      const lowest = column.replace(/\.+$/, '').at(-1)
+      if (lowest !== undefined) expect(lowest).toBe('+')
+    }
+  })
+
+  it('is built by projecting a shape onto the floor', () => {
+    // Its top face lies within the rows a projected floor occupies.
+    const fullFloor = projectArrow([[[0, 0], [1, 0], [1, 1], [0, 1]]])
+    const lowestTop = (map: string[]) => Math.max(...topFaceRows(map))
+    expect(lowestTop(BLOCKED_MAP)).toBeLessThanOrEqual(lowestTop(fullFloor))
+    expect(Math.min(...topFaceRows(BLOCKED_MAP))).toBeGreaterThanOrEqual(Math.min(...topFaceRows(fullFloor)))
+  })
+
+  it('shows four separate fingers, each 1 pixel wide', () => {
+    const row = BLOCKED_MAP[fingerRow]
+    expect(row.match(/#+/g)).toEqual(['#', '#', '#', '#'])
+    expect(row.slice(row.indexOf('#'), row.lastIndexOf('#') + 1)).toMatch(/^#(\.+#){3}$/)
+  })
+
+  it('has fingers on the second top-face row, row 3', () => {
+    expect(fingerRow).toBe(3)
+  })
+
+  it('has a thumb sticking out to the left of the palm', () => {
+    const thumbRow = BLOCKED_MAP.findIndex((row, y) => y > fingerRow && row.slice(0, palmLeft).includes('#'))
+    expect(thumbRow).toBeGreaterThan(fingerRow)
+    // A gap above the thumb separates it from the fingers.
+    expect(BLOCKED_MAP[thumbRow - 1].slice(0, palmLeft)).not.toContain('#')
+    // The thumb is separated from the palm by a transparent pixel on its first row.
+    expect(BLOCKED_MAP[thumbRow].slice(0, palmLeft)).toMatch(/#\.+$/)
+  })
+
+  it('is roughly centred horizontally', () => {
+    const columns = BLOCKED_MAP.flatMap((row) => row.split('').flatMap((cell, x) => (cell === '.' ? [] : [x])))
+    const centre = (Math.min(...columns) + Math.max(...columns)) / 2
+    expect(Math.abs(centre - 7.5)).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('BLOCKED_CURSOR', () => {
+  it('has a centred hotspot and falls back to not-allowed', () => {
+    expect(BLOCKED_CURSOR.endsWith('") 16 16, not-allowed')).toBe(true)
+  })
+
+  it('is built from the blocked map', () => {
+    expect(BLOCKED_CURSOR).toBe(pixelMapToCursor(BLOCKED_MAP, 'not-allowed'))
+  })
+
+  it('differs from the hand cursor', () => {
+    expect(BLOCKED_CURSOR).not.toBe(HAND_CURSOR)
+  })
+
+  it.each(Object.keys(CURSORS) as CursorZone[])('differs from the %s cursor', (zone) => {
+    expect(BLOCKED_CURSOR).not.toBe(CURSORS[zone])
+  })
+
+  it('draws a different image from every arrow cursor', () => {
+    for (const cursor of Object.values(CURSORS)) expect(decodeSvg(BLOCKED_CURSOR)).not.toBe(decodeSvg(cursor))
   })
 })

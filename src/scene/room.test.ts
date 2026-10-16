@@ -1,12 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { BACK_Z, CEILING_Y, FAR_Z, NOOK_FRONT_Z, NOOK_X, ROOM_HALF_WIDTH } from './camera.ts'
+import {
+  BACK_Z,
+  CEILING_Y,
+  FAR_Z,
+  FLOOR_Y,
+  FOCAL_RATIO,
+  NOOK_FRONT_Z,
+  NOOK_X,
+  ORIGIN,
+  ROOM_HALF_WIDTH,
+  WALL_VIEW_DISTANCE,
+} from './camera.ts'
+import type { FloorPoint } from './camera.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
-import { FLOOR_PLAN, WALLS, isOnFloor, roomPixels } from './room.ts'
+import { PLACES } from './places.ts'
+import { FLOOR_PLAN, WALLS, isOnFloor, isVisible, roomPixels } from './room.ts'
 import type { WallName } from './room.ts'
 import type { Pixel } from './types.ts'
 
 const WIDTH = 320
 const HEIGHT = 240
+// Focal length in pixels at 320 wide (128).
+const FOCAL = (FOCAL_RATIO * WIDTH) / 2
+// Screen column of a point `across` units right of the view's centre line, `depth` ahead.
+const columnAt = (across: number, depth: number) => Math.round(WIDTH / 2 + (FOCAL * across) / depth)
+// Screen row of a point at height `y` (relative to the eye), `depth` ahead.
+const rowAt = (y: number, depth: number) => Math.round(HEIGHT / 2 - (FOCAL * y) / depth)
 
 // The far wall's rect facing north at 320x240: FAR_WALL_SCALE (0.45) of the view, centred.
 const FAR_WALL = { left: 88, top: 66, right: 232, bottom: 174 }
@@ -39,6 +58,19 @@ function verticalEdgeColumns(pixels: Pixel[], minRows: number): number[] {
   }
   return [...rowsByColumn].filter(([, rows]) => rows.size >= minRows).map(([x]) => x)
 }
+
+// Rows whose worn pixels cover many columns: the box's horizontal floor and ceiling edges.
+function horizontalEdgeRows(pixels: Pixel[], minColumns: number): number[] {
+  const columnsByRow = new Map<number, Set<number>>()
+  for (const p of worn(pixels)) {
+    const columns = columnsByRow.get(p.y) ?? new Set<number>()
+    columns.add(p.x)
+    columnsByRow.set(p.y, columns)
+  }
+  return [...columnsByRow].filter(([, columns]) => columns.size >= minColumns).map(([y]) => y)
+}
+
+const sorted = (values: number[]) => [...values].sort((a, b) => a - b)
 
 // Fraction of `pixels` that have a pixel of the same colour in `other` within `distance`.
 function fractionNear(pixels: Pixel[], other: Pixel[], distance: number): number {
@@ -96,7 +128,6 @@ describe('WALLS', () => {
     expect(WALLS.north.length).toBeCloseTo(2 * ROOM_HALF_WIDTH)
     expect(WALLS.east.length).toBeCloseTo(FAR_Z - BACK_Z)
     expect(WALLS.south.length).toBeCloseTo(ROOM_HALF_WIDTH - NOOK_X)
-    expect(WALLS.south.length).toBeCloseTo(3)
     expect(WALLS['nook-back'].length).toBeCloseTo(NOOK_FRONT_Z - BACK_Z)
     expect(WALLS['nook-side'].length).toBeCloseTo(-ROOM_HALF_WIDTH - NOOK_X)
     expect(WALLS.west.length).toBeCloseTo(FAR_Z - NOOK_FRONT_Z)
@@ -171,6 +202,109 @@ describe('isOnFloor', () => {
   })
 })
 
+// The nook's place: WALL_VIEW_DISTANCE in front of the nook's back wall, level with the start.
+const NOOK_EYE: FloorPoint = { x: PLACES.nook.x, z: PLACES.nook.z }
+
+// Evenly spaced points along a wall, including both ends.
+function pointsAlong(name: WallName, count = 20): FloorPoint[] {
+  const { start, along, length } = WALLS[name]
+  return Array.from({ length: count + 1 }, (_, i) => ({
+    x: start.x + (along.x * length * i) / count,
+    z: start.z + (along.z * length * i) / count,
+  }))
+}
+
+describe('isVisible', () => {
+  describe('from the start', () => {
+    it.each(WALL_ORDER)('sees every point on the %s wall', (name) => {
+      for (const point of pointsAlong(name)) expect(isVisible(point, ORIGIN)).toBe(true)
+    })
+
+    it('sees every corner of the floor plan', () => {
+      for (const corner of FLOOR_PLAN) expect(isVisible(corner, ORIGIN)).toBe(true)
+    })
+
+    it('sees the nook\'s floor', () => {
+      for (const x of [-1.9, -1.5, -1.1]) {
+        for (const z of [-0.9, 0, 0.9]) expect(isVisible({ x, z }, ORIGIN)).toBe(true)
+      }
+    })
+
+    it('sees the main room\'s floor', () => {
+      for (const x of [-0.9, 0, 0.9]) {
+        for (const z of [-0.9, 0.5, FAR_Z - 0.1]) expect(isVisible({ x, z }, ORIGIN)).toBe(true)
+      }
+    })
+
+    it('sees its own position', () => {
+      expect(isVisible(ORIGIN, ORIGIN)).toBe(true)
+    })
+
+    it('does not see a point behind the main room\'s left wall', () => {
+      expect(isVisible({ x: -1.5, z: 2 }, ORIGIN)).toBe(false)
+    })
+
+    it('does not see points outside the room beyond the far and right walls', () => {
+      expect(isVisible({ x: 0, z: FAR_Z + 0.5 }, ORIGIN)).toBe(false)
+      expect(isVisible({ x: ROOM_HALF_WIDTH + 0.5, z: 0 }, ORIGIN)).toBe(false)
+    })
+  })
+
+  describe('from the nook', () => {
+    it('does not see the main room\'s left wall behind the nook\'s side wall', () => {
+      for (let z = 1.2; z <= FAR_Z; z += 0.1) {
+        expect(isVisible({ x: -ROOM_HALF_WIDTH, z }, NOOK_EYE)).toBe(false)
+      }
+      expect(isVisible({ x: -ROOM_HALF_WIDTH, z: FAR_Z }, NOOK_EYE)).toBe(false)
+    })
+
+    it('does not see the left end of the far wall', () => {
+      expect(isVisible({ x: -0.9, z: FAR_Z }, NOOK_EYE)).toBe(false)
+      expect(isVisible({ x: -ROOM_HALF_WIDTH, z: FAR_Z }, NOOK_EYE)).toBe(false)
+    })
+
+    it('sees the right part of the far wall', () => {
+      expect(isVisible({ x: 0.5, z: FAR_Z }, NOOK_EYE)).toBe(true)
+      expect(isVisible({ x: ROOM_HALF_WIDTH, z: FAR_Z }, NOOK_EYE)).toBe(true)
+    })
+
+    it('sees the far wall just right of where the nook\'s side wall stops hiding it', () => {
+      // The sight line past the nook's front corner (-1, 1) meets the far wall at
+      // x = eye.x + (corner.x - eye.x) * FAR_Z / corner.z.
+      const edge = NOOK_EYE.x + (-ROOM_HALF_WIDTH - NOOK_EYE.x) * FAR_Z / NOOK_FRONT_Z
+      expect(isVisible({ x: edge - 0.01, z: FAR_Z }, NOOK_EYE)).toBe(false)
+      expect(isVisible({ x: edge + 0.01, z: FAR_Z }, NOOK_EYE)).toBe(true)
+    })
+
+    it.each([
+      ['back', { x: NOOK_X, z: BACK_Z }],
+      ['front', { x: NOOK_X, z: NOOK_FRONT_Z }],
+      ['front-right', { x: -ROOM_HALF_WIDTH, z: NOOK_FRONT_Z }],
+    ])('sees the nook\'s %s corner', (_, corner) => {
+      expect(isVisible(corner, NOOK_EYE)).toBe(true)
+    })
+
+    it.each(['nook-back', 'nook-side', 'south', 'east'] as const)('sees every point on the %s wall', (name) => {
+      for (const point of pointsAlong(name)) expect(isVisible(point, NOOK_EYE)).toBe(true)
+    })
+
+    it('sees the sign\'s position', () => {
+      expect(isVisible({ x: 0, z: 1.14 }, NOOK_EYE)).toBe(true)
+    })
+
+    it('sees the start', () => {
+      expect(isVisible(ORIGIN, NOOK_EYE)).toBe(true)
+    })
+  })
+
+  it('is symmetric between points on the open floor', () => {
+    const points: FloorPoint[] = [ORIGIN, NOOK_EYE, { x: -1.8, z: 0.8 }, { x: -0.5, z: 1.6 }, { x: 0.8, z: -0.8 }]
+    for (const a of points) {
+      for (const b of points) expect(isVisible(a, b)).toBe(isVisible(b, a))
+    }
+  })
+})
+
 describe('roomPixels', () => {
   it('is deterministic', () => {
     expect(roomPixels(WIDTH, HEIGHT)).toEqual(roomPixels(WIDTH, HEIGHT))
@@ -178,6 +312,10 @@ describe('roomPixels', () => {
 
   it('defaults to facing north', () => {
     expect(roomPixels(WIDTH, HEIGHT)).toEqual(roomPixels(WIDTH, HEIGHT, 0))
+  })
+
+  it.each([0, Math.PI / 2, Math.PI])('defaults the eye to the start at yaw %f', (yaw) => {
+    expect(roomPixels(WIDTH, HEIGHT, yaw)).toEqual(roomPixels(WIDTH, HEIGHT, yaw, ORIGIN))
   })
 
   it.each([
@@ -328,15 +466,19 @@ describe('roomPixels', () => {
 
   describe('facing west', () => {
     const pixels = roomPixels(WIDTH, HEIGHT, Math.PI / 2)
-    // The nook's back wall is 2 away, from z BACK_Z on the left to NOOK_FRONT_Z on the
-    // right: 160 ± 64 across and 120 ± 48 down.
-    const NOOK = { left: 96, top: 72, right: 224, bottom: 168 }
+    // The nook's back wall is -NOOK_X (7/3) away, from z BACK_Z on the left to
+    // NOOK_FRONT_Z on the right: 160 ± 128 * 3/7 across and 120 ± 96 * 3/7 down.
+    const NOOK = {
+      left: columnAt(BACK_Z, -NOOK_X),
+      top: rowAt(CEILING_Y, -NOOK_X),
+      right: columnAt(NOOK_FRONT_Z, -NOOK_X),
+      bottom: rowAt(FLOOR_Y, -NOOK_X),
+    }
     // The main room's left wall starts at (-1, NOOK_FRONT_Z): 1 right at distance 1.
-    const WEST_CORNER_X = 288
+    const WEST_CORNER_X = columnAt(NOOK_FRONT_Z, ROOM_HALF_WIDTH)
 
     it('draws the nook back wall\'s corners as worn vertical edges', () => {
-      expect(Math.round(WIDTH / 2 + (BACK_Z * 0.8 * (WIDTH / 2)) / -NOOK_X)).toBe(NOOK.left)
-      expect(Math.round(WIDTH / 2 + (NOOK_FRONT_Z * 0.8 * (WIDTH / 2)) / -NOOK_X)).toBe(NOOK.right)
+      expect(NOOK).toEqual({ left: 105, top: 79, right: 215, bottom: 161 })
       for (const x of [NOOK.left, NOOK.right]) {
         const rows = [...wornRowsIn(pixels, x - 1, x + 1)].filter((y) => y >= NOOK.top && y <= NOOK.bottom)
         expect(rows.length).toBeGreaterThan((NOOK.bottom - NOOK.top) / 2)
@@ -344,8 +486,8 @@ describe('roomPixels', () => {
     })
 
     it.each([
-      ['ceiling', 72],
-      ['floor', 168],
+      ['ceiling', NOOK.top],
+      ['floor', NOOK.bottom],
     ])('draws the nook back wall\'s %s edge as a worn horizontal line', (_, y) => {
       const columns = new Set(
         worn(pixels)
@@ -356,7 +498,7 @@ describe('roomPixels', () => {
     })
 
     it('draws the main room\'s left wall corner as a tall worn vertical edge', () => {
-      expect(Math.round(WIDTH / 2 + NOOK_FRONT_Z * 0.8 * (WIDTH / 2))).toBe(WEST_CORNER_X)
+      expect(WEST_CORNER_X).toBe(288)
       expect(wornRowsIn(pixels, WEST_CORNER_X - 1, WEST_CORNER_X + 1).size).toBeGreaterThan(HEIGHT * 0.4)
     })
 
@@ -369,7 +511,7 @@ describe('roomPixels', () => {
     it('draws the main room\'s left wall face-on, with its floor and ceiling edges horizontal', () => {
       // The wall is parallel to the view, 1 unit away: floor and ceiling at 120 ± 96.
       // Only a short stretch is in view, so allow for the gaps in the broken edges.
-      for (const y of [24, 216]) {
+      for (const y of [rowAt(CEILING_Y, ROOM_HALF_WIDTH), rowAt(FLOOR_Y, ROOM_HALF_WIDTH)]) {
         const columns = new Set(
           worn(pixels)
             .filter((p) => Math.abs(p.y - y) <= 1 && p.x > WEST_CORNER_X)
@@ -389,7 +531,7 @@ describe('roomPixels', () => {
     })
 
     it('draws no flagstone along the main room\'s left wall floor edge', () => {
-      expect(dim(pixels).filter((p) => Math.abs(p.y - 216) <= 1 && p.x > WEST_CORNER_X + 1)).toEqual([])
+      expect(dim(pixels).filter((p) => Math.abs(p.y - rowAt(FLOOR_Y, ROOM_HALF_WIDTH)) <= 1 && p.x > WEST_CORNER_X + 1)).toEqual([])
     })
 
     it('differs from the north view', () => {
@@ -399,7 +541,8 @@ describe('roomPixels', () => {
 
   describe('facing east', () => {
     const pixels = roomPixels(WIDTH, HEIGHT, (3 * Math.PI) / 2)
-    const CORNER_X = Math.round(WIDTH / 2 - BACK_Z * 0.8 * (WIDTH / 2))
+    // The back wall's corner with the east wall, -BACK_Z right and ROOM_HALF_WIDTH ahead.
+    const CORNER_X = columnAt(-BACK_Z, ROOM_HALF_WIDTH)
 
     it('draws the back wall corner as a tall worn vertical edge, mirroring the west view', () => {
       expect(CORNER_X).toBe(288)
@@ -421,8 +564,13 @@ describe('roomPixels', () => {
     })
 
     // The back wall is -BACK_Z (1) away and runs from x 1 (on the left) to NOOK_X:
-    // its east corner is at 160 - 128 and its west corner, at 160 + 256, is off-screen.
-    const EAST_CORNER_X = Math.round(WIDTH / 2 + BACK_Z * 0.8 * (WIDTH / 2))
+    // its east corner is at 160 - 128 and its west corner, at 160 + 128 * 7/3, is off-screen.
+    const EAST_CORNER_X = columnAt(-ROOM_HALF_WIDTH, -BACK_Z)
+    const WEST_CORNER_X = columnAt(-NOOK_X, -BACK_Z)
+
+    it('puts the back wall\'s west corner off-screen', () => {
+      expect(WEST_CORNER_X).toBeGreaterThan(WIDTH)
+    })
 
     it('draws the back wall\'s east corner as a tall worn vertical edge', () => {
       expect(EAST_CORNER_X).toBe(32)
@@ -436,7 +584,7 @@ describe('roomPixels', () => {
     })
 
     it('draws the back wall\'s floor and ceiling edges as horizontal lines to the right edge of the view', () => {
-      for (const y of [24, 216]) {
+      for (const y of [rowAt(CEILING_Y, -BACK_Z), rowAt(FLOOR_Y, -BACK_Z)]) {
         const columns = new Set(
           worn(pixels)
             .filter((p) => Math.abs(p.y - y) <= 1 && p.x > EAST_CORNER_X)
@@ -448,7 +596,190 @@ describe('roomPixels', () => {
     })
 
     it('draws no flagstone along the back wall\'s floor edge', () => {
-      expect(dim(pixels).filter((p) => Math.abs(p.y - 216) <= 1 && p.x > EAST_CORNER_X + 1)).toEqual([])
+      expect(dim(pixels).filter((p) => Math.abs(p.y - rowAt(FLOOR_Y, -BACK_Z)) <= 1 && p.x > EAST_CORNER_X + 1)).toEqual([])
+    })
+  })
+
+  describe('from the nook facing west', () => {
+    const pixels = roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
+    // The nook's back wall is WALL_VIEW_DISTANCE ahead and runs from BACK_Z (left)
+    // to NOOK_FRONT_Z (right) of the eye: 160 ± 128 across and 120 ± 96 down.
+    const depth = NOOK_EYE.x - NOOK_X
+    const BACK = {
+      left: columnAt(BACK_Z - NOOK_EYE.z, depth),
+      top: rowAt(CEILING_Y, depth),
+      right: columnAt(NOOK_FRONT_Z - NOOK_EYE.z, depth),
+      bottom: rowAt(FLOOR_Y, depth),
+    }
+
+    it('frames the nook\'s back wall inside the view', () => {
+      expect(depth).toBeCloseTo(WALL_VIEW_DISTANCE)
+      expect(BACK).toEqual({ left: 32, top: 24, right: 288, bottom: 216 })
+    })
+
+    it.each([
+      ['left', BACK.left],
+      ['right', BACK.right],
+    ])('draws the back wall\'s %s corner as a worn vertical edge', (_, x) => {
+      const rows = [...wornRowsIn(pixels, x - 1, x + 1)].filter((y) => y >= BACK.top && y <= BACK.bottom)
+      expect(rows.length).toBeGreaterThan((BACK.bottom - BACK.top) / 2)
+    })
+
+    it.each([
+      ['ceiling', BACK.top],
+      ['floor', BACK.bottom],
+    ])('draws the back wall\'s %s edge as a worn horizontal line', (_, y) => {
+      const columns = new Set(
+        worn(pixels)
+          .filter((p) => Math.abs(p.y - y) <= 1 && p.x >= BACK.left && p.x <= BACK.right)
+          .map((p) => p.x),
+      )
+      expect(columns.size).toBeGreaterThan((BACK.right - BACK.left) / 2)
+    })
+
+    it('has no other tall vertical edges', () => {
+      for (const x of verticalEdgeColumns(pixels, HEIGHT * 0.25)) {
+        expect([BACK.left, BACK.right].some((edge) => Math.abs(x - edge) <= 1)).toBe(true)
+      }
+    })
+
+    it('draws brick detail on the back wall', () => {
+      const onWall = dim(pixels).filter(
+        (p) => p.x > BACK.left + 1 && p.x < BACK.right - 1 && p.y > BACK.top + 1 && p.y < BACK.bottom - 1,
+      )
+      expect(onWall.length).toBeGreaterThan(0)
+    })
+
+    it('differs from the west view at the start', () => {
+      expect(pixelSet(pixels)).not.toEqual(pixelSet(roomPixels(WIDTH, HEIGHT, Math.PI / 2)))
+    })
+  })
+
+  describe('from the nook facing north', () => {
+    const pixels = roomPixels(WIDTH, HEIGHT, 0, NOOK_EYE)
+    // The nook's side wall is NOOK_FRONT_Z (WALL_VIEW_DISTANCE) ahead.
+    const SIDE_DEPTH = NOOK_FRONT_Z - NOOK_EYE.z
+    // The nook's front corner (-1, 1) is 1/3 right of the eye.
+    const CORNER_X = columnAt(-ROOM_HALF_WIDTH - NOOK_EYE.x, SIDE_DEPTH)
+    // The side wall's floor and ceiling edges.
+    const SIDE_ROWS = [rowAt(CEILING_Y, SIDE_DEPTH), rowAt(FLOOR_Y, SIDE_DEPTH)]
+    // The far wall's top edge, FAR_Z ahead.
+    const FAR_TOP_Y = rowAt(CEILING_Y, FAR_Z - NOOK_EYE.z)
+    // Where the far wall's left end would be without the nook's side wall in the way.
+    const FAR_LEFT_X = columnAt(-ROOM_HALF_WIDTH - NOOK_EYE.x, FAR_Z - NOOK_EYE.z)
+
+    it('puts the nook\'s front corner right of centre and the far wall\'s left end behind it', () => {
+      expect(SIDE_DEPTH).toBeCloseTo(WALL_VIEW_DISTANCE)
+      expect(CORNER_X).toBe(203)
+      expect(SIDE_ROWS).toEqual([24, 216])
+      expect(FAR_TOP_Y).toBe(66)
+      expect(FAR_LEFT_X).toBeLessThan(CORNER_X)
+    })
+
+    it('draws the nook\'s front corner as a tall worn vertical edge', () => {
+      const rows = [...wornRowsIn(pixels, CORNER_X - 1, CORNER_X + 1)].filter((y) => y >= SIDE_ROWS[0] && y <= SIDE_ROWS[1])
+      expect(rows.length).toBeGreaterThan(HEIGHT * 0.4)
+    })
+
+    it('draws the nook\'s side wall face-on, left of its front corner', () => {
+      // The side wall is 1 ahead: floor and ceiling at 120 ± 96.
+      for (const y of SIDE_ROWS) {
+        const columns = new Set(
+          worn(pixels)
+            .filter((p) => Math.abs(p.y - y) <= 1 && p.x < CORNER_X - 1)
+            .map((p) => p.x),
+        )
+        expect(columns.size).toBeGreaterThan(CORNER_X / 3)
+      }
+    })
+
+    it('hides the far wall\'s left part behind the nook\'s side wall', () => {
+      const hidden = worn(pixels).filter((p) => Math.abs(p.y - FAR_TOP_Y) <= 1 && p.x >= FAR_LEFT_X - 2 && p.x < CORNER_X - 1)
+      expect(hidden).toEqual([])
+    })
+
+    it('draws the far wall\'s top edge right of the nook\'s front corner', () => {
+      const shown = worn(pixels).filter((p) => Math.abs(p.y - FAR_TOP_Y) <= 1 && p.x > CORNER_X + 1)
+      expect(shown.length).toBeGreaterThan(0)
+    })
+
+    it('draws no worn edges across the nook\'s side wall between its corners', () => {
+      // The side wall runs from the nook's back corner (WALL_VIEW_DISTANCE left of the
+      // eye) to its front corner. Everything behind it (the main room's left wall,
+      // the far wall's left end) is hidden, so only its own dim bricks show there.
+      const BACK_CORNER_X = columnAt(NOOK_X - NOOK_EYE.x, SIDE_DEPTH)
+      expect(BACK_CORNER_X).toBe(32)
+      const behind = worn(pixels).filter(
+        (p) => p.x > BACK_CORNER_X + 1 && p.x < CORNER_X - 1 && p.y > SIDE_ROWS[0] + 2 && p.y < SIDE_ROWS[1] - 2,
+      )
+      expect(behind).toEqual([])
+    })
+
+    it('differs from the north view at the start', () => {
+      expect(pixelSet(pixels)).not.toEqual(pixelSet(roomPixels(WIDTH, HEIGHT, 0)))
+    })
+  })
+
+  describe('near walls framed from WALL_VIEW_DISTANCE', () => {
+    // Facing west from the nook and facing south from the start, the wall ahead is
+    // WALL_VIEW_DISTANCE away, so it's framed the same way.
+    const nookWest = roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
+    const startSouth = roomPixels(WIDTH, HEIGHT, Math.PI)
+    const startEast = roomPixels(WIDTH, HEIGHT, (3 * Math.PI) / 2)
+    const ROWS = [rowAt(CEILING_Y, WALL_VIEW_DISTANCE), rowAt(FLOOR_Y, WALL_VIEW_DISTANCE)]
+    const COLUMNS = [columnAt(-WALL_VIEW_DISTANCE, WALL_VIEW_DISTANCE), columnAt(WALL_VIEW_DISTANCE, WALL_VIEW_DISTANCE)]
+
+    it('puts the near wall\'s edges at rows 24 and 216 and its corners at columns 32 and 288', () => {
+      expect(ROWS).toEqual([24, 216])
+      expect(COLUMNS).toEqual([32, 288])
+    })
+
+    it('draws the near wall\'s floor and ceiling edges on the same rows from both places', () => {
+      expect(sorted(horizontalEdgeRows(nookWest, WIDTH / 4))).toEqual(ROWS)
+      expect(sorted(horizontalEdgeRows(startSouth, WIDTH / 4))).toEqual(ROWS)
+    })
+
+    it('draws the nook back wall\'s corners where the start\'s near walls have theirs', () => {
+      // From the start facing south only the left corner is on the back wall; the
+      // right one at x -1 is the nook's opening. Facing east, the corner on the right
+      // is the same distance away.
+      expect(sorted(verticalEdgeColumns(startSouth, HEIGHT * 0.4))).toEqual([COLUMNS[0]])
+      expect(sorted(verticalEdgeColumns(startEast, HEIGHT * 0.4))).toEqual([COLUMNS[1]])
+      expect(sorted(verticalEdgeColumns(nookWest, HEIGHT * 0.4))).toEqual(COLUMNS)
+    })
+  })
+
+  describe('along the path to the nook', () => {
+    const eyes: FloorPoint[] = [0, 0.25, 0.5, 0.75, 1].map((t) => ({ x: t * NOOK_EYE.x, z: 0 }))
+
+    it.each(eyes)('uses integer coordinates within the canvas from %o', (eye) => {
+      for (const yaw of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+        const pixels = roomPixels(WIDTH, HEIGHT, yaw, eye)
+        expect(pixels.length).toBeGreaterThan(0)
+        for (const { x, y } of pixels) {
+          expect(Number.isInteger(x)).toBe(true)
+          expect(Number.isInteger(y)).toBe(true)
+          expect(x).toBeGreaterThanOrEqual(0)
+          expect(x).toBeLessThan(WIDTH)
+          expect(y).toBeGreaterThanOrEqual(0)
+          expect(y).toBeLessThan(HEIGHT)
+        }
+      }
+    })
+
+    it.each(eyes)('is deterministic from %o', (eye) => {
+      expect(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)).toEqual(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye))
+    })
+
+    it.each(eyes)('only uses the dim and worn colours from %o', (eye) => {
+      for (const { colour } of roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)) {
+        expect([FOREGROUND_DIM, FOREGROUND_WORN]).toContain(colour)
+      }
+    })
+
+    it('changes the view as the eye moves', () => {
+      const views = eyes.map((eye) => JSON.stringify(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)))
+      expect(new Set(views).size).toBe(eyes.length)
     })
   })
 
@@ -479,6 +810,13 @@ describe('roomPixels', () => {
   ])('completes quickly for a %ix%i canvas', (width, height) => {
     const start = performance.now()
     const pixels = roomPixels(width, height, 0.7)
+    expect(performance.now() - start).toBeLessThan(500)
+    expect(pixels.length).toBeGreaterThan(0)
+  }, 2000)
+
+  it('completes quickly from the nook', () => {
+    const start = performance.now()
+    const pixels = roomPixels(WIDTH, HEIGHT, 0.7, NOOK_EYE)
     expect(performance.now() - start).toBeLessThan(500)
     expect(pixels.length).toBeGreaterThan(0)
   }, 2000)

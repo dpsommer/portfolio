@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
+import { drawScene } from '../scene/draw.ts'
 import { FOREGROUND } from '../scene/palette.ts'
-import { CURSORS, HAND_CURSOR } from './cursors.ts'
-import ViewPane, { TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
+import { PLACES } from '../scene/places.ts'
+import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
+import ViewPane, { MOVE_DURATION_MS, TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
 
 // Client positions in the left, centre and right zones of a 320x240 pane at (0, 0).
 const LEFT_X = 10
@@ -134,26 +136,45 @@ describe('ViewPane', () => {
       return canvas
     }
 
-    it('defaults to the forward cursor', () => {
+    it('defaults to the blocked cursor, since there\'s no way forward from the start facing north', () => {
       render(<ViewPane />)
 
-      expect(screen.getByRole('img').style.cursor).toBe(CURSORS.forward)
+      expect(screen.getByRole('img').style.cursor).toBe(BLOCKED_CURSOR)
     })
 
     it.each([
-      [110, 'turn-left'],
-      [300, 'forward'],
-      [490, 'turn-right'],
-    ] as const)('at clientX %s uses the %s cursor', (clientX, zone) => {
+      [110, 'turn-left', CURSORS['turn-left']],
+      [300, 'blocked', BLOCKED_CURSOR],
+      [490, 'turn-right', CURSORS['turn-right']],
+    ] as const)('at clientX %s facing north uses the %s cursor', (clientX, _, cursor) => {
       const canvas = renderWithRect(100, 400)
 
       fireEvent.mouseMove(canvas, { clientX })
 
-      expect(canvas.style.cursor).toBe(CURSORS[zone])
+      expect(canvas.style.cursor).toBe(cursor)
     })
 
-    it('returns to the forward cursor after leaving an edge zone', () => {
+    it('uses the forward cursor in the centre facing west, towards the nook', () => {
       const canvas = renderWithRect(100, 400)
+      fireEvent.click(canvas, { clientX: 110, clientY: 100 })
+
+      fireEvent.mouseMove(canvas, { clientX: 300 })
+
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
+
+    it('returns to the blocked cursor after leaving an edge zone facing north', () => {
+      const canvas = renderWithRect(100, 400)
+
+      fireEvent.mouseMove(canvas, { clientX: 110 })
+      fireEvent.mouseMove(canvas, { clientX: 300 })
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('returns to the forward cursor after leaving an edge zone facing west', () => {
+      const canvas = renderWithRect(100, 400)
+      fireEvent.click(canvas, { clientX: 110, clientY: 100 })
 
       fireEvent.mouseMove(canvas, { clientX: 110 })
       fireEvent.mouseMove(canvas, { clientX: 300 })
@@ -167,7 +188,7 @@ describe('ViewPane', () => {
 
       fireEvent.mouseMove(canvas, { clientX: 600 })
 
-      expect(canvas.style.cursor).toBe(CURSORS.forward)
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
     })
   })
 
@@ -204,21 +225,21 @@ describe('ViewPane', () => {
 
       fireEvent.mouseMove(canvas, { clientX: 110, clientY: 100 })
 
-      expect(canvas.style.cursor).toBe(CURSORS.forward)
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
     })
 
     it.each([
-      ['above', 160, 50, 'forward'],
-      ['below', 160, 200, 'forward'],
-      ['left of', 40, 120, 'turn-left'],
-      ['right of', 300, 120, 'turn-right'],
-    ] as const)('returns to the zone cursor when moving %s the sign', (_, clientX, clientY, zone) => {
+      ['above', 160, 50, BLOCKED_CURSOR],
+      ['below', 160, 200, BLOCKED_CURSOR],
+      ['left of', 40, 120, CURSORS['turn-left']],
+      ['right of', 300, 120, CURSORS['turn-right']],
+    ] as const)('returns to the zone cursor when moving %s the sign', (_, clientX, clientY, cursor) => {
       const { canvas } = renderAt(0, 0, 320, 240)
 
       fireEvent.mouseMove(canvas, { clientX: 160, clientY: 120 })
       fireEvent.mouseMove(canvas, { clientX, clientY })
 
-      expect(canvas.style.cursor).toBe(CURSORS[zone])
+      expect(canvas.style.cursor).toBe(cursor)
     })
 
     // At 640x480 each canvas pixel is 2 client pixels, so odd client
@@ -550,10 +571,317 @@ describe('ViewPane', () => {
       expect(canvas).toHaveAttribute('data-heading', 'north')
 
       fireEvent.mouseMove(canvas, { clientX: SIGN_X, clientY: SIGN_Y })
-      expect(canvas.style.cursor).toBe(CURSORS.forward)
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
 
       frames.flush(TURN_DURATION_MS)
       expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+  })
+
+  describe('moving', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    // Turns left to face west at the start, then steps forward into the nook.
+    function enterNook(canvas: HTMLElement) {
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+    }
+
+    it('uses a 350 ms move duration', () => {
+      expect(MOVE_DURATION_MS).toBe(350)
+    })
+
+    it('starts at the start', () => {
+      renderPane()
+
+      expect(screen.getByRole('img')).toHaveAttribute('data-place', 'start')
+    })
+
+    it('moves into the nook when the centre is clicked facing west', () => {
+      const { canvas } = renderPane()
+
+      enterNook(canvas)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('moves back to the start from the nook facing east', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, LEFT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'east')
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(canvas).toHaveAttribute('data-place', 'start')
+      expect(canvas).toHaveAttribute('data-heading', 'east')
+    })
+
+    it.each([
+      ['north', []],
+      ['east', [RIGHT_X]],
+      ['south', [LEFT_X, LEFT_X]],
+    ] as const)('does not move from the start facing %s', (_, turns) => {
+      const { canvas } = renderPane()
+      for (const x of turns) clickAt(canvas, x)
+
+      clickAt(canvas, CENTRE_X, 30)
+
+      expect(canvas).toHaveAttribute('data-place', 'start')
+    })
+
+    it.each([
+      ['west', []],
+      ['north', [RIGHT_X]],
+      ['south', [LEFT_X]],
+    ] as const)('does not move from the nook facing %s', (heading, turns) => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      for (const x of turns) clickAt(canvas, x)
+      expect(canvas).toHaveAttribute('data-heading', heading)
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', heading)
+    })
+
+    it('turns inside the nook without leaving it', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+
+      clickAt(canvas, RIGHT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'north')
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, LEFT_X)
+
+      expect(canvas).toHaveAttribute('data-heading', 'south')
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+    })
+
+    it('does not request animation frames for a move without a canvas context', () => {
+      const frames = stubAnimationFrames()
+      const { canvas } = renderPane()
+
+      enterNook(canvas)
+
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+    })
+  })
+
+  describe('cursor while moving about', () => {
+    it('shows the blocked cursor in the centre after moving into the nook facing west', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: MIDDLE_Y })
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('shows the forward cursor in the nook facing east, back towards the start', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, LEFT_X)
+
+      fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: MIDDLE_Y })
+
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
+
+    it('hides the hand in the nook facing north, even over the sign area', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      clickAt(canvas, RIGHT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'north')
+
+      fireEvent.mouseMove(canvas, { clientX: SIGN_X, clientY: SIGN_Y })
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('shows the hand again after returning to the start and facing north', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      clickAt(canvas, LEFT_X)
+      expect(canvas).toHaveAttribute('data-place', 'start')
+      expect(canvas).toHaveAttribute('data-heading', 'north')
+
+      fireEvent.mouseMove(canvas, { clientX: SIGN_X, clientY: SIGN_Y })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+  })
+
+  describe('move animation', () => {
+    const START = 1000
+    type Fill = { args: number[]; fillStyle: string }
+    let ctx: ReturnType<typeof createFakeContext>
+    let frames: ReturnType<typeof stubAnimationFrames>
+    let now: MockInstance<() => number>
+    let fills: Fill[]
+
+    beforeEach(() => {
+      ctx = createFakeContext()
+      fills = []
+      ctx.fillRect.mockImplementation((...args: number[]) => {
+        fills.push({ args, fillStyle: ctx.fillStyle })
+      })
+      provideContext(ctx)
+      frames = stubAnimationFrames()
+      now = vi.spyOn(performance, 'now').mockReturnValue(START)
+    })
+
+    afterEach(() => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      now.mockRestore()
+      vi.unstubAllGlobals()
+    })
+
+    // The fills drawScene makes for a view, recorded with a separate fake context.
+    function fillsFor(yaw: number, eye: { x: number; z: number }): Fill[] {
+      const recorded: Fill[] = []
+      const other = createFakeContext()
+      other.fillRect.mockImplementation((...args: number[]) => {
+        recorded.push({ args, fillStyle: other.fillStyle })
+      })
+      drawScene(other as unknown as CanvasRenderingContext2D, yaw, eye)
+      return recorded
+    }
+
+    // Renders, turns left to face west and lets the turn finish, ready to move.
+    function renderFacingWest() {
+      const result = renderPane()
+      clickAt(result.canvas, LEFT_X)
+      frames.flush(START + TURN_DURATION_MS)
+      frames.requestAnimationFrame.mockClear()
+      fills.length = 0
+      return result
+    }
+
+    it('requests an animation frame instead of finishing the move at once', () => {
+      const { canvas } = renderFacingWest()
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(1)
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+    })
+
+    it('redraws the scene on every frame of the move', () => {
+      const { canvas } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+
+      frames.flush(START + MOVE_DURATION_MS / 4)
+      expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, VIEW_WIDTH, VIEW_HEIGHT)
+
+      ctx.fillRect.mockClear()
+      frames.flush(START + MOVE_DURATION_MS / 2)
+      expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, VIEW_WIDTH, VIEW_HEIGHT)
+    })
+
+    it('draws views between the start and the nook mid-move', () => {
+      const { canvas } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+
+      frames.flush(START + MOVE_DURATION_MS / 2)
+
+      expect(fills).not.toEqual(fillsFor(Math.PI / 2, PLACES.start))
+      expect(fills).not.toEqual(fillsFor(Math.PI / 2, PLACES.nook))
+    })
+
+    it('ends the move drawing the view from the nook', () => {
+      const { canvas } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+
+      frames.flush(START + MOVE_DURATION_MS)
+
+      expect(fills).toEqual(fillsFor(Math.PI / 2, PLACES.nook))
+    })
+
+    it('keeps animating past the turn duration until the move duration has passed', () => {
+      const { canvas } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+
+      frames.flush(START + TURN_DURATION_MS)
+      expect(frames.pending()).toBe(1)
+
+      frames.flush(START + MOVE_DURATION_MS)
+      expect(frames.pending()).toBe(0)
+    })
+
+    it.each([
+      ['turn', LEFT_X],
+      ['move', CENTRE_X],
+    ])('ignores %s clicks during the move', (_, clientX) => {
+      const { canvas } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+      frames.flush(START + MOVE_DURATION_MS / 2)
+
+      clickAt(canvas, clientX)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores a move click during a turn', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      frames.flush(START + TURN_DURATION_MS / 2)
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(canvas).toHaveAttribute('data-place', 'start')
+    })
+
+    it('accepts a turn once the move has finished', () => {
+      const { canvas } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+      frames.flush(START + MOVE_DURATION_MS)
+
+      clickAt(canvas, LEFT_X)
+
+      expect(canvas).toHaveAttribute('data-heading', 'south')
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+    })
+
+    it('cancels the pending frame when unmounted mid-move', () => {
+      const { canvas, unmount } = renderFacingWest()
+      clickAt(canvas, CENTRE_X)
+      const frameId = frames.requestAnimationFrame.mock.results[0].value as number
+
+      unmount()
+
+      expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(frameId)
+    })
+
+    it('jumps straight into the nook with reduced motion', () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      fills.length = 0
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(fills).toEqual(fillsFor(Math.PI / 2, PLACES.nook))
     })
   })
 })

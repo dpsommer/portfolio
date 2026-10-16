@@ -9,13 +9,15 @@ import {
   NEAR,
   NOOK_FRONT_Z,
   NOOK_X,
+  ORIGIN,
   ROOM_HALF_WIDTH,
+  WALL_VIEW_DISTANCE,
   clipToNearPlane,
   projectPoint,
   projectSegment,
   toCamera,
 } from './camera.ts'
-import type { Vec3 } from './camera.ts'
+import type { FloorPoint, Vec3 } from './camera.ts'
 
 const WIDTH = 320
 const HEIGHT = 240
@@ -51,6 +53,32 @@ describe('constants', () => {
     expect(NOOK_FRONT_Z).toBeGreaterThan(0)
     expect(NOOK_FRONT_Z).toBeLessThan(FAR_Z)
   })
+
+  it('views nearby walls from 1 unit away', () => {
+    expect(WALL_VIEW_DISTANCE).toBe(1)
+  })
+
+  it('puts the back wall WALL_VIEW_DISTANCE behind the start', () => {
+    expect(BACK_Z).toBe(-WALL_VIEW_DISTANCE)
+  })
+
+  it('ends the nook WALL_VIEW_DISTANCE in front of the start', () => {
+    expect(NOOK_FRONT_Z).toBe(WALL_VIEW_DISTANCE)
+  })
+
+  it('puts the start WALL_VIEW_DISTANCE from both side walls', () => {
+    expect(ROOM_HALF_WIDTH).toBe(WALL_VIEW_DISTANCE)
+  })
+
+  it('makes the nook a whole number of 1/3-unit floor tiles deep', () => {
+    const tiles = (-ROOM_HALF_WIDTH - NOOK_X) / (1 / 3)
+    expect(tiles).toBeCloseTo(Math.round(tiles))
+    expect(Math.round(tiles)).toBe(4)
+  })
+
+  it('makes the nook deeper than WALL_VIEW_DISTANCE, so its place is inside the opening', () => {
+    expect(-ROOM_HALF_WIDTH - NOOK_X).toBeGreaterThan(WALL_VIEW_DISTANCE)
+  })
 })
 
 describe('toCamera', () => {
@@ -76,6 +104,33 @@ describe('toCamera', () => {
 
   it('leaves the height unchanged', () => {
     expect(toCamera(vec(0.4, 0.6, 0.9), 1.234).y).toBe(0.6)
+  })
+
+  it('defaults the eye to the origin', () => {
+    const point = vec(0.3, -0.2, 1.5)
+    expect(toCamera(point, 0.7)).toEqual(toCamera(point, 0.7, ORIGIN))
+  })
+
+  it('puts a point ahead of the eye at its distance from the eye', () => {
+    const eye: FloorPoint = { x: -1.3, z: 0.5 }
+    expectVecClose(toCamera(vec(-1.3, 0.2, 2.5), 0, eye), vec(0, 0.2, 2))
+  })
+
+  it('maps the eye itself to the camera position', () => {
+    const eye: FloorPoint = { x: 0.4, z: -0.3 }
+    expectVecClose(toCamera(vec(eye.x, 0.1, eye.z), 1.1, eye), vec(0, 0.1, 0))
+  })
+
+  it('moves to the eye before turning', () => {
+    // Standing in the nook facing west, its back wall is WALL_VIEW_DISTANCE straight ahead.
+    const eye: FloorPoint = { x: NOOK_X + WALL_VIEW_DISTANCE, z: 0 }
+    expectVecClose(toCamera(vec(NOOK_X, 0, 0), Math.PI / 2, eye), vec(0, 0, WALL_VIEW_DISTANCE))
+    // A point north of the eye is on the camera's right.
+    expectVecClose(toCamera(vec(eye.x, 0, 1), Math.PI / 2, eye), vec(1, 0, 0))
+  })
+
+  it('leaves the height unchanged when the eye moves', () => {
+    expect(toCamera(vec(0.4, 0.6, 0.9), 0.5, { x: 3, z: -2 }).y).toBe(0.6)
   })
 })
 
@@ -180,6 +235,36 @@ describe('projectSegment', () => {
       expect(p.x).toBeCloseTo(WIDTH / 2)
       expect(p.y).toBeCloseTo(HEIGHT / 2)
     }
+  })
+
+  it('defaults the eye to the origin', () => {
+    const a = vec(-1, CEILING_Y, FAR_Z)
+    const b = vec(1, FLOOR_Y, 2)
+    expect(projectSegment(a, b, 0.3, WIDTH, HEIGHT)).toEqual(projectSegment(a, b, 0.3, WIDTH, HEIGHT, ORIGIN))
+  })
+
+  it('projects relative to the eye', () => {
+    // From 1 unit further north, a segment looks as if it were 1 unit closer.
+    const eye: FloorPoint = { x: 0, z: 1 }
+    const fromEye = projectSegment(vec(-1, CEILING_Y, 3), vec(1, FLOOR_Y, 3), 0, WIDTH, HEIGHT, eye)
+    const closer = projectSegment(vec(-1, CEILING_Y, 2), vec(1, FLOOR_Y, 2), 0, WIDTH, HEIGHT)
+    expect(fromEye).toEqual(closer)
+  })
+
+  it('combines the eye and the yaw', () => {
+    const eye: FloorPoint = { x: NOOK_X + WALL_VIEW_DISTANCE, z: 0 }
+    // Facing west from the nook, a point due west of the eye is straight ahead.
+    const projected = projectSegment(vec(NOOK_X, 0, 0), vec(eye.x - 0.5, 0, 0), Math.PI / 2, WIDTH, HEIGHT, eye)
+    expect(projected).not.toBeNull()
+    for (const p of projected!) {
+      expect(p.x).toBeCloseTo(WIDTH / 2)
+      expect(p.y).toBeCloseTo(HEIGHT / 2)
+    }
+  })
+
+  it('returns null for a segment behind the eye even if it is in front of the origin', () => {
+    const eye: FloorPoint = { x: 0, z: 2 }
+    expect(projectSegment(vec(-1, 0, 1), vec(1, 0, 1), 0, WIDTH, HEIGHT, eye)).toBeNull()
   })
 
   it('clips a segment crossing the camera plane to finite screen points', () => {
