@@ -19,6 +19,10 @@ export const CEILING_Y = 0.75
 export const FAR_Z = (FOCAL_RATIO * ROOM_HALF_WIDTH) / FAR_WALL_SCALE
 // The wall behind the starting position.
 export const BACK_Z = -1
+// A nook to the left of the starting position: the near part of the left wall
+// is pushed back to NOOK_X, from the back wall up to NOOK_FRONT_Z.
+export const NOOK_X = -2
+export const NOOK_FRONT_Z = 1
 
 // Points closer than this to the camera plane are clipped away.
 export const NEAR = 0.1

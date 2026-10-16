@@ -1,15 +1,17 @@
-import { BACK_Z, CEILING_Y, FAR_Z, FLOOR_Y, ROOM_HALF_WIDTH, projectSegment } from './camera.ts'
+import { BACK_Z, CEILING_Y, FAR_Z, FLOOR_Y, NOOK_FRONT_Z, NOOK_X, ROOM_HALF_WIDTH, projectSegment } from './camera.ts'
 import type { Vec3 } from './camera.ts'
 import { linePoints } from './line.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
 import type { Pixel } from './types.ts'
 
-// The room is a box seen from inside, drawn as the classic dungeon-crawler
-// "narrowing box": facing north, the far wall is a small rectangle in the middle
-// of the view and the wall edges run out to the view's corners. Everything is
-// sparse, so the viewer fills in the rest. All detail is placed in world space
-// with per-element seeds, so it stays put while the view turns.
+// The room is seen from inside, drawn as the classic dungeon-crawler "narrowing
+// box": facing north, the far wall is a small rectangle in the middle of the
+// view and the wall edges run out to the view's corners. A nook to the left of
+// the start breaks the box. Everything is sparse, so the viewer fills in the
+// rest. All detail is placed in world space with per-element seeds, so it stays
+// put while the view turns. Every wall can be seen in full from the camera's
+// position, so nothing needs hiding.
 
 const BRICK_WIDTH = 0.25
 const BRICK_HEIGHT = 0.125
@@ -35,16 +37,46 @@ const lerp = (a: Vec3, b: Vec3, t: number): Vec3 =>
 const distance = (a: Vec3, b: Vec3) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
 
 // A wall seen from inside the room: `start` is its top-left corner and `along`
-// points to the right, so wall-local (u, v) runs right and down.
-type Wall = { start: Vec3; along: Vec3; length: number }
+// points to the right, so wall-local (u, v) runs right and down. `seed` keeps
+// each wall's bricks independent of the others.
+type Wall = { start: Vec3; along: Vec3; length: number; seed: number }
+type FloorPoint = { x: number; z: number }
 
 const LEFT = -ROOM_HALF_WIDTH
 const RIGHT = ROOM_HALF_WIDTH
-export const WALLS: Record<'north' | 'west' | 'south' | 'east', Wall> = {
-  north: { start: vec(LEFT, CEILING_Y, FAR_Z), along: vec(1, 0, 0), length: RIGHT - LEFT },
-  west: { start: vec(LEFT, CEILING_Y, BACK_Z), along: vec(0, 0, 1), length: FAR_Z - BACK_Z },
-  south: { start: vec(RIGHT, CEILING_Y, BACK_Z), along: vec(-1, 0, 0), length: RIGHT - LEFT },
-  east: { start: vec(RIGHT, CEILING_Y, FAR_Z), along: vec(0, 0, -1), length: FAR_Z - BACK_Z },
+
+export type WallName = 'north' | 'east' | 'south' | 'nook-back' | 'nook-side' | 'west'
+
+// The floor plan's corners, clockwise seen from above, each followed by the wall
+// that runs from it to the next corner (left to right, seen from inside).
+const PLAN: [FloorPoint, WallName, number][] = [
+  [{ x: LEFT, z: FAR_Z }, 'north', 0],
+  [{ x: RIGHT, z: FAR_Z }, 'east', 3],
+  [{ x: RIGHT, z: BACK_Z }, 'south', 2],
+  [{ x: NOOK_X, z: BACK_Z }, 'nook-back', 4],
+  [{ x: NOOK_X, z: NOOK_FRONT_Z }, 'nook-side', 5],
+  [{ x: LEFT, z: NOOK_FRONT_Z }, 'west', 1],
+]
+export const FLOOR_PLAN: FloorPoint[] = PLAN.map(([corner]) => corner)
+
+export const WALLS = Object.fromEntries(
+  PLAN.map(([corner, name, seed], i) => {
+    const next = FLOOR_PLAN[(i + 1) % FLOOR_PLAN.length]
+    const length = Math.hypot(next.x - corner.x, next.z - corner.z)
+    const along = vec((next.x - corner.x) / length, 0, (next.z - corner.z) / length)
+    return [name, { start: vec(corner.x, CEILING_Y, corner.z), along, length, seed }]
+  }),
+) as Record<WallName, Wall>
+
+// Whether a point on the floor is inside the floor plan (even-odd rule).
+export function isOnFloor({ x, z }: FloorPoint): boolean {
+  let inside = false
+  for (let i = 0, j = FLOOR_PLAN.length - 1; i < FLOOR_PLAN.length; j = i++) {
+    const a = FLOOR_PLAN[i]
+    const b = FLOOR_PLAN[j]
+    if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside
+  }
+  return inside
 }
 
 function onWall(wall: Wall, u: number, v: number): Vec3 {
@@ -67,31 +99,30 @@ function brokenSegment(a: Vec3, b: Vec3, seed: number, minRun: number, maxRun: n
   return runs
 }
 
-// The box's 12 edges: where walls meet the floor, the ceiling and each other.
+// The room's edges: where each wall meets the floor and the ceiling, and the
+// vertical corner at the wall's left end.
 function edgeSegments(): Segment[] {
-  const corners = [vec(LEFT, 0, FAR_Z), vec(RIGHT, 0, FAR_Z), vec(RIGHT, 0, BACK_Z), vec(LEFT, 0, BACK_Z)]
-  const edges: Segment[] = []
-  corners.forEach((corner, i) => {
-    const next = corners[(i + 1) % corners.length]
-    edges.push(
-      [vec(corner.x, FLOOR_Y, corner.z), vec(next.x, FLOOR_Y, next.z)],
-      [vec(corner.x, CEILING_Y, corner.z), vec(next.x, CEILING_Y, next.z)],
-      [vec(corner.x, CEILING_Y, corner.z), vec(corner.x, FLOOR_Y, corner.z)],
-    )
+  return Object.values(WALLS).flatMap(({ start, along, length, seed }) => {
+    const end = vec(start.x + along.x * length, 0, start.z + along.z * length)
+    const edges: Segment[] = [
+      [vec(start.x, FLOOR_Y, start.z), vec(end.x, FLOOR_Y, end.z)],
+      [vec(start.x, CEILING_Y, start.z), vec(end.x, CEILING_Y, end.z)],
+      [vec(start.x, CEILING_Y, start.z), vec(start.x, FLOOR_Y, start.z)],
+    ]
+    return edges.flatMap(([a, b], i) => brokenSegment(a, b, hashSeed(SEED, EDGE_SEED, seed, i), 0.1, 0.35))
   })
-  return edges.flatMap(([a, b], i) => brokenSegment(a, b, hashSeed(SEED, EDGE_SEED, i), 0.1, 0.35))
 }
 
 // A few scattered bricks on each wall, each drawn as just its top and left edges.
 function brickSegments(): Segment[] {
   const rows = Math.round((CEILING_Y - FLOOR_Y) / BRICK_HEIGHT)
-  return Object.values(WALLS).flatMap((wall, wallIndex) => {
+  return Object.values(WALLS).flatMap((wall) => {
     const columns = Math.ceil(wall.length / BRICK_WIDTH)
     const segments: Segment[] = []
     for (let row = 0; row < rows; row++) {
       const offset = row % 2 === 1 ? BRICK_WIDTH / 2 : 0
       for (let column = -1; column < columns; column++) {
-        if (hashRandom(SEED, BRICK_SEED, wallIndex, row, column) >= BRICK_CHANCE) continue
+        if (hashRandom(SEED, BRICK_SEED, wall.seed, row, column) >= BRICK_CHANCE) continue
         const u0 = offset + column * BRICK_WIDTH
         const u1 = u0 + BRICK_WIDTH - BRICK_GAP
         const v0 = row * BRICK_HEIGHT
@@ -105,25 +136,38 @@ function brickSegments(): Segment[] {
   })
 }
 
-// Scattered flagstone edges on a grid of square floor tiles.
+// Scattered flagstone edges on a grid of square floor tiles. Grid lines are
+// numbered from the main room's left wall, and only lines with floor on both
+// sides are drawn (not those along the walls).
 function floorSegments(): Segment[] {
-  const columns = Math.round((RIGHT - LEFT) / FLOOR_TILE_SIZE)
-  const rows = Math.ceil((FAR_Z - BACK_Z) / FLOOR_TILE_SIZE)
   const x = (column: number) => LEFT + column * FLOOR_TILE_SIZE
   const z = (row: number) => Math.min(FAR_Z, BACK_Z + row * FLOOR_TILE_SIZE)
+  const firstColumn = Math.round((NOOK_X - LEFT) / FLOOR_TILE_SIZE)
+  const lastColumn = Math.round((RIGHT - LEFT) / FLOOR_TILE_SIZE)
+  const rows = Math.ceil((FAR_Z - BACK_Z) / FLOOR_TILE_SIZE)
   const segments: Segment[] = []
   const add = (a: Vec3, b: Vec3, seed: number) => {
     const inset = FLOOR_EDGE_INSET / distance(a, b)
     segments.push(...brokenSegment(lerp(a, b, inset), lerp(a, b, 1 - inset), seed, 0.06, 0.25))
   }
+  // Whether the floor is on both sides of a grid line, just off its midpoint.
+  const isInterior = (a: Vec3, b: Vec3) => {
+    const middle = lerp(a, b, 0.5)
+    const nudge = 0.01
+    return a.x === b.x
+      ? isOnFloor({ x: middle.x - nudge, z: middle.z }) && isOnFloor({ x: middle.x + nudge, z: middle.z })
+      : isOnFloor({ x: middle.x, z: middle.z - nudge }) && isOnFloor({ x: middle.x, z: middle.z + nudge })
+  }
   for (let row = 0; row < rows; row++) {
-    for (let column = 0; column < columns; column++) {
-      // The tile's near edge (skipping the back wall) and its left edge (skipping the west wall).
-      if (row > 0 && hashRandom(SEED, FLOOR_SEED, 0, row, column) < FLOOR_EDGE_CHANCE) {
-        add(vec(x(column), FLOOR_Y, z(row)), vec(x(column + 1), FLOOR_Y, z(row)), hashSeed(SEED, FLOOR_SEED, 1, row, column))
+    for (let column = firstColumn; column < lastColumn; column++) {
+      // The tile's near edge and its left edge.
+      const near: Segment = [vec(x(column), FLOOR_Y, z(row)), vec(x(column + 1), FLOOR_Y, z(row))]
+      if (isInterior(...near) && hashRandom(SEED, FLOOR_SEED, 0, row, column) < FLOOR_EDGE_CHANCE) {
+        add(...near, hashSeed(SEED, FLOOR_SEED, 1, row, column))
       }
-      if (column > 0 && hashRandom(SEED, FLOOR_SEED, 2, row, column) < FLOOR_EDGE_CHANCE) {
-        add(vec(x(column), FLOOR_Y, z(row)), vec(x(column), FLOOR_Y, z(row + 1)), hashSeed(SEED, FLOOR_SEED, 3, row, column))
+      const left: Segment = [vec(x(column), FLOOR_Y, z(row)), vec(x(column), FLOOR_Y, z(row + 1))]
+      if (isInterior(...left) && hashRandom(SEED, FLOOR_SEED, 2, row, column) < FLOOR_EDGE_CHANCE) {
+        add(...left, hashSeed(SEED, FLOOR_SEED, 3, row, column))
       }
     }
   }

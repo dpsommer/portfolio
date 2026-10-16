@@ -7,6 +7,8 @@ import {
   FLOOR_Y,
   FOCAL_RATIO,
   NEAR,
+  NOOK_FRONT_Z,
+  NOOK_X,
   ROOM_HALF_WIDTH,
   clipToNearPlane,
   projectPoint,
@@ -41,6 +43,13 @@ describe('constants', () => {
   it('puts the far wall in front of the camera and the back wall behind it', () => {
     expect(FAR_Z).toBeGreaterThan(NEAR)
     expect(BACK_Z).toBeLessThan(0)
+  })
+
+  it('puts the nook left of the main room, running from behind the start to in front of it', () => {
+    expect(NOOK_X).toBeLessThan(-ROOM_HALF_WIDTH)
+    expect(BACK_Z).toBeLessThan(0)
+    expect(NOOK_FRONT_Z).toBeGreaterThan(0)
+    expect(NOOK_FRONT_Z).toBeLessThan(FAR_Z)
   })
 })
 
