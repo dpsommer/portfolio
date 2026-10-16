@@ -1,6 +1,17 @@
+$frame-width: 8px;
+$outline-width: 2px;
+$outline-colour: #000;
+
 .view-pane {
   display: block;
   width: min(80vw, calc(80vh * 4 / 3));
   aspect-ratio: 4 / 3;
   image-rendering: pixelated;
+  border-radius: 4px;
+  // The frame is drawn with stacked shadows rather than a border so it takes no
+  // layout space and stays outside the canvas's mouse area (see cursors.ts zones).
+  box-shadow:
+    0 0 0 $outline-width $outline-colour,
+    0 0 0 ($outline-width + $frame-width) var(--fg),
+    0 0 0 ($outline-width * 2 + $frame-width) $outline-colour;
 }
