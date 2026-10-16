@@ -5,6 +5,31 @@ import { BOARD_SLOPE, BOARD_WIDTH, signpostBackingPixels, signpostPixels } from 
 const WIDTH = 320
 const HEIGHT = 240
 
+// The post is 6 pixels wide, centred on the canvas.
+function geometry(width: number, height: number) {
+  const pixels = signpostPixels(width, height)
+  const centreX = Math.floor(width / 2)
+  const boardLeft = centreX - BOARD_WIDTH / 2
+  return {
+    pixels,
+    boardLeft,
+    boardRight: boardLeft + BOARD_WIDTH - 1,
+    postLeft: centreX - 3,
+    postRight: centreX + 2,
+    groundY: Math.max(...pixels.map((p) => p.y)),
+  }
+}
+
+// The board's top and bottom edges, measured just either side of the post.
+function boardEdgesBesidePost(width: number, height: number) {
+  const { postLeft, postRight, groundY, pixels } = geometry(width, height)
+  const besidePost = pixels.filter(
+    (p) => ((p.x >= postLeft - 3 && p.x < postLeft) || (p.x > postRight && p.x <= postRight + 3)) && p.y !== groundY,
+  )
+  const ys = besidePost.map((p) => p.y)
+  return { top: Math.min(...ys), bottom: Math.max(...ys) }
+}
+
 describe('signpostPixels', () => {
   it('is deterministic', () => {
     expect(signpostPixels(WIDTH, HEIGHT)).toEqual(signpostPixels(WIDTH, HEIGHT))
@@ -55,6 +80,44 @@ describe('signpostPixels', () => {
     expect(BOARD_SLOPE).toBeLessThan(0)
     expect(leftTop - rightTop).toBeGreaterThanOrEqual(expectedRise - 1)
     expect(leftTop - rightTop).toBeLessThanOrEqual(expectedRise + 1)
+  })
+
+  it.each([
+    [320, 240],
+    [640, 480],
+  ])('centres the board roughly vertically at %ix%i', (width, height) => {
+    const { boardLeft, boardRight, postLeft, postRight, groundY, pixels } = geometry(width, height)
+    const boardYs = pixels
+      .filter((p) => p.x >= boardLeft + 10 && p.x <= boardRight - 10)
+      .filter((p) => p.x < postLeft || p.x > postRight)
+      .filter((p) => p.y !== groundY)
+      .map((p) => p.y)
+    const middle = (Math.min(...boardYs) + Math.max(...boardYs)) / 2
+    expect(Math.abs(middle - height / 2)).toBeLessThanOrEqual(5)
+  })
+
+  it('has the post sticking up above the top of the board', () => {
+    const { postLeft, postRight, pixels } = geometry(WIDTH, HEIGHT)
+    const { top: boardTop } = boardEdgesBesidePost(WIDTH, HEIGHT)
+    const postTop = Math.min(...pixels.filter((p) => p.x >= postLeft && p.x <= postRight).map((p) => p.y))
+    expect(boardTop - postTop).toBeGreaterThanOrEqual(4)
+  })
+
+  it('caps the top of the post with a full row across its width', () => {
+    const { postLeft, postRight, pixels } = geometry(WIDTH, HEIGHT)
+    const inPost = pixels.filter((p) => p.x >= postLeft && p.x <= postRight)
+    const postTop = Math.min(...inPost.map((p) => p.y))
+    const capXs = new Set(inPost.filter((p) => p.y === postTop).map((p) => p.x))
+    expect(capXs.size).toBe(postRight - postLeft + 1)
+  })
+
+  it('does not draw the post over the face of the board', () => {
+    const { postLeft, postRight, pixels } = geometry(WIDTH, HEIGHT)
+    const { top, bottom } = boardEdgesBesidePost(WIDTH, HEIGHT)
+    // Just inside the inner frame, above and below the text, the board is blank.
+    const blankRows = [top + 4, top + 5, top + 6, top + 7, bottom - 7, bottom - 6, bottom - 5, bottom - 4]
+    const overBoard = pixels.filter((p) => p.x >= postLeft && p.x <= postRight && blankRows.includes(p.y))
+    expect(overBoard).toEqual([])
   })
 
   it('scales its position with the canvas size', () => {

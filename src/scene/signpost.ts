@@ -12,6 +12,8 @@ export const BOARD_SLOPE = -0.08
 const TEXT_SCALE = 2
 const INNER_INSET = 3
 const POST_WIDTH = 6
+// How far the post sticks up above the top of the board.
+const POST_PROTRUSION = 6
 const CHIP_SIZE = 5
 const SEED = 7
 
@@ -65,8 +67,13 @@ function boardPixels(random: () => number): Pixel[] {
 function layout(canvasWidth: number, canvasHeight: number) {
   const centreX = Math.floor(canvasWidth / 2)
   const boardLeft = centreX - BOARD_WIDTH / 2
-  const boardTop = Math.floor(canvasHeight * 0.33)
+  const boardTop = Math.floor((canvasHeight - BOARD_HEIGHT) / 2)
   const postLeft = centreX - POST_WIDTH / 2
+  const placeOnBoard = <T extends Point>(p: T): T => ({
+    ...p,
+    x: boardLeft + p.x,
+    y: boardTop + p.y + Math.round((p.x - BOARD_WIDTH / 2) * BOARD_SLOPE),
+  })
   return {
     centreX,
     boardLeft,
@@ -75,12 +82,14 @@ function layout(canvasWidth: number, canvasHeight: number) {
     groundY: Math.floor(canvasHeight * 0.85),
     postLeft,
     postRight: postLeft + POST_WIDTH - 1,
+    postTop: boardTop - POST_PROTRUSION,
     // Maps a board-local point to the canvas, tilting it along BOARD_SLOPE.
-    placeOnBoard: <T extends Point>(p: T): T => ({
-      ...p,
-      x: boardLeft + p.x,
-      y: boardTop + p.y + Math.round((p.x - BOARD_WIDTH / 2) * BOARD_SLOPE),
-    }),
+    placeOnBoard,
+    // Whether canvas point (x, y) is hidden behind the tilted board.
+    isBehindBoard: (x: number, y: number) => {
+      const top = placeOnBoard({ x: x - boardLeft, y: 0 }).y
+      return y >= top && y < top + BOARD_HEIGHT
+    },
   }
 }
 
@@ -88,17 +97,25 @@ function layout(canvasWidth: number, canvasHeight: number) {
 // standing on a short stretch of ground. Coordinates are canvas pixels.
 export function signpostPixels(canvasWidth: number, canvasHeight: number): Pixel[] {
   const random = createRandom(SEED)
-  const { centreX, boardTop, groundY, postLeft, postRight, placeOnBoard } = layout(canvasWidth, canvasHeight)
+  const { centreX, groundY, postLeft, postRight, postTop, placeOnBoard, isBehindBoard } = layout(
+    canvasWidth,
+    canvasHeight,
+  )
 
   const board = boardPixels(random).map(placeOnBoard)
 
+  // The post runs from just above the board down to the floor, hidden behind the board.
   const post: Pixel[] = []
-  for (let y = boardTop + BOARD_HEIGHT; y < groundY; y++) {
+  for (let x = postLeft; x <= postRight; x++) {
+    post.push({ x, y: postTop, colour: random() < 0.3 ? FOREGROUND_WORN : FOREGROUND })
+  }
+  for (let y = postTop + 1; y < groundY; y++) {
     for (const x of [postLeft, postRight]) {
+      if (isBehindBoard(x, y)) continue
       post.push({ x, y, colour: random() < 0.3 ? FOREGROUND_WORN : FOREGROUND })
     }
     // Sparse wood grain inside the post.
-    if (random() < 0.12) {
+    if (!isBehindBoard(postLeft + 2, y) && random() < 0.12) {
       post.push({ x: postLeft + 2 + Math.floor(random() * 2), y, colour: FOREGROUND_WORN })
     }
   }
@@ -118,7 +135,7 @@ export function signpostPixels(canvasWidth: number, canvasHeight: number): Pixel
 // Background-coloured pixels covering the board and post, drawn before the
 // signpost so the room behind it doesn't show through.
 export function signpostBackingPixels(canvasWidth: number, canvasHeight: number): Pixel[] {
-  const { boardTop, groundY, postLeft, postRight, placeOnBoard } = layout(canvasWidth, canvasHeight)
+  const { groundY, postLeft, postRight, postTop, placeOnBoard } = layout(canvasWidth, canvasHeight)
   const pixels: Pixel[] = []
   for (let y = 0; y < BOARD_HEIGHT; y++) {
     for (let x = 0; x < BOARD_WIDTH; x++) {
@@ -126,7 +143,7 @@ export function signpostBackingPixels(canvasWidth: number, canvasHeight: number)
       pixels.push(placeOnBoard({ x, y, colour: BACKGROUND }))
     }
   }
-  for (let y = boardTop + BOARD_HEIGHT; y < groundY; y++) {
+  for (let y = postTop; y < groundY; y++) {
     for (let x = postLeft; x <= postRight; x++) pixels.push({ x, y, colour: BACKGROUND })
   }
   return pixels
