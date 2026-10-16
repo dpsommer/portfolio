@@ -655,14 +655,24 @@ describe('ViewPane', () => {
       expect(canvas).toHaveAttribute('data-heading', 'west')
     })
 
-    // At 640x480 each canvas pixel is 2 client pixels, so odd client
-    // coordinates land half-way through a canvas pixel.
+    // The glass's edges along the row and column through the mirror's centre,
+    // in client pixels on a 640x480 pane, where each canvas pixel is 2 client
+    // pixels and odd coordinates land half-way through one.
+    const isGlassAt = (clientX: number, clientY: number) =>
+      screenToMirror(clientX / 2, clientY / 2, VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2, PLACES.nook) !== null
+    const clientXs = Array.from({ length: 640 }, (_, x) => x)
+    const clientYs = Array.from({ length: 480 }, (_, y) => y)
+    const GLASS_LEFT = clientXs.find((x) => isGlassAt(x, 2 * MIRROR_Y))!
+    const GLASS_RIGHT = clientXs.findLast((x) => isGlassAt(x, 2 * MIRROR_Y))!
+    const GLASS_TOP = clientYs.find((y) => isGlassAt(2 * MIRROR_X, y))!
+    const GLASS_BOTTOM = clientYs.findLast((y) => isGlassAt(2 * MIRROR_X, y))!
+
     it.each([
-      ['left', 2 * MIRROR.left, 2 * MIRROR_Y],
-      ['right', 2 * MIRROR.right + 1, 2 * MIRROR_Y],
-      ['top', 2 * MIRROR_X, 2 * MIRROR.top],
-      ['bottom', 2 * MIRROR_X, 2 * MIRROR.bottom + 1],
-    ])('shows the hand just inside the %s edge', (_, clientX, clientY) => {
+      ['left', GLASS_LEFT, 2 * MIRROR_Y],
+      ['right', GLASS_RIGHT, 2 * MIRROR_Y],
+      ['top', 2 * MIRROR_X, GLASS_TOP],
+      ['bottom', 2 * MIRROR_X, GLASS_BOTTOM],
+    ])('shows the hand just inside the glass\'s %s edge', (_, clientX, clientY) => {
       const { canvas, getRect } = renderPane()
       enterNook(canvas)
       getRect.mockReturnValue(new DOMRect(0, 0, 640, 480))
@@ -673,11 +683,11 @@ describe('ViewPane', () => {
     })
 
     it.each([
-      ['left', 2 * MIRROR.left - 1, 2 * MIRROR_Y],
-      ['right', 2 * MIRROR.right + 2, 2 * MIRROR_Y],
-      ['top', 2 * MIRROR_X, 2 * MIRROR.top - 1],
-      ['bottom', 2 * MIRROR_X, 2 * MIRROR.bottom + 2],
-    ])('does not show the hand just outside the %s edge', (_, clientX, clientY) => {
+      ['left', GLASS_LEFT - 1, 2 * MIRROR_Y],
+      ['right', GLASS_RIGHT + 1, 2 * MIRROR_Y],
+      ['top', 2 * MIRROR_X, GLASS_TOP - 1],
+      ['bottom', 2 * MIRROR_X, GLASS_BOTTOM + 1],
+    ])('does not show the hand just outside the glass\'s %s edge', (_, clientX, clientY) => {
       const { canvas, getRect } = renderPane()
       enterNook(canvas)
       getRect.mockReturnValue(new DOMRect(0, 0, 640, 480))
@@ -685,6 +695,20 @@ describe('ViewPane', () => {
       fireEvent.mouseMove(canvas, { clientX, clientY })
 
       expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it.each([
+      ['left side', MIRROR.left + 3, MIRROR_Y],
+      ['right side', MIRROR.right - 3, MIRROR_Y],
+      ['crest', MIRROR_X, MIRROR.top + 3],
+      ['pendant', MIRROR_X, MIRROR.bottom - 3],
+    ])('does not show the hand over the frame\'s %s', (_, clientX, clientY) => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
     })
 
     it('does not show the hand over the mirror area from the start facing west', () => {
@@ -1271,13 +1295,14 @@ describe('ViewPane', () => {
       expect(canvas).toHaveAttribute('data-heading', 'west')
     })
 
-    it('keeps the hand after clicking the frame', () => {
+    it('shows no hand over the frame, before or after clicking it', () => {
       const { canvas } = renderInNook()
       fireEvent.mouseMove(canvas, { clientX: FRAME_X, clientY: FRAME_Y })
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
 
       clickAt(canvas, FRAME_X, FRAME_Y)
 
-      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
     })
 
     it('shows no ripple with reduced motion', () => {

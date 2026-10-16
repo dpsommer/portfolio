@@ -8,7 +8,7 @@ import { TURN_YAW, turn } from '../scene/heading.ts'
 import type { Heading, TurnDirection } from '../scene/heading.ts'
 import { PLACES, forwardFrom } from '../scene/places.ts'
 import type { PlaceName } from '../scene/places.ts'
-import { mirrorBounds, screenToMirror } from '../scene/room.ts'
+import { screenToMirror } from '../scene/room.ts'
 import type { RippleState } from '../scene/room.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/preview.ts'
 import type { Preview } from '../scene/preview.ts'
@@ -26,14 +26,17 @@ export const TURN_DURATION_MS = 250
 export const MOVE_DURATION_MS = 350
 
 const SIGN_BOUNDS = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
-// The mirror as seen from the nook facing west, the view it's clicked from.
-const MIRROR_BOUNDS = mirrorBounds(VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)
 
 // Whether a point in canvas pixels is inside inclusive bounds.
-function isInside(bounds: Bounds | null, x: number, y: number): boolean {
-  if (!bounds) return false
+function isInside(bounds: Bounds, x: number, y: number): boolean {
   const { left, top, right, bottom } = bounds
   return x >= left && x < right + 1 && y >= top && y < bottom + 1
+}
+
+// Whether a point in canvas pixels is over the mirror's glass, seen from the
+// nook facing west, the view it's clicked from. The frame doesn't count.
+function isOverGlass(x: number, y: number): boolean {
+  return screenToMirror(x, y, VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook) !== null
 }
 
 const TURNS: Partial<Record<CursorZone, TurnDirection>> = { 'turn-left': 'left', 'turn-right': 'right' }
@@ -199,7 +202,7 @@ function ViewPane() {
     return {
       zone: getCursorZone(x / VIEW_WIDTH),
       overSign: isInside(SIGN_BOUNDS, x, y),
-      overMirror: isInside(MIRROR_BOUNDS, x, y),
+      overMirror: isOverGlass(x, y),
     }
   }
 
