@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Docs
 
 - `docs/ui.md` — planned UI and interaction design. Read before working on rendering, navigation, the cursor or the mirror.
+- `docs/layout.md` — the room's floor plan, places, camera and projection, visibility, room detail, object placement and draw order. Read before changing the room, places or what a view shows.
 - `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files.
 - `docs/testing.md` — test commands, Vitest setup and conventions, and how to handle canvas code in tests.
 
