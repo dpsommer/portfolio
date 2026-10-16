@@ -1,3 +1,5 @@
+import { FLOOR_Y } from './camera.ts'
+import type { Vec3 } from './camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
 import { GLYPH_HEIGHT, textPixels, textWidth } from './pixelFont.ts'
 import { createRandom } from './random.ts'
@@ -16,6 +18,10 @@ const POST_WIDTH = 6
 const POST_PROTRUSION = 6
 const CHIP_SIZE = 5
 const SEED = 7
+
+// Where the post meets the floor in the world (see camera.ts), straight ahead
+// of the starting position. Its ground line is drawn at 0.85 of the view's height.
+export const SIGN_POSITION: Vec3 = { x: 0, y: FLOOR_Y, z: 1.14 }
 
 type Point = { x: number; y: number }
 

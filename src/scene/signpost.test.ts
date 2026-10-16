@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { FLOOR_Y, projectPoint, toCamera } from './camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
 import {
   BOARD_HEIGHT,
   BOARD_SLOPE,
   BOARD_WIDTH,
+  SIGN_POSITION,
   signBoardBounds,
   signpostBackingPixels,
   signpostPixels,
@@ -274,5 +276,24 @@ describe('signBoardBounds', () => {
       right: small.right + 160,
       bottom: small.bottom + 120,
     })
+  })
+})
+
+describe('SIGN_POSITION', () => {
+  it('is on the floor straight ahead of the start', () => {
+    expect(SIGN_POSITION.y).toBe(FLOOR_Y)
+    expect(SIGN_POSITION.x).toBe(0)
+    expect(SIGN_POSITION.z).toBeGreaterThan(0)
+  })
+
+  it.each([
+    [320, 240],
+    [640, 480],
+  ])('projects to the sign\'s ground line facing north at %ix%i', (width, height) => {
+    const anchor = projectPoint(toCamera(SIGN_POSITION, 0), width, height)
+    const groundY = Math.max(...signpostPixels(width, height).map((p) => p.y))
+    expect(anchor.x).toBeCloseTo(width / 2)
+    expect(Math.abs(anchor.y - height * 0.85)).toBeLessThanOrEqual(2)
+    expect(Math.abs(anchor.y - groundY)).toBeLessThanOrEqual(2)
   })
 })

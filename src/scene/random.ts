@@ -9,3 +9,19 @@ export function createRandom(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
+
+// Combines integers into a seed, so things placed in the world (a brick, a floor
+// edge) get their own random stream that doesn't depend on drawing order.
+export function hashSeed(...values: number[]): number {
+  let hash = 0x811c9dc5
+  for (const value of values) {
+    hash = Math.imul(hash ^ (value | 0), 0x01000193)
+    hash ^= hash >>> 15
+  }
+  return hash >>> 0
+}
+
+// A single random number in [0, 1) for the given integers.
+export function hashRandom(...values: number[]): number {
+  return createRandom(hashSeed(...values))()
+}
