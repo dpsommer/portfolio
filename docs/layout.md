@@ -102,15 +102,20 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
     - a worn inner glass edge
     - a bright outer frame with a diamond crest, side and corner scrolls, and a pendant with a bead
   - **Drawing:** `mirrorPixels` projects it with the room's wall visibility. `MIRROR_BOUNDS` keeps bricks off it.
+- **Curtain pull:** a cord and acorn-shaped handle beside the mirror (`src/scene/pull.ts`).
+  - **Placement:** on the mirror's wall at s `PULL_S` (0.68), right of the mirror's side scroll. The cord hangs from the ceiling to the handle's top at t 0.12, a little above eye height. That keeps the handle clear of the brick below it.
+  - **Style:** mirror-local lines like the mirror: a worn cord and a band across the handle, and a bright handle outline. `pullLayers(drop)` lowers the handle by `drop` and stretches the cord, for the tug animation.
+  - **Drawing:** `pullPixels` projects it like the mirror. `PULL_BOUNDS` keeps bricks off it.
 
 ## Draw order
 
-`drawScene(ctx, yaw, eye, ripple?, preview?)` paints in this order:
+`drawScene(ctx, yaw, eye, { preview?, ripple?, shimmer?, pullDrop? })` paints in this order:
 
 1. the background
 2. the room
-3. the profile preview on the mirror's glass, once loaded (distorted by the ripple, if one is playing)
+3. the current site's preview on the mirror's glass, once loaded (shimmering from the previous site's preview, or distorted by the ripple, if either is playing)
 4. the ripple's rings, if one is playing
 5. the mirror, over the preview and rings so the frame covers their edges
-6. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
-7. the sprites themselves
+6. the curtain pull, lowered by `pullDrop`
+7. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
+8. the sprites themselves

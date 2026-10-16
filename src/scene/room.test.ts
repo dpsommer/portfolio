@@ -17,6 +17,8 @@ import type { MirrorPoint } from './mirror.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
 import { GLASS_CELLS, PREVIEW_COLOURS, PREVIEW_HEIGHT, PREVIEW_WIDTH } from './preview.ts'
+import type { Shimmer } from './preview.ts'
+import { PULL_BOUNDS, PULL_S, isOnPull } from './pull.ts'
 import {
   FLOOR_PLAN,
   MIRROR_WALL,
@@ -25,9 +27,11 @@ import {
   isVisible,
   mirrorPixels,
   previewPixels,
+  pullPixels,
   ripplePixels,
   roomPixels,
   screenToMirror,
+  screenToWall,
 } from './room.ts'
 import type { WallName } from './room.ts'
 import { rippleDuration, rippleRings } from './ripple.ts'
@@ -1245,5 +1249,249 @@ describe('previewPixels', () => {
   it('is deterministic', () => {
     const ripple = { origin: { s: 0.1, t: -0.2 }, elapsedMs: 900 }
     expect(fromNook(striped, ripple)).toEqual(fromNook(striped, ripple))
+  })
+})
+
+describe('screenToWall', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  const PIXEL = 1 / FOCAL
+  const fromNook = (x: number, y: number) => screenToWall(x, y, WIDTH, HEIGHT, WEST, NOOK_EYE)
+
+  it('maps the centre of the view to the mirror\'s centre from the nook facing west', () => {
+    const point = fromNook(WIDTH / 2, HEIGHT / 2)!
+    expect(point.s).toBeCloseTo(0)
+    expect(point.t).toBeCloseTo(0)
+  })
+
+  it('maps right on screen to +s and up to +t, about 1/128 of a unit per pixel', () => {
+    const point = fromNook(WIDTH / 2 + 30, HEIGHT / 2 - 20)!
+    expect(point.s).toBeCloseTo(30 * PIXEL)
+    expect(point.t).toBeCloseTo(20 * PIXEL)
+  })
+
+  it.each([
+    ['the right side of the frame', WIDTH / 2 + 47, HEIGHT / 2],
+    ['the crest', WIDTH / 2, 42],
+    ['beside the mirror', 40, HEIGHT / 2],
+  ])('returns a point on %s, where screenToMirror returns null', (_, x, y) => {
+    const point = fromNook(x, y)
+    expect(point).not.toBeNull()
+    expect(point!.s).toBeCloseTo((x - WIDTH / 2) * PIXEL)
+    expect(point!.t).toBeCloseTo((HEIGHT / 2 - y) * PIXEL)
+    expect(screenToMirror(x, y, WIDTH, HEIGHT, WEST, NOOK_EYE)).toBeNull()
+  })
+
+  it('finds the pull where it\'s drawn from the nook facing west', () => {
+    const handle = pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE).filter((p) => p.colour === FOREGROUND)
+    expect(handle.length).toBeGreaterThan(0)
+    for (const { x, y } of handle) expect(isOnPull(fromNook(x + 0.5, y + 0.5)!)).toBe(true)
+  })
+
+  it('maps the pull\'s cord column to PULL_S', () => {
+    expect(fromNook(WIDTH / 2 + PULL_S * FOCAL, HEIGHT / 2)!.s).toBeCloseTo(PULL_S)
+  })
+
+  it.each([
+    ['above the ceiling', WIDTH / 2, 0],
+    ['below the floor', WIDTH / 2, HEIGHT - 1],
+    ['left of the wall', 10, HEIGHT / 2],
+    ['right of the wall', WIDTH - 10, HEIGHT / 2],
+  ])('returns null %s', (_, x, y) => {
+    expect(fromNook(x, y)).toBeNull()
+  })
+
+  it('returns null from the nook facing east, with the wall behind the camera', () => {
+    expect(screenToWall(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, EAST, NOOK_EYE)).toBeNull()
+  })
+
+  it('returns null from the start facing north, with the wall off to the side', () => {
+    expect(screenToWall(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT)).toBeNull()
+  })
+
+  it('maps the view\'s centre to the mirror\'s centre from the start facing west', () => {
+    const point = screenToWall(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, WEST)!
+    expect(point.s).toBeCloseTo(0)
+    expect(point.t).toBeCloseTo(0)
+  })
+
+  it('agrees with screenToMirror: the same point on the glass, null elsewhere', () => {
+    let onGlass = 0
+    for (let x = 0; x < WIDTH; x += 7) {
+      for (let y = 0; y < HEIGHT; y += 7) {
+        const wall = fromNook(x, y)
+        const mirror = screenToMirror(x, y, WIDTH, HEIGHT, WEST, NOOK_EYE)
+        if (wall && isOnGlass(wall)) {
+          onGlass++
+          expect(mirror).toEqual(wall)
+        } else {
+          expect(mirror).toBeNull()
+        }
+      }
+    }
+    expect(onGlass).toBeGreaterThan(0)
+  })
+})
+
+describe('pullPixels', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  const fromNook = (drop = 0) => pullPixels(WIDTH, HEIGHT, drop, WEST, NOOK_EYE)
+  const handle = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND)
+
+  it('draws the pull from the nook facing west', () => {
+    expect(fromNook().length).toBeGreaterThan(0)
+  })
+
+  it('uses integer coordinates within the canvas', () => {
+    for (const { x, y } of fromNook()) {
+      expect(Number.isInteger(x)).toBe(true)
+      expect(Number.isInteger(y)).toBe(true)
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(WIDTH)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(HEIGHT)
+    }
+  })
+
+  it('uses the worn and full foreground colours', () => {
+    expect(new Set(fromNook().map((p) => p.colour))).toEqual(new Set([FOREGROUND_WORN, FOREGROUND]))
+  })
+
+  it('is deterministic', () => {
+    expect(fromNook(0.05)).toEqual(fromNook(0.05))
+  })
+
+  it('defaults to no drop', () => {
+    expect(pullPixels(WIDTH, HEIGHT, undefined, WEST, NOOK_EYE)).toEqual(fromNook(0))
+  })
+
+  it('hangs right of the mirror from the nook facing west', () => {
+    const mirror = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
+    expect(extent(fromNook()).left).toBeGreaterThan(mirror.right)
+  })
+
+  it('hangs at the cord\'s column, from the ceiling to around eye height', () => {
+    const { left, top, right, bottom } = extent(fromNook())
+    const cord = columnAt(PULL_S, 1)
+    expect(left).toBeLessThan(cord)
+    expect(right).toBeGreaterThan(cord)
+    expect(top).toBe(rowAt(CEILING_Y, 1))
+    expect(bottom).toBeGreaterThan(HEIGHT / 2 - 5)
+    expect(bottom).toBeLessThan(HEIGHT / 2 + 10)
+  })
+
+  it('lowers the handle about 128 pixels per mirror unit of drop', () => {
+    const rest = extent(handle(fromNook()))
+    const dropped = extent(handle(fromNook(0.1)))
+    expect(Math.abs(dropped.bottom - rest.bottom - 0.1 * FOCAL)).toBeLessThanOrEqual(1)
+    expect(Math.abs(dropped.top - rest.top - 0.1 * FOCAL)).toBeLessThanOrEqual(1)
+  })
+
+  it('keeps the cord\'s top at the ceiling when dropped', () => {
+    expect(extent(fromNook(0.1)).top).toBe(extent(fromNook()).top)
+  })
+
+  it('draws more cord when dropped', () => {
+    const cord = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND_WORN)
+    expect(cord(fromNook(0.1)).length).toBeGreaterThan(cord(fromNook()).length)
+  })
+
+  it('draws nothing from the nook facing east, with the pull behind the camera', () => {
+    expect(pullPixels(WIDTH, HEIGHT, 0, EAST, NOOK_EYE)).toEqual([])
+  })
+
+  it('draws a smaller pull from the start facing west', () => {
+    const fromStart = pullPixels(WIDTH, HEIGHT, 0, WEST)
+    expect(fromStart.length).toBeGreaterThan(0)
+    const near = extent(fromNook())
+    const far = extent(fromStart)
+    expect(far.bottom - far.top).toBeLessThan(near.bottom - near.top)
+  })
+})
+
+describe('roomPixels around the pull', () => {
+  const WEST = Math.PI / 2
+
+  it('keeps bricks off the pull\'s rest bounds from the nook facing west', () => {
+    const bounds = {
+      left: columnAt(PULL_BOUNDS.left, 1),
+      right: columnAt(PULL_BOUNDS.right, 1),
+      top: rowAt(PULL_BOUNDS.top, 1),
+      bottom: rowAt(PULL_BOUNDS.bottom, 1),
+    }
+    const under = dim(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).filter(
+      (p) => p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom,
+    )
+    expect(under).toEqual([])
+  })
+
+  it('still draws bricks on the back wall away from the mirror and the pull', () => {
+    const mirror = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
+    const pull = extent(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE))
+    const bricks = dim(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).filter(
+      (p) =>
+        p.x > 33 && p.x < 287 && p.y > 25 && p.y < 215 &&
+        (p.x < mirror.left || p.x > mirror.right) &&
+        (p.x < pull.left || p.x > pull.right || p.y > pull.bottom),
+    )
+    expect(bricks.length).toBeGreaterThan(0)
+  })
+})
+
+describe('previewPixels with a shimmer', () => {
+  const WEST = Math.PI / 2
+  const CELLS = PREVIEW_WIDTH * PREVIEW_HEIGHT
+  const filled = (tone: number) => new Uint8Array(CELLS).fill(tone)
+  const striped = Uint8Array.from({ length: CELLS }, (_, i) => Math.floor((i % PREVIEW_WIDTH) / 3) % 4)
+  const fromNook = (preview: Uint8Array | null, shimmer?: Shimmer, ripple?: { origin: MirrorPoint; elapsedMs: number }) =>
+    previewPixels(WIDTH, HEIGHT, preview, WEST, NOOK_EYE, ripple, shimmer)
+  const colours = (pixels: Pixel[]) => new Set(pixels.map((p) => p.colour))
+
+  it('draws nothing for a null preview without a shimmer', () => {
+    expect(fromNook(null)).toEqual([])
+  })
+
+  it('draws the old preview alone at progress 0', () => {
+    expect(fromNook(filled(2), { from: striped, progress: 0 })).toEqual(fromNook(striped))
+  })
+
+  it('draws the new preview alone at progress 1', () => {
+    expect(fromNook(striped, { from: filled(2), progress: 1 })).toEqual(fromNook(striped))
+  })
+
+  it('mixes both previews mid-shimmer, with some cells flashing brighter', () => {
+    const pixels = fromNook(filled(2), { from: filled(1), progress: 0.5 })
+    expect(pixels).toHaveLength(GLASS_CELLS.length)
+    // Dim cells are still the old preview, worn cells the new one (or the old
+    // one flashing); full foreground only comes from the new one flashing.
+    expect(colours(pixels)).toEqual(new Set([FOREGROUND_DIM, FOREGROUND_WORN, FOREGROUND]))
+  })
+
+  it('fades in from empty glass when there was no old preview', () => {
+    expect(fromNook(filled(3), { from: null, progress: 0 })).toEqual([])
+    const middle = fromNook(filled(3), { from: null, progress: 0.5 })
+    expect(middle.length).toBeGreaterThan(0)
+    expect(middle.length).toBeLessThan(GLASS_CELLS.length)
+    expect(fromNook(filled(3), { from: null, progress: 1 })).toEqual(fromNook(filled(3)))
+  })
+
+  it('fades out to empty glass for a null preview', () => {
+    expect(fromNook(null, { from: filled(3), progress: 0 })).toEqual(fromNook(filled(3)))
+    const middle = fromNook(null, { from: filled(3), progress: 0.5 })
+    expect(middle.length).toBeGreaterThan(0)
+    expect(middle.length).toBeLessThan(GLASS_CELLS.length)
+    expect(fromNook(null, { from: filled(3), progress: 1 })).toEqual([])
+  })
+
+  it('ignores a ripple while shimmering', () => {
+    const centre = { s: 0, t: 0 }
+    const ripple = { origin: centre, elapsedMs: rippleDuration(centre) / 2 }
+    expect(fromNook(striped, { from: null, progress: 1 }, ripple)).toEqual(fromNook(striped))
+  })
+
+  it('is deterministic', () => {
+    const shimmer = { from: striped, progress: 0.4 }
+    expect(fromNook(filled(2), shimmer)).toEqual(fromNook(filled(2), shimmer))
   })
 })

@@ -18,8 +18,9 @@ import { linePoints } from './line.ts'
 import { MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './mirror.ts'
 import type { MirrorLine, MirrorPoint } from './mirror.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
-import { GLASS_CELLS, PREVIEW_COLOURS, toneAt } from './preview.ts'
-import type { Preview } from './preview.ts'
+import { GLASS_CELLS, PREVIEW_COLOURS, shimmerTone, toneAt } from './preview.ts'
+import type { Preview, Shimmer } from './preview.ts'
+import { PULL_BOUNDS, pullLayers } from './pull.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
 import { rippleOffset, rippleRings, ringLines } from './ripple.ts'
 import type { Pixel } from './types.ts'
@@ -110,14 +111,20 @@ function mirrorToWall({ s, t }: MirrorPoint): { u: number; v: number } {
   return { u: WALLS[MIRROR_WALL].length / 2 + s, v: CEILING_Y - t }
 }
 
-// Whether a wall-local rectangle overlaps the mirror, with a brick gap's margin.
-function isUnderMirror(wall: Wall, u0: number, u1: number, v0: number, v1: number): boolean {
+// Whether a wall-local rectangle overlaps the mirror or the pull beside it,
+// with a brick gap's margin.
+function isUnderFixture(wall: Wall, u0: number, u1: number, v0: number, v1: number): boolean {
   if (wall !== WALLS[MIRROR_WALL]) return false
-  const topLeft = mirrorToWall({ s: MIRROR_BOUNDS.left, t: MIRROR_BOUNDS.top })
-  const bottomRight = mirrorToWall({ s: MIRROR_BOUNDS.right, t: MIRROR_BOUNDS.bottom })
-  return (
-    u1 > topLeft.u - BRICK_GAP && u0 < bottomRight.u + BRICK_GAP && v1 > topLeft.v - BRICK_GAP && v0 < bottomRight.v + BRICK_GAP
-  )
+  return [MIRROR_BOUNDS, PULL_BOUNDS].some((bounds) => {
+    const topLeft = mirrorToWall({ s: bounds.left, t: bounds.top })
+    const bottomRight = mirrorToWall({ s: bounds.right, t: bounds.bottom })
+    return (
+      u1 > topLeft.u - BRICK_GAP &&
+      u0 < bottomRight.u + BRICK_GAP &&
+      v1 > topLeft.v - BRICK_GAP &&
+      v0 < bottomRight.v + BRICK_GAP
+    )
+  })
 }
 
 // Splits a segment into drawn runs with gaps between them, measured in world
@@ -165,8 +172,8 @@ function brickSegments(): Segment[] {
         const v1 = v0 + BRICK_HEIGHT - BRICK_GAP
         // Keep bricks off the wall's own edges.
         if (u0 <= 0 || u1 >= wall.length || v0 <= 0 || v1 >= CEILING_Y - FLOOR_Y) continue
-        // Nor behind the mirror, where they'd show through the glass.
-        if (isUnderMirror(wall, u0, u1, v0, v1)) continue
+        // Nor behind the mirror, where they'd show through the glass, or the pull.
+        if (isUnderFixture(wall, u0, u1, v0, v1)) continue
         segments.push([onWall(wall, u0, v0), onWall(wall, u1, v0)], [onWall(wall, u0, v0), onWall(wall, u0, v1)])
       }
     }
@@ -353,6 +360,20 @@ export function screenToMirror(
   yaw = 0,
   eye: FloorPoint = ORIGIN,
 ): MirrorPoint | null {
+  const point = screenToWall(x, y, canvasWidth, canvasHeight, yaw, eye)
+  return point && isOnGlass(point) ? point : null
+}
+
+// The mirror-local point on the mirror's wall under a canvas position, or null
+// if the wall isn't there in this view.
+export function screenToWall(
+  x: number,
+  y: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  yaw = 0,
+  eye: FloorPoint = ORIGIN,
+): MirrorPoint | null {
   // The ray through the position, in camera space and then in the world.
   const focal = (FOCAL_RATIO * canvasWidth) / 2
   const cameraX = (x - canvasWidth / 2) / focal
@@ -370,9 +391,19 @@ export function screenToMirror(
   const hit = vec(eye.x + ray.x * distanceAlong, ray.y * distanceAlong, eye.z + ray.z * distanceAlong)
   if (!isVisible(hit, eye)) return null
   const u = (hit.x - start.x) * along.x + (hit.z - start.z) * along.z
+  if (u < 0 || u > length || hit.y < FLOOR_Y || hit.y > CEILING_Y) return null
   // Inverse of mirrorToWall: s = u - length / 2, t = CEILING_Y - v = hit.y.
-  const point = { s: u - length / 2, t: hit.y }
-  return isOnGlass(point) ? point : null
+  return { s: u - length / 2, t: hit.y }
+}
+
+// Pixels for the curtain pull beside the mirror, its handle lowered `drop`
+// mirror units, seen the same way as `mirrorPixels`.
+export function pullPixels(canvasWidth: number, canvasHeight: number, drop = 0, yaw = 0, eye: FloorPoint = ORIGIN): Pixel[] {
+  const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
+  const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
+  return pullLayers(drop)
+    .flatMap(({ colour, lines }) => rasterise(mirrorSegments(lines), colour, view))
+    .filter(inCanvas)
 }
 
 // Where each glass cell of a preview sits in the world.
@@ -383,20 +414,24 @@ const GLASS_CELL_POINTS = GLASS_CELLS.map((cell) => {
 
 // Pixels for a preview on the mirror's glass, seen the same way as
 // `mirrorPixels`. Each cell is a block sized by how close it is, so from the
-// nook a cell is one pixel. A ripple shifts which cell's tone shows where.
+// nook a cell is one pixel. A ripple shifts which cell's tone shows where, and
+// a shimmer changes it over from a previous preview. A null preview is empty.
 export function previewPixels(
   canvasWidth: number,
   canvasHeight: number,
-  preview: Preview,
+  preview: Preview | null,
   yaw = 0,
   eye: FloorPoint = ORIGIN,
   ripple?: RippleState,
+  shimmer?: Shimmer,
 ): Pixel[] {
   const rings = ripple ? rippleRings(ripple.origin, ripple.elapsedMs) : []
   const pixels: Pixel[] = []
   GLASS_CELLS.forEach((cell, i) => {
-    let tone = preview[cell.index]
-    if (ripple && rings.length > 0) {
+    let tone = preview ? preview[cell.index] : 0
+    if (shimmer) {
+      tone = shimmerTone(cell, shimmer.from ? shimmer.from[cell.index] : 0, tone, shimmer.progress)
+    } else if (preview && ripple && rings.length > 0) {
       const offset = rippleOffset(ripple.origin, rings, cell)
       tone = toneAt(preview, cell.s - offset.s, cell.t - offset.t)
     }

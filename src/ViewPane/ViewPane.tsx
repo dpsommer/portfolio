@@ -2,16 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
-import { MIRROR_SITE, openUrl } from './mirrorSite.ts'
+import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { drawScene } from '../scene/draw.ts'
 import { TURN_YAW, turn } from '../scene/heading.ts'
 import type { Heading, TurnDirection } from '../scene/heading.ts'
 import { PLACES, forwardFrom } from '../scene/places.ts'
 import type { PlaceName } from '../scene/places.ts'
-import { screenToMirror } from '../scene/room.ts'
+import { screenToMirror, screenToWall } from '../scene/room.ts'
 import type { RippleState } from '../scene/room.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/preview.ts'
-import type { Preview } from '../scene/preview.ts'
+import type { Preview, Shimmer } from '../scene/preview.ts'
+import { isOnPull } from '../scene/pull.ts'
 import { rippleDuration } from '../scene/ripple.ts'
 import { signBoardBounds } from '../scene/signpost.ts'
 import type { Bounds } from '../scene/signpost.ts'
@@ -24,6 +25,14 @@ export const VIEW_HEIGHT = 240
 // How long a quarter turn and a step forward take to animate.
 export const TURN_DURATION_MS = 250
 export const MOVE_DURATION_MS = 350
+// How long a tug on the curtain pull and the mirror's change of site take.
+export const SWITCH_DURATION_MS = 900
+// The pull drops this far (mirror units) over the first PULL_DOWN_MS, springs
+// back by PULL_UP_MS, and the glass shimmers over to the next site from then
+// on.
+const PULL_DROP = 0.1
+const PULL_DOWN_MS = 150
+const PULL_UP_MS = 600
 
 const SIGN_BOUNDS = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
 
@@ -39,6 +48,12 @@ function isOverGlass(x: number, y: number): boolean {
   return screenToMirror(x, y, VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook) !== null
 }
 
+// Whether a point in canvas pixels is over the curtain pull, seen from the same view.
+function isOverPull(x: number, y: number): boolean {
+  const point = screenToWall(x, y, VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)
+  return point !== null && isOnPull(point)
+}
+
 const TURNS: Partial<Record<CursorZone, TurnDirection>> = { 'turn-left': 'left', 'turn-right': 'right' }
 
 function prefersReducedMotion(): boolean {
@@ -47,13 +62,20 @@ function prefersReducedMotion(): boolean {
 
 const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
 
-type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean }
-// What the camera is drawing: where it stands, which way it faces, and any
-// ripple playing on the mirror.
-type View = { x: number; z: number; yaw: number; ripple?: RippleState }
+// How far the pull is tugged down `elapsed` ms into a change of site.
+function pullDropAt(elapsed: number): number {
+  if (elapsed < PULL_DOWN_MS) return PULL_DROP * easeInOut(elapsed / PULL_DOWN_MS)
+  if (elapsed < PULL_UP_MS) return PULL_DROP * (1 - easeInOut((elapsed - PULL_DOWN_MS) / (PULL_UP_MS - PULL_DOWN_MS)))
+  return 0
+}
 
-function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw, ripple }: View, preview: Preview | null) {
-  drawScene(ctx, yaw, { x, z }, ripple, preview ?? undefined)
+type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean; overPull: boolean }
+// What the camera is drawing: where it stands, which way it faces, and what's
+// playing on the mirror wall.
+type View = { x: number; z: number; yaw: number; ripple?: RippleState; shimmer?: Shimmer; pullDrop?: number }
+
+function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw, ripple, shimmer, pullDrop }: View, preview: Preview | null) {
+  drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop })
 }
 
 // Loads an image and quantises it to a preview covering the glass, cropping
@@ -82,35 +104,47 @@ function loadPreview(src: string): Promise<Preview | null> {
 
 function ViewPane() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [pointer, setPointer] = useState<Pointer>({ zone: 'forward', overSign: false, overMirror: false })
+  const [pointer, setPointer] = useState<Pointer>({
+    zone: 'forward',
+    overSign: false,
+    overMirror: false,
+    overPull: false,
+  })
   const [place, setPlace] = useState<PlaceName>('start')
   const [heading, setHeading] = useState<Heading>('north')
   const [animating, setAnimating] = useState(false)
+  // Which of MIRROR_SITES the mirror shows. The ref is for drawing mid-animation.
+  const [site, setSite] = useState(0)
+  const siteRef = useRef(0)
   // The drawn view. Yaw isn't wrapped, so each turn animates the short way round.
   const viewRef = useRef<View>({ x: PLACES.start.x, z: PLACES.start.z, yaw: 0 })
   const frameRef = useRef<number | null>(null)
-  // The mirror's picture, once loaded.
-  const previewRef = useRef<Preview | null>(null)
+  // Each site's picture for the mirror, once loaded.
+  const previewsRef = useRef<(Preview | null)[]>(MIRROR_SITES.map(() => null))
+  const currentPreview = () => previewsRef.current[siteRef.current]
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawView(ctx, viewRef.current, previewRef.current)
+    if (ctx) drawView(ctx, viewRef.current, currentPreview())
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
   }, [])
 
-  // Without the picture the mirror just shows empty glass.
+  // Without its picture a site shows empty glass.
   useEffect(() => {
     let cancelled = false
-    loadPreview(MIRROR_SITE.preview)
-      .then((preview) => {
-        const ctx = canvasRef.current?.getContext('2d')
-        if (cancelled || !preview) return
-        previewRef.current = preview
-        if (ctx) drawView(ctx, viewRef.current, preview)
-      })
-      .catch(() => {})
+    MIRROR_SITES.forEach(({ preview: src }, index) => {
+      loadPreview(src)
+        .then((preview) => {
+          if (cancelled || !preview) return
+          previewsRef.current[index] = preview
+          const ctx = canvasRef.current?.getContext('2d')
+          // Mid-animation, the next frame picks it up.
+          if (ctx && index === siteRef.current && frameRef.current === null) drawView(ctx, viewRef.current, preview)
+        })
+        .catch(() => {})
+    })
     return () => {
       cancelled = true
     }
@@ -130,7 +164,7 @@ function ViewPane() {
     const step = (now: number) => {
       const elapsed = Math.min(duration, now - start)
       viewRef.current = frame(elapsed)
-      drawView(ctx, viewRef.current, previewRef.current)
+      drawView(ctx, viewRef.current, currentPreview())
       if (elapsed < duration) {
         frameRef.current = requestAnimationFrame(step)
       } else {
@@ -148,7 +182,7 @@ function ViewPane() {
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx || prefersReducedMotion()) {
       viewRef.current = to
-      if (ctx) drawView(ctx, to, previewRef.current)
+      if (ctx) drawView(ctx, to, currentPreview())
       return
     }
     runAnimation(ctx, duration, (elapsed) => {
@@ -163,15 +197,16 @@ function ViewPane() {
   }
 
   // Plays a ripple on the mirror from the canvas position (x, y), if it's on
-  // the glass, then goes to the mirror's site. With reduced motion or no
+  // the glass, then goes to the site it shows. With reduced motion or no
   // canvas it goes straight there.
   function rippleAt(x: number, y: number) {
     const view = viewRef.current
     const origin = screenToMirror(x, y, VIEW_WIDTH, VIEW_HEIGHT, view.yaw, view)
     if (!origin) return
+    const { url } = MIRROR_SITES[siteRef.current]
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx || prefersReducedMotion()) {
-      openUrl(MIRROR_SITE.url)
+      openUrl(url)
       return
     }
     const duration = rippleDuration(origin)
@@ -180,8 +215,27 @@ function ViewPane() {
       duration,
       (elapsed) =>
         elapsed < duration ? { ...view, ripple: { origin, elapsedMs: elapsed } } : { ...view, ripple: undefined },
-      () => openUrl(MIRROR_SITE.url),
+      () => openUrl(url),
     )
+  }
+
+  // Tugs the curtain pull and shimmers the mirror over to the next site. With
+  // reduced motion or no canvas the site just changes.
+  function switchSite() {
+    const view = viewRef.current
+    const from = currentPreview()
+    siteRef.current = (siteRef.current + 1) % MIRROR_SITES.length
+    setSite(siteRef.current)
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx || prefersReducedMotion()) {
+      if (ctx) drawView(ctx, view, currentPreview())
+      return
+    }
+    runAnimation(ctx, SWITCH_DURATION_MS, (elapsed) => {
+      if (elapsed >= SWITCH_DURATION_MS) return { ...view, shimmer: undefined, pullDrop: undefined }
+      const progress = Math.max(0, (elapsed - PULL_DOWN_MS) / (SWITCH_DURATION_MS - PULL_DOWN_MS))
+      return { ...view, pullDrop: pullDropAt(elapsed), shimmer: { from, progress } }
+    })
   }
 
   // Mouse position in canvas pixels, from fractions of the canvas's on-screen
@@ -203,6 +257,7 @@ function ViewPane() {
       zone: getCursorZone(x / VIEW_WIDTH),
       overSign: isInside(SIGN_BOUNDS, x, y),
       overMirror: isOverGlass(x, y),
+      overPull: isOverPull(x, y),
     }
   }
 
@@ -211,7 +266,10 @@ function ViewPane() {
     // Only re-render when the cursor would change.
     if (
       next &&
-      (next.zone !== pointer.zone || next.overSign !== pointer.overSign || next.overMirror !== pointer.overMirror)
+      (next.zone !== pointer.zone ||
+        next.overSign !== pointer.overSign ||
+        next.overMirror !== pointer.overMirror ||
+        next.overPull !== pointer.overPull)
     )
       setPointer(next)
   }
@@ -224,6 +282,10 @@ function ViewPane() {
       rippleAt(point.x, point.y)
       return
     }
+    if (at.overPull && isMirrorView) {
+      switchSite()
+      return
+    }
     const direction = TURNS[at.zone]
     if (direction) {
       setHeading(turn(heading, direction))
@@ -231,17 +293,18 @@ function ViewPane() {
       return
     }
     const next = forwardFrom(place, heading)
-    // A click on the sign or mirror is for it, even if there's a way forward behind it.
+    // A click on the sign, mirror or pull is for it, even if there's a way forward behind it.
     if (!next || showHand) return
     setPlace(next)
     animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS)
   }
 
-  // The sign and mirror are only clickable from where they were designed to be seen.
+  // The sign, mirror and pull are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'
   const showHand =
     !animating &&
-    ((pointer.overSign && place === 'start' && heading === 'north') || (pointer.overMirror && isMirrorView))
+    ((pointer.overSign && place === 'start' && heading === 'north') ||
+      ((pointer.overMirror || pointer.overPull) && isMirrorView))
   const canMoveForward = forwardFrom(place, heading) !== null
   const cursor = showHand
     ? HAND_CURSOR
@@ -259,6 +322,7 @@ function ViewPane() {
         aria-label="Dungeon view"
         data-place={place}
         data-heading={heading}
+        data-site={MIRROR_SITES[site].name}
         style={{ cursor }}
         onMouseMove={handleMouseMove}
         onClick={handleClick}

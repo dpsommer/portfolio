@@ -1,6 +1,7 @@
 import { FOCAL_RATIO } from './camera.ts'
 import { GLASS_OUTLINE, isOnGlass } from './mirror.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
+import { hashRandom } from './random.ts'
 
 // A picture shown on the mirror's glass, as a grid of cells in the scene's four
 // tones. From the nook one cell is one canvas pixel, so the grid covers the
@@ -77,4 +78,28 @@ export function toneAt(preview: Preview, s: number, t: number): number {
   const row = Math.floor(PREVIEW_HEIGHT / 2 - (t - GLASS_MIDDLE.t) * PIXELS_PER_UNIT)
   if (column < 0 || column >= PREVIEW_WIDTH || row < 0 || row >= PREVIEW_HEIGHT) return 0
   return preview[row * PREVIEW_WIDTH + column]
+}
+
+// A change from one preview to another: `progress` runs from 0 (all `from`) to
+// 1 (all the new preview). Null previews are empty glass.
+export type Shimmer = { from: Preview | null; progress: number }
+
+// When cells switch during a shimmer: spread over this part of the progress,
+// in a sweep from the top left with some jitter.
+const SHIMMER_START = 0.1
+const SHIMMER_SPREAD = 0.8
+const SHIMMER_JITTER = 0.4
+// How close to its switch a cell flashes a tone brighter.
+const SHIMMER_WINDOW = 0.06
+// Keeps the shimmer's jitter independent of other random detail.
+const SHIMMER_SEED = 4
+
+// The tone a cell shows part-way through a shimmer from `fromTone` to `toTone`.
+export function shimmerTone(cell: PreviewCell, fromTone: number, toTone: number, progress: number): number {
+  const sweep =
+    ((cell.s - GLASS_LEFT) / (GLASS_RIGHT - GLASS_LEFT) + (GLASS_TOP - cell.t) / (GLASS_TOP - GLASS_BOTTOM)) / 2
+  const jitter = hashRandom(cell.index, SHIMMER_SEED)
+  const switchAt = SHIMMER_START + SHIMMER_SPREAD * ((1 - SHIMMER_JITTER) * sweep + SHIMMER_JITTER * jitter)
+  const tone = progress < switchAt ? fromTone : toTone
+  return Math.abs(progress - switchAt) < SHIMMER_WINDOW ? Math.min(TONE_COUNT - 1, tone + 1) : tone
 }

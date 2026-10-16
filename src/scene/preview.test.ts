@@ -8,8 +8,10 @@ import {
   PREVIEW_HEIGHT,
   PREVIEW_WIDTH,
   quantisePreview,
+  shimmerTone,
   toneAt,
 } from './preview.ts'
+import type { PreviewCell } from './preview.ts'
 
 // RGBA pixels of one grey level (0-255), as from getImageData.
 function uniform(width: number, height: number, level: number): Uint8ClampedArray {
@@ -147,5 +149,90 @@ describe('toneAt', () => {
     const nudge = 0.4 / PIXELS_PER_UNIT
     expect(toneAt(preview, s + nudge, t - nudge)).toBe(preview[index])
     expect(toneAt(preview, s - nudge, t + nudge)).toBe(preview[index])
+  })
+})
+
+describe('shimmerTone', () => {
+  // When a cell switches from 0 to 2: before its switch it shows 0 (or 1 while
+  // flashing), after it 2 (or 3 while flashing), so the switch is the first
+  // progress showing 2 or more.
+  function switchAt(cell: PreviewCell): number {
+    let low = 0
+    let high = 1
+    for (let i = 0; i < 30; i++) {
+      const middle = (low + high) / 2
+      if (shimmerTone(cell, 0, 2, middle) >= 2) high = middle
+      else low = middle
+    }
+    return high
+  }
+  const CELLS = GLASS_CELLS.filter((_, i) => i % 37 === 0)
+  const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length
+
+  it('shows the old tone at progress 0', () => {
+    for (const cell of CELLS) expect(shimmerTone(cell, 1, 2, 0)).toBe(1)
+  })
+
+  it('shows the new tone at progress 1', () => {
+    for (const cell of CELLS) expect(shimmerTone(cell, 1, 2, 1)).toBe(2)
+  })
+
+  it('switches every cell between progress 0.1 and 0.9', () => {
+    for (const cell of CELLS) {
+      const at = switchAt(cell)
+      expect(at).toBeGreaterThanOrEqual(0.1 - 1e-6)
+      expect(at).toBeLessThan(0.9)
+    }
+  })
+
+  it('shows the old tone well before a cell\'s switch and the new one well after', () => {
+    for (const cell of CELLS) {
+      const at = switchAt(cell)
+      expect(shimmerTone(cell, 1, 2, at - 0.07)).toBe(1)
+      expect(shimmerTone(cell, 1, 2, at + 0.07)).toBe(2)
+    }
+  })
+
+  it('flashes a tone brighter just either side of the switch', () => {
+    for (const cell of CELLS) {
+      const at = switchAt(cell)
+      expect(shimmerTone(cell, 1, 2, at - 0.05)).toBe(2)
+      expect(shimmerTone(cell, 1, 2, at + 0.05)).toBe(3)
+    }
+  })
+
+  it('flashes even where the tone doesn\'t change', () => {
+    const cell = CELLS[0]
+    const at = switchAt(cell)
+    expect(shimmerTone(cell, 1, 1, at)).toBe(2)
+    expect(shimmerTone(cell, 1, 1, at - 0.07)).toBe(1)
+  })
+
+  it('caps the flash at the full foreground', () => {
+    for (const cell of CELLS) {
+      const at = switchAt(cell)
+      expect(shimmerTone(cell, 3, 3, at - 0.03)).toBe(3)
+      expect(shimmerTone(cell, 3, 3, at + 0.03)).toBe(3)
+    }
+  })
+
+  it('flashes background cells to dim', () => {
+    const cell = CELLS[0]
+    expect(shimmerTone(cell, 0, 0, switchAt(cell))).toBe(1)
+  })
+
+  it('switches cells at different moments', () => {
+    expect(new Set(CELLS.map((cell) => switchAt(cell).toFixed(3))).size).toBeGreaterThan(CELLS.length / 2)
+  })
+
+  it('switches top-left cells earlier on average than bottom-right ones', () => {
+    const middle = { s: mean(GLASS_CELLS.map(({ s }) => s)), t: mean(GLASS_CELLS.map(({ t }) => t)) }
+    const topLeft = GLASS_CELLS.filter(({ s, t }) => s < middle.s && t > middle.t)
+    const bottomRight = GLASS_CELLS.filter(({ s, t }) => s > middle.s && t < middle.t)
+    expect(mean(topLeft.map(switchAt)) + 0.1).toBeLessThan(mean(bottomRight.map(switchAt)))
+  })
+
+  it('is deterministic', () => {
+    for (const cell of CELLS) expect(shimmerTone(cell, 0, 3, 0.5)).toBe(shimmerTone(cell, 0, 3, 0.5))
   })
 })

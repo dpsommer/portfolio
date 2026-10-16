@@ -2,19 +2,29 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
 import { drawScene } from '../scene/draw.ts'
+import type { MirrorExtras } from '../scene/draw.ts'
 import { FOREGROUND } from '../scene/palette.ts'
 import { PLACES } from '../scene/places.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/preview.ts'
 import { rippleDuration } from '../scene/ripple.ts'
-import { mirrorPixels, previewPixels, screenToMirror } from '../scene/room.ts'
+import { mirrorPixels, previewPixels, pullPixels, screenToMirror } from '../scene/room.ts'
 import type { RippleState } from '../scene/room.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
-import { MIRROR_SITE, openUrl } from './mirrorSite.ts'
-import ViewPane, { MOVE_DURATION_MS, TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
+import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
+import ViewPane, {
+  MOVE_DURATION_MS,
+  SWITCH_DURATION_MS,
+  TURN_DURATION_MS,
+  VIEW_HEIGHT,
+  VIEW_WIDTH,
+} from './ViewPane.tsx'
+
+// The site the mirror shows first.
+const MIRROR_SITE = MIRROR_SITES[0]
 
 // jsdom can't navigate, so clicks on the mirror go nowhere.
-vi.mock('./mirrorSite.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./mirrorSite.ts')>()),
+vi.mock('./mirrorSites.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./mirrorSites.ts')>()),
   openUrl: vi.fn(),
 }))
 
@@ -39,6 +49,47 @@ const MIRROR = {
 }
 const MIRROR_X = Math.round((MIRROR.left + MIRROR.right) / 2)
 const MIRROR_Y = Math.round((MIRROR.top + MIRROR.bottom) / 2)
+// The curtain pull's handle seen from the nook facing west (around x 243-252,
+// y 101-123 at 320x240), its centre, and points on and off the pull's hit area.
+const HANDLE_PIXELS = pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, Math.PI / 2, PLACES.nook).filter(
+  (p) => p.colour === FOREGROUND,
+)
+const HANDLE = {
+  left: Math.min(...HANDLE_PIXELS.map((p) => p.x)),
+  top: Math.min(...HANDLE_PIXELS.map((p) => p.y)),
+  right: Math.max(...HANDLE_PIXELS.map((p) => p.x)),
+  bottom: Math.max(...HANDLE_PIXELS.map((p) => p.y)),
+}
+const PULL_X = Math.round((HANDLE.left + HANDLE.right) / 2)
+const HANDLE_Y = Math.round((HANDLE.top + HANDLE.bottom) / 2)
+// On the cord a little above the handle, and far up it, out of the hit area.
+const CORD_Y = HANDLE.top - 10
+const HIGH_CORD_Y = HANDLE.top - 60
+// Below the handle's tip, past the hit area's padding.
+const BELOW_HANDLE_Y = HANDLE.bottom + 12
+// On the wall between the mirror's frame and the pull.
+const BETWEEN_X = Math.round((MIRROR.right + HANDLE.left) / 2)
+
+// How far the pull is tugged `elapsed` ms into a switch: down 0.1 over 150 ms,
+// back up by 600 ms, both eased.
+function pullDropAt(elapsed: number): number {
+  const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
+  if (elapsed < 150) return 0.1 * easeInOut(elapsed / 150)
+  if (elapsed < 600) return 0.1 * (1 - easeInOut((elapsed - 150) / 450))
+  return 0
+}
+
+// The fills drawScene makes for the nook facing west with `extras`, recorded
+// with a separate fake context.
+function sceneFills(extras?: MirrorExtras): { args: number[]; fillStyle: string }[] {
+  const recorded: { args: number[]; fillStyle: string }[] = []
+  const other = createFakeContext()
+  other.fillRect.mockImplementation((...args: number[]) => {
+    recorded.push({ args, fillStyle: other.fillStyle })
+  })
+  drawScene(other as unknown as CanvasRenderingContext2D, Math.PI / 2, PLACES.nook, extras)
+  return recorded
+}
 
 // Renders the pane with its on-screen rect at (0, 0), the same size as the canvas.
 function renderPane() {
@@ -461,17 +512,19 @@ describe('ViewPane', () => {
       const { canvas } = renderPane()
       clickAt(canvas, LEFT_X)
 
-      // Only the sign and the mirror's frame are drawn in the full foreground
-      // colour, so with the sign out of view only the frame's pixels are.
+      // Only the sign, the mirror's frame and the pull's handle are drawn in the
+      // full foreground colour, so with the sign out of view only the frame's
+      // and handle's pixels are.
       const colours: string[] = []
       ctx.fillRect.mockImplementation(() => {
         colours.push(ctx.fillStyle)
       })
       frames.flush(START + TURN_DURATION_MS)
       const frame = mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2).filter((p) => p.colour === FOREGROUND)
+      const handle = pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, Math.PI / 2).filter((p) => p.colour === FOREGROUND)
 
       expect(colours.length).toBeGreaterThan(0)
-      expect(colours.filter((c) => c === FOREGROUND)).toHaveLength(frame.length)
+      expect(colours.filter((c) => c === FOREGROUND)).toHaveLength(frame.length + handle.length)
     })
 
     it('ignores turn clicks during the animation', () => {
@@ -1144,7 +1197,7 @@ describe('ViewPane', () => {
       other.fillRect.mockImplementation((...args: number[]) => {
         recorded.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, ripple)
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { ripple })
       return recorded
     }
 
@@ -1468,6 +1521,368 @@ describe('ViewPane', () => {
       return x >= MIRROR.left && x <= MIRROR.right && y >= MIRROR.top && y <= MIRROR.bottom
     }
   })
+  describe('curtain pull cursor', () => {
+    // Turns left to face west at the start, then steps forward into the nook.
+    function enterNook(canvas: HTMLElement) {
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+    }
+
+    it.each([
+      ['handle', PULL_X, HANDLE_Y],
+      ['cord just above the handle', PULL_X, CORD_Y],
+    ])('shows the hand over the pull\'s %s in the nook facing west', (_, clientX, clientY) => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it.each([
+      ['between the mirror and the pull', BETWEEN_X, HANDLE_Y],
+      ['far up the cord', PULL_X, HIGH_CORD_Y],
+      ['below the handle', PULL_X, BELOW_HANDLE_Y],
+    ])('does not show the hand %s', (_, clientX, clientY) => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('returns to the blocked cursor when moving off the pull', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      fireEvent.mouseMove(canvas, { clientX: PULL_X, clientY: HANDLE_Y })
+
+      fireEvent.mouseMove(canvas, { clientX: BETWEEN_X, clientY: HANDLE_Y })
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('does not show the hand over the pull\'s screen area from the start facing west', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+
+      fireEvent.mouseMove(canvas, { clientX: PULL_X, clientY: HANDLE_Y })
+
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
+
+    it('does not show the hand over the pull\'s screen area in the nook facing north', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      clickAt(canvas, RIGHT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'north')
+
+      fireEvent.mouseMove(canvas, { clientX: PULL_X, clientY: HANDLE_Y })
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it('moves into the nook rather than switching when the pull\'s area is clicked from the start facing west', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+
+      clickAt(canvas, PULL_X, HANDLE_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-site', MIRROR_SITES[0].name)
+    })
+  })
+
+  describe('curtain pull', () => {
+    const START = 1000
+    const WEST = Math.PI / 2
+    const ORIGIN = screenToMirror(MIRROR_X, MIRROR_Y, VIEW_WIDTH, VIEW_HEIGHT, WEST, PLACES.nook)!
+    const RIPPLE_END = Math.ceil(rippleDuration(ORIGIN))
+    type Fill = { args: number[]; fillStyle: string }
+    let ctx: ReturnType<typeof createFakeContext>
+    let frames: ReturnType<typeof stubAnimationFrames>
+    let now: MockInstance<() => number>
+    let fills: Fill[]
+
+    beforeEach(() => {
+      ctx = createFakeContext()
+      fills = []
+      ctx.fillRect.mockImplementation((...args: number[]) => {
+        fills.push({ args, fillStyle: ctx.fillStyle })
+      })
+      provideContext(ctx)
+      frames = stubAnimationFrames()
+      now = vi.spyOn(performance, 'now').mockReturnValue(START)
+      vi.mocked(openUrl).mockClear()
+    })
+
+    afterEach(() => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      now.mockRestore()
+      vi.unstubAllGlobals()
+    })
+
+    // Renders, turns west and steps into the nook, letting each animation finish.
+    function renderInNook() {
+      const result = renderPane()
+      clickAt(result.canvas, LEFT_X)
+      frames.flush(START + TURN_DURATION_MS)
+      clickAt(result.canvas, CENTRE_X)
+      frames.flush(START + MOVE_DURATION_MS)
+      expect(result.canvas).toHaveAttribute('data-place', 'nook')
+      expect(result.canvas).toHaveAttribute('data-heading', 'west')
+      frames.requestAnimationFrame.mockClear()
+      fills.length = 0
+      return result
+    }
+
+    function pull(canvas: HTMLElement) {
+      clickAt(canvas, PULL_X, HANDLE_Y)
+    }
+
+    it('uses a 900 ms switch duration', () => {
+      expect(SWITCH_DURATION_MS).toBe(900)
+    })
+
+    it('steps through GitHub then LinkedIn', () => {
+      expect(MIRROR_SITES.map(({ name }) => name)).toEqual(['GitHub', 'LinkedIn'])
+    })
+
+    it('starts on the first site', () => {
+      const { canvas } = renderPane()
+
+      expect(canvas).toHaveAttribute('data-site', 'GitHub')
+    })
+
+    it('requests an animation frame when the pull is clicked', () => {
+      const { canvas } = renderInNook()
+
+      pull(canvas)
+
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(1)
+    })
+
+    it('moves to the next site when the pull is clicked', () => {
+      const { canvas } = renderInNook()
+
+      pull(canvas)
+
+      expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
+    })
+
+    it('stays in the nook facing west when the pull is clicked', () => {
+      const { canvas } = renderInNook()
+
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('hides the hand over the pull mid-switch', () => {
+      const { canvas } = renderInNook()
+      fireEvent.mouseMove(canvas, { clientX: PULL_X, clientY: HANDLE_Y })
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+
+      pull(canvas)
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it('shows the hand again once the switch has finished', () => {
+      const { canvas } = renderInNook()
+      fireEvent.mouseMove(canvas, { clientX: PULL_X, clientY: HANDLE_Y })
+      pull(canvas)
+
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('keeps requesting frames until the switch duration has passed', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+
+      frames.flush(START + SWITCH_DURATION_MS / 2)
+      expect(frames.pending()).toBe(1)
+
+      frames.flush(START + SWITCH_DURATION_MS)
+      expect(frames.pending()).toBe(0)
+    })
+
+    it.each([
+      // While the pull drops, before the shimmer starts.
+      [75, 0],
+      // As the pull springs back, part-way through the shimmer.
+      [450, 300 / 750],
+      // Back at rest, near the end of the shimmer.
+      [800, 650 / 750],
+    ])('draws the pull and shimmer %i ms in', (elapsed, progress) => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+
+      frames.flush(START + elapsed)
+
+      expect(fills).toEqual(sceneFills({ preview: null, shimmer: { from: null, progress }, pullDrop: pullDropAt(elapsed) }))
+    })
+
+    it('draws the pull lowered mid-drop', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+      const rest = pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, WEST, PLACES.nook)
+      const bottom = (pixels: { y: number }[]) => Math.max(...pixels.map((p) => p.y))
+
+      frames.flush(START + 150)
+
+      const dropped = pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0.1, WEST, PLACES.nook)
+      expect(bottom(dropped)).toBeGreaterThan(bottom(rest))
+      expect(fills).toEqual(sceneFills({ preview: null, shimmer: { from: null, progress: 0 }, pullDrop: 0.1 }))
+    })
+
+    it('ends drawing the plain scene, without the shimmer or the drop', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS / 2)
+      fills.length = 0
+
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      expect(fills).toEqual(sceneFills())
+    })
+
+    it('ignores turn clicks mid-switch', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+
+      clickAt(canvas, LEFT_X)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('ignores glass clicks mid-switch', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + SWITCH_DURATION_MS)
+      frames.flush(START + RIPPLE_END)
+
+      expect(frames.pending()).toBe(0)
+      expect(openUrl).not.toHaveBeenCalled()
+    })
+
+    it('ignores pull clicks mid-switch', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
+      expect(frames.pending()).toBe(0)
+    })
+
+    it('wraps back to the first site on a second pull', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      pull(canvas)
+      expect(frames.pending()).toBe(1)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      expect(canvas).toHaveAttribute('data-site', 'GitHub')
+    })
+
+    it('goes to the new site when the glass is clicked after switching', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + RIPPLE_END)
+
+      expect(openUrl).toHaveBeenCalledTimes(1)
+      expect(openUrl).toHaveBeenCalledWith(MIRROR_SITES[1].url)
+    })
+
+    it('goes back to the first site after wrapping round', () => {
+      const { canvas } = renderInNook()
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS)
+      pull(canvas)
+      frames.flush(START + SWITCH_DURATION_MS)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + RIPPLE_END)
+
+      expect(openUrl).toHaveBeenCalledWith(MIRROR_SITES[0].url)
+    })
+
+    it('switches at once with reduced motion, redrawing without a shimmer', () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      fills.length = 0
+
+      pull(canvas)
+
+      expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      expect(fills).toEqual(sceneFills())
+    })
+
+    it('accepts the next pull straight away with reduced motion', () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+
+      pull(canvas)
+      pull(canvas)
+
+      expect(canvas).toHaveAttribute('data-site', 'GitHub')
+    })
+
+    it('switches at once without a canvas context', () => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+
+      pull(canvas)
+
+      expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+    })
+
+    it('does not switch when the pull\'s area is clicked from the nook facing north', () => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      clickAt(canvas, RIGHT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'north')
+
+      pull(canvas)
+
+      expect(canvas).toHaveAttribute('data-site', 'GitHub')
+    })
+
+    it('does not switch when clicked between the mirror and the pull', () => {
+      const { canvas } = renderInNook()
+
+      clickAt(canvas, BETWEEN_X, HANDLE_Y)
+
+      expect(canvas).toHaveAttribute('data-site', 'GitHub')
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+    })
+  })
+
   describe('mirror preview', () => {
     const WEST = Math.PI / 2
     // A portrait screenshot, taller than the glass's aspect, so its height is cropped.
@@ -1487,7 +1902,7 @@ describe('ViewPane', () => {
       height = IMAGE_HEIGHT
       onload: (() => void) | null = null
       onerror: ((error: unknown) => void) | null = null
-      private source = ''
+      protected source = ''
       constructor() {
         images.push(this)
       }
@@ -1525,7 +1940,7 @@ describe('ViewPane', () => {
       other.fillRect.mockImplementation((...args: number[]) => {
         recorded.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, undefined, preview)
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { preview })
       return recorded
     }
 
@@ -1562,13 +1977,12 @@ describe('ViewPane', () => {
       vi.unstubAllGlobals()
     })
 
-    it('loads the mirror site\'s preview image', async () => {
+    it('loads every mirror site\'s preview image', async () => {
       provideContexts(createOffscreenContext())
 
       await renderLoaded()
 
-      expect(images).toHaveLength(1)
-      expect(images[0].src).toBe(MIRROR_SITE.preview)
+      expect(images.map((image) => image.src)).toEqual(MIRROR_SITES.map(({ preview }) => preview))
     })
 
     it('asks for an offscreen context it can read back often', async () => {
@@ -1585,7 +1999,7 @@ describe('ViewPane', () => {
 
       await renderLoaded()
 
-      expect(offscreen.drawImage).toHaveBeenCalledTimes(1)
+      expect(offscreen.drawImage).toHaveBeenCalledTimes(MIRROR_SITES.length)
       const [image, x, y, width, height] = offscreen.drawImage.mock.calls[0] as unknown as [unknown, ...number[]]
       expect(image).toBe(images[0])
       expect(width).toBeCloseTo(PREVIEW_WIDTH)
@@ -1648,7 +2062,7 @@ describe('ViewPane', () => {
       other.fillRect.mockImplementation((...args: number[]) => {
         expected.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, ripple, WHITE_PREVIEW)
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { ripple, preview: WHITE_PREVIEW })
       expect(fills).toEqual(expected)
       now.mockRestore()
     })
@@ -1682,6 +2096,171 @@ describe('ViewPane', () => {
 
       expect(offscreen.drawImage).not.toHaveBeenCalled()
       expect(fills).toEqual(fillsFor())
+    })
+
+    describe('for each site', () => {
+      const GREY = new Uint8ClampedArray(PREVIEW_WIDTH * PREVIEW_HEIGHT * 4).fill(128)
+      const GREY_PREVIEW = quantisePreview(GREY, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+      const [GITHUB, LINKEDIN] = MIRROR_SITES
+
+      // An offscreen context reading back white for GitHub's image and grey for
+      // LinkedIn's, keyed by the image last drawn.
+      function createSiteContext() {
+        let drawn = ''
+        return {
+          imageSmoothingQuality: '',
+          drawImage: vi.fn((image: { src: string }) => {
+            drawn = image.src
+          }),
+          getImageData: vi.fn(() => ({ data: drawn === GITHUB.preview ? WHITE : GREY })),
+        }
+      }
+
+      // Images that load only when told to, by src.
+      const finishers = new Map<string, () => void>()
+      class HeldImage extends FakeImage {
+        get src() {
+          return this.source
+        }
+        set src(value: string) {
+          this.source = value
+          finishers.set(value, () => this.onload?.())
+        }
+      }
+
+      async function finishLoad(src: string) {
+        await act(async () => finishers.get(src)!())
+      }
+
+      beforeEach(() => {
+        finishers.clear()
+      })
+
+      it('uses different previews for the two sites', () => {
+        expect(GREY_PREVIEW).not.toEqual(WHITE_PREVIEW)
+        expect(GITHUB.preview).not.toBe(LINKEDIN.preview)
+      })
+
+      it('shows the first site\'s preview on the glass', async () => {
+        provideContexts(createSiteContext())
+        const { canvas } = await renderLoaded()
+        fills.length = 0
+
+        enterNook(canvas)
+
+        expect(fills).toEqual(fillsFor(WHITE_PREVIEW))
+      })
+
+      it('shows the next site\'s preview after the pull is clicked', async () => {
+        provideContexts(createSiteContext())
+        const { canvas } = await renderLoaded()
+        enterNook(canvas)
+        fills.length = 0
+
+        clickAt(canvas, PULL_X, HANDLE_Y)
+
+        expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+      })
+
+      it('shows the first site\'s preview again after a second pull', async () => {
+        provideContexts(createSiteContext())
+        const { canvas } = await renderLoaded()
+        enterNook(canvas)
+        clickAt(canvas, PULL_X, HANDLE_Y)
+        fills.length = 0
+
+        clickAt(canvas, PULL_X, HANDLE_Y)
+
+        expect(fills).toEqual(fillsFor(WHITE_PREVIEW))
+      })
+
+      it('shimmers from the old preview to the new one', async () => {
+        vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query }))
+        const frames = stubAnimationFrames()
+        const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+        provideContexts(createSiteContext())
+        const { canvas } = await renderLoaded()
+        clickAt(canvas, LEFT_X)
+        frames.flush(TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+        frames.flush(MOVE_DURATION_MS)
+        clickAt(canvas, PULL_X, HANDLE_Y)
+        fills.length = 0
+
+        // Half-way through the shimmer, 150 + 375 ms in.
+        frames.flush(525)
+
+        const shimmer = { from: WHITE_PREVIEW, progress: 0.5 }
+        expect(fills).toEqual(sceneFills({ preview: GREY_PREVIEW, shimmer, pullDrop: pullDropAt(525) }))
+        fills.length = 0
+
+        frames.flush(SWITCH_DURATION_MS)
+
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        now.mockRestore()
+      })
+
+      it('does not redraw when another site\'s preview loads', async () => {
+        vi.stubGlobal('Image', HeldImage)
+        provideContexts(createSiteContext())
+        renderPane()
+        fills.length = 0
+
+        await finishLoad(LINKEDIN.preview)
+
+        expect(fills).toEqual([])
+      })
+
+      it('redraws when the current site\'s preview loads late', async () => {
+        vi.stubGlobal('Image', HeldImage)
+        provideContexts(createSiteContext())
+        const { canvas } = renderPane()
+        enterNook(canvas)
+        clickAt(canvas, PULL_X, HANDLE_Y)
+        expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
+        fills.length = 0
+
+        await finishLoad(LINKEDIN.preview)
+
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+      })
+
+      it('uses a preview that loaded while another site was shown once switched to', async () => {
+        vi.stubGlobal('Image', HeldImage)
+        provideContexts(createSiteContext())
+        const { canvas } = renderPane()
+        enterNook(canvas)
+        await finishLoad(LINKEDIN.preview)
+        fills.length = 0
+
+        clickAt(canvas, PULL_X, HANDLE_Y)
+
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+      })
+
+      it('waits for the next frame when the preview loads mid-switch', async () => {
+        vi.stubGlobal('Image', HeldImage)
+        vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query }))
+        const frames = stubAnimationFrames()
+        const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+        provideContexts(createSiteContext())
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+        frames.flush(MOVE_DURATION_MS)
+        clickAt(canvas, PULL_X, HANDLE_Y)
+        fills.length = 0
+
+        await finishLoad(LINKEDIN.preview)
+        expect(fills).toEqual([])
+
+        frames.flush(SWITCH_DURATION_MS)
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        now.mockRestore()
+      })
+
     })
 
     it('does not draw the preview when unmounted before it loads', async () => {

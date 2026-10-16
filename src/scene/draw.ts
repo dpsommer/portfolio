@@ -1,8 +1,8 @@
 import { ORIGIN, NEAR, projectPoint, toCamera } from './camera.ts'
 import type { FloorPoint, ScreenPoint } from './camera.ts'
 import { BACKGROUND } from './palette.ts'
-import type { Preview } from './preview.ts'
-import { isVisible, mirrorPixels, previewPixels, ripplePixels, roomPixels } from './room.ts'
+import type { Preview, Shimmer } from './preview.ts'
+import { isVisible, mirrorPixels, previewPixels, pullPixels, ripplePixels, roomPixels } from './room.ts'
 import type { RippleState } from './room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
@@ -54,23 +54,32 @@ export function placeSprite(
   })
 }
 
-// Draws the scene from `eye` with the camera turned `yaw` radians left of north,
-// with `preview` on the mirror's glass and `ripple` over it if one is playing.
+// What's changing on the mirror wall, beyond the camera: the preview on the
+// glass (null or absent for empty glass), a ripple or shimmer playing on it,
+// and how far the curtain pull is tugged down.
+export type MirrorExtras = {
+  preview?: Preview | null
+  ripple?: RippleState
+  shimmer?: Shimmer
+  pullDrop?: number
+}
+
+// Draws the scene from `eye` with the camera turned `yaw` radians left of north.
 export function drawScene(
   ctx: CanvasRenderingContext2D,
   yaw = 0,
   eye: FloorPoint = ORIGIN,
-  ripple?: RippleState,
-  preview?: Preview,
+  { preview, ripple, shimmer, pullDrop = 0 }: MirrorExtras = {},
 ) {
   const { width, height } = ctx.canvas
   ctx.fillStyle = BACKGROUND
   ctx.fillRect(0, 0, width, height)
   drawPixels(ctx, roomPixels(width, height, yaw, eye))
   // Under the mirror, so its frame covers the picture's and rings' edges.
-  if (preview) drawPixels(ctx, previewPixels(width, height, preview, yaw, eye, ripple))
+  if (preview || shimmer) drawPixels(ctx, previewPixels(width, height, preview ?? null, yaw, eye, ripple, shimmer))
   if (ripple) drawPixels(ctx, ripplePixels(width, height, ripple, yaw, eye))
   drawPixels(ctx, mirrorPixels(width, height, yaw, eye))
+  drawPixels(ctx, pullPixels(width, height, pullDrop, yaw, eye))
   const placement = signPlacement(yaw, width, height, eye)
   if (!placement) return
   const home = projectPoint(toCamera(SIGN_POSITION, 0), width, height)

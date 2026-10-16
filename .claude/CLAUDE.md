@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run lint` — run oxlint (type-aware; config in `.oxlintrc.json`)
 - `npm run preview` — serve the production build locally
 - `npm test` — run the Vitest suite
-- `npm run capture:preview` — re-capture the GitHub profile screenshot shown in the mirror (`src/assets/github-preview.png`, via Playwright; needs `npx playwright install chromium` once)
+- `npm run capture:preview` — re-capture the profile screenshots shown in the mirror (`src/assets/*-preview.png`, one per page in the script's `PAGES` list, via Playwright; needs `npx playwright install chromium` once)
 
 ## Docs
 

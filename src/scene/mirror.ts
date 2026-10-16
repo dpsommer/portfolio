@@ -15,10 +15,10 @@ const BOTTOM = -0.55
 // How far the glass edge sits inside the frame.
 const FRAME_WIDTH = 0.07
 
-const point = (s: number, t: number): MirrorPoint => ({ s, t })
+export const point = (s: number, t: number): MirrorPoint => ({ s, t })
 const mirrored = ({ s, t }: MirrorPoint) => point(-s, t)
 
-function polyline(points: MirrorPoint[]): MirrorLine[] {
+export function polyline(points: MirrorPoint[]): MirrorLine[] {
   return points.slice(1).map((p, i) => [points[i], p])
 }
 
