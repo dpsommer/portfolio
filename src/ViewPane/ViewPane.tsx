@@ -26,16 +26,18 @@ function ViewPane() {
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="view-pane"
-      width={VIEW_WIDTH}
-      height={VIEW_HEIGHT}
-      role="img"
-      aria-label="Dungeon view"
-      style={{ cursor: CURSORS[zone] }}
-      onMouseMove={handleMouseMove}
-    />
+    <div className="view-pane-frame">
+      <canvas
+        ref={canvasRef}
+        className="view-pane"
+        width={VIEW_WIDTH}
+        height={VIEW_HEIGHT}
+        role="img"
+        aria-label="Dungeon view"
+        style={{ cursor: CURSORS[zone] }}
+        onMouseMove={handleMouseMove}
+      />
+    </div>
   )
 }
 

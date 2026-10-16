@@ -1,17 +1,21 @@
-$frame-width: 8px;
-$outline-width: 2px;
-$outline-colour: #000;
+// Size of one canvas pixel on screen. The frame is drawn in the same units so its
+// pixels line up with the scene's.
+$pane-width: min(80vw, calc(80vh * 4 / 3));
+$canvas-pixel: calc(#{$pane-width} / 320);
+// Must match the frame thickness in frame.svg (5 of its 12 pixels on each side).
+$frame-thickness: 5;
+
+.view-pane-frame {
+  // frame.svg is a 12×12 pixel-art frame: the 5px corners stay fixed and the
+  // middle pixels stretch along each edge. It's an SVG of crisp-edged rects, so
+  // it stays sharp at any scale.
+  border: calc(#{$canvas-pixel} * #{$frame-thickness}) solid transparent;
+  border-image: url('./frame.svg') $frame-thickness;
+}
 
 .view-pane {
   display: block;
-  width: min(80vw, calc(80vh * 4 / 3));
+  width: $pane-width;
   aspect-ratio: 4 / 3;
   image-rendering: pixelated;
-  border-radius: 4px;
-  // The frame is drawn with stacked shadows rather than a border so it takes no
-  // layout space and stays outside the canvas's mouse area (see cursors.ts zones).
-  box-shadow:
-    0 0 0 $outline-width $outline-colour,
-    0 0 0 ($outline-width + $frame-width) var(--fg),
-    0 0 0 ($outline-width * 2 + $frame-width) $outline-colour;
 }
