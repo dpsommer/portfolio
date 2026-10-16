@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
-import { BOARD_SLOPE, BOARD_WIDTH, signpostBackingPixels, signpostPixels } from './signpost.ts'
+import {
+  BOARD_HEIGHT,
+  BOARD_SLOPE,
+  BOARD_WIDTH,
+  signBoardBounds,
+  signpostBackingPixels,
+  signpostPixels,
+} from './signpost.ts'
 
 const WIDTH = 320
 const HEIGHT = 240
@@ -170,5 +177,102 @@ describe('signpostBackingPixels', () => {
     const topNearRight = topAt(right - 10)
     expect(topAt(right)).toBeGreaterThan(topNearRight)
     expect(backing.has(`${right},${topNearRight}`)).toBe(false)
+  })
+})
+
+describe('signBoardBounds', () => {
+  // Backing pixels of the board alone, without the post running above and below it.
+  function boardBackingPixels(width: number, height: number) {
+    const { postLeft, postRight } = geometry(width, height)
+    return signpostBackingPixels(width, height).filter((p) => p.x < postLeft || p.x > postRight)
+  }
+
+  it('matches the expected rectangle on a 320x240 canvas', () => {
+    expect(signBoardBounds(WIDTH, HEIGHT)).toEqual({ left: 100, top: 95, right: 219, bottom: 144 })
+  })
+
+  it('is deterministic', () => {
+    expect(signBoardBounds(WIDTH, HEIGHT)).toEqual(signBoardBounds(WIDTH, HEIGHT))
+  })
+
+  it('uses integer coordinates', () => {
+    for (const value of Object.values(signBoardBounds(WIDTH, HEIGHT))) {
+      expect(Number.isInteger(value)).toBe(true)
+    }
+  })
+
+  it('spans the board width', () => {
+    const { left, right } = signBoardBounds(WIDTH, HEIGHT)
+    expect(right - left + 1).toBe(BOARD_WIDTH)
+  })
+
+  it('is taller than the board because of the tilt', () => {
+    const { top, bottom } = signBoardBounds(WIDTH, HEIGHT)
+    expect(bottom - top + 1).toBeGreaterThan(BOARD_HEIGHT)
+  })
+
+  it('has its top above the untilted board top', () => {
+    const untiltedTop = Math.floor((HEIGHT - BOARD_HEIGHT) / 2)
+    expect(signBoardBounds(WIDTH, HEIGHT).top).toBeLessThan(untiltedTop)
+  })
+
+  it('has its bottom below the untilted board bottom', () => {
+    const untiltedBottom = Math.floor((HEIGHT - BOARD_HEIGHT) / 2) + BOARD_HEIGHT - 1
+    expect(signBoardBounds(WIDTH, HEIGHT).bottom).toBeGreaterThan(untiltedBottom)
+  })
+
+  it.each([
+    [320, 240],
+    [640, 480],
+  ])('contains every board pixel on a %ix%i canvas', (width, height) => {
+    const { left, top, right, bottom } = signBoardBounds(width, height)
+    const board = boardBackingPixels(width, height)
+    expect(board.length).toBeGreaterThan(0)
+    for (const { x, y } of board) {
+      expect(x).toBeGreaterThanOrEqual(left)
+      expect(x).toBeLessThanOrEqual(right)
+      expect(y).toBeGreaterThanOrEqual(top)
+      expect(y).toBeLessThanOrEqual(bottom)
+    }
+  })
+
+  it('fits the board tightly', () => {
+    const { left, top, right, bottom } = signBoardBounds(WIDTH, HEIGHT)
+    const board = boardBackingPixels(WIDTH, HEIGHT)
+    const xs = board.map((p) => p.x)
+    const ys = board.map((p) => p.y)
+    expect(Math.min(...xs)).toBe(left)
+    expect(Math.max(...xs)).toBe(right)
+    expect(Math.max(...ys)).toBe(bottom)
+    // The chipped corner may remove the very highest pixel.
+    expect(Math.min(...ys) - top).toBeLessThanOrEqual(1)
+  })
+
+  it('includes the board\'s lower-left and upper-right corners', () => {
+    const { left, top, right, bottom } = signBoardBounds(WIDTH, HEIGHT)
+    const board = new Set(boardBackingPixels(WIDTH, HEIGHT).map((p) => `${p.x},${p.y}`))
+    expect(board.has(`${left},${bottom}`)).toBe(true)
+    // The top-right corner is chipped, so check the top edge just left of the chip.
+    const topRow = boardBackingPixels(WIDTH, HEIGHT).filter((p) => p.y <= top + 1)
+    expect(topRow.length).toBeGreaterThan(0)
+    expect(Math.max(...topRow.map((p) => p.x))).toBeGreaterThan(right - 10)
+  })
+
+  it('scales and stays centred on a 640x480 canvas', () => {
+    const { left, top, right, bottom } = signBoardBounds(640, 480)
+    expect(right - left + 1).toBe(BOARD_WIDTH)
+    expect(Math.abs((left + right) / 2 - 320)).toBeLessThanOrEqual(1)
+    expect(Math.abs((top + bottom) / 2 - 240)).toBeLessThanOrEqual(2)
+  })
+
+  it('moves with the canvas by the change in its centre', () => {
+    const small = signBoardBounds(WIDTH, HEIGHT)
+    const large = signBoardBounds(640, 480)
+    expect(large).toEqual({
+      left: small.left + 160,
+      top: small.top + 120,
+      right: small.right + 160,
+      bottom: small.bottom + 120,
+    })
   })
 })

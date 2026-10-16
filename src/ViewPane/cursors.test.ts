@@ -3,6 +3,8 @@ import {
   CURSOR_MAPS,
   CURSORS,
   EDGE_ZONE_FRACTION,
+  HAND_CURSOR,
+  HAND_MAP,
   getCursorZone,
   mirror,
   pixelMapToCursor,
@@ -223,6 +225,29 @@ describe('pixelMapToCursor', () => {
     expect(countMatches(svg, `fill="${BACKGROUND}"`)).toBe(10)
   })
 
+  it('uses a custom hotspot scaled to cursor pixels', () => {
+    expect(pixelMapToCursor(singlePixelMap(), 'pointer', [3, 4]).endsWith('") 6 8, pointer')).toBe(true)
+  })
+
+  it('rounds a fractional custom hotspot', () => {
+    expect(pixelMapToCursor(singlePixelMap(), 'pointer', [1.3, 2.7]).endsWith('") 3 5, pointer')).toBe(true)
+  })
+
+  it('accepts a hotspot at the origin', () => {
+    expect(pixelMapToCursor(singlePixelMap(), 'pointer', [0, 0]).endsWith('") 0 0, pointer')).toBe(true)
+  })
+
+  it('defaults the hotspot to the centre of a non-square map', () => {
+    const map = Array.from({ length: 8 }, () => '.'.repeat(12))
+    expect(pixelMapToCursor(map, 'pointer').endsWith('") 12 8, pointer')).toBe(true)
+  })
+
+  it('draws the same image whatever the hotspot', () => {
+    const centred = pixelMapToCursor(singlePixelMap(), 'pointer')
+    const custom = pixelMapToCursor(singlePixelMap(), 'pointer', [1, 2])
+    expect(decodeSvg(custom)).toBe(decodeSvg(centred))
+  })
+
   it('produces no rects for an empty map', () => {
     const svg = decodeSvg(pixelMapToCursor(blankMap(), 'pointer'))
     expect(svg).not.toContain('<rect')
@@ -240,5 +265,64 @@ describe('CURSORS', () => {
 
   it('builds each cursor from its pixel map', () => {
     expect(CURSORS.forward).toBe(pixelMapToCursor(CURSOR_MAPS.forward, 'n-resize'))
+  })
+})
+
+describe('HAND_MAP', () => {
+  it('is 16 rows of 16 characters', () => {
+    expect(HAND_MAP).toHaveLength(16)
+    for (const row of HAND_MAP) expect(row).toHaveLength(16)
+  })
+
+  it('only contains "#", "+" and "."', () => {
+    for (const row of HAND_MAP) expect(row).toMatch(/^[#+.]+$/)
+  })
+
+  it('has both top face and crease cells', () => {
+    const text = HAND_MAP.join('')
+    expect(text).toContain('#')
+    expect(text).toContain('+')
+  })
+
+  it('leaves a transparent 1-pixel border', () => {
+    expect(HAND_MAP[0]).toBe('.'.repeat(16))
+    expect(HAND_MAP[15]).toBe('.'.repeat(16))
+    for (const row of HAND_MAP) {
+      expect(row[0]).toBe('.')
+      expect(row[15]).toBe('.')
+    }
+  })
+})
+
+describe('HAND_CURSOR', () => {
+  // The map pixel under the cursor hotspot, from the "x y" after the data URL.
+  function hotspotPixel(cursor: string): [x: number, y: number] {
+    const match = cursor.match(/"\) (\d+) (\d+), /)
+    if (!match) throw new Error('no hotspot')
+    return [Math.floor(Number(match[1]) / 2), Math.floor(Number(match[2]) / 2)]
+  }
+
+  it('falls back to the pointer cursor', () => {
+    expect(HAND_CURSOR.endsWith(', pointer')).toBe(true)
+  })
+
+  it('puts the hotspot at 13 2', () => {
+    expect(HAND_CURSOR.endsWith('") 13 2, pointer')).toBe(true)
+  })
+
+  it('is built from the hand map', () => {
+    expect(HAND_CURSOR).toBe(pixelMapToCursor(HAND_MAP, 'pointer', [6.5, 1]))
+  })
+
+  it('puts the hotspot on a filled pixel', () => {
+    const [x, y] = hotspotPixel(HAND_CURSOR)
+    expect(HAND_MAP[y][x]).toBe('#')
+  })
+
+  it('puts the hotspot at the fingertip, on the topmost filled row', () => {
+    const [x, y] = hotspotPixel(HAND_CURSOR)
+    expect(HAND_MAP[y - 1][x]).toBe('.')
+    const topRow = HAND_MAP.findIndex((row) => /[#+]/.test(row))
+    expect(y).toBe(topRow)
   })
 })

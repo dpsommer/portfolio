@@ -112,8 +112,13 @@ function isOutline(map: string[], x: number, y: number): boolean {
   return false
 }
 
-// Builds a CSS `cursor` value from a pixel map, with the hotspot at the centre.
-export function pixelMapToCursor(map: string[], fallback: string): string {
+// Builds a CSS `cursor` value from a pixel map. The hotspot is given in map
+// pixels and defaults to the centre.
+export function pixelMapToCursor(
+  map: string[],
+  fallback: string,
+  hotspot: [x: number, y: number] = [map[0].length / 2, map.length / 2],
+): string {
   const height = map.length
   const width = map[0].length
   const rects: string[] = []
@@ -128,8 +133,8 @@ export function pixelMapToCursor(map: string[], fallback: string): string {
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width * PIXEL_SIZE}" height="${height * PIXEL_SIZE}" ` +
     `viewBox="0 0 ${width} ${height}" shape-rendering="crispEdges">${rects.join('')}</svg>`
-  const hotspotX = (width * PIXEL_SIZE) / 2
-  const hotspotY = (height * PIXEL_SIZE) / 2
+  const hotspotX = Math.round(hotspot[0] * PIXEL_SIZE)
+  const hotspotY = Math.round(hotspot[1] * PIXEL_SIZE)
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspotX} ${hotspotY}, ${fallback}`
 }
 
@@ -144,3 +149,24 @@ export const CURSORS: Record<CursorZone, string> = {
   forward: pixelMapToCursor(CURSOR_MAPS.forward, 'n-resize'),
   'turn-right': pixelMapToCursor(CURSOR_MAPS['turn-right'], 'e-resize'),
 }
+
+// A pointing hand for clickable things in the scene. Unlike the arrows it is
+// upright rather than lying on the floor; '+' marks the creases between fingers.
+export const HAND_MAP = [
+  '..............',
+  '...##.........',
+  '...+#+........',
+  '....##+.......',
+  '....+##.#+....',
+  '..##.##+##+#+.',
+  '..##+##+##+##.',
+  '..+##########.',
+  '...##########.',
+  '....#########.',
+  '.....#######+.',
+  '......++++++..',
+  '..............',
+]
+
+// The hotspot is the tip of the index finger.
+export const HAND_CURSOR = pixelMapToCursor(HAND_MAP, 'pointer', [6.5, 1])

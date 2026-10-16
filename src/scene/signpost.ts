@@ -132,6 +132,17 @@ export function signpostPixels(canvasWidth: number, canvasHeight: number): Pixel
   return [...board, ...post, ...ground]
 }
 
+export type Bounds = { left: number; top: number; right: number; bottom: number }
+
+// A rectangle from the tilted board's lower-left corner to its upper-right corner,
+// in canvas pixels (inclusive). Used as the sign's hover area.
+export function signBoardBounds(canvasWidth: number, canvasHeight: number): Bounds {
+  const { placeOnBoard } = layout(canvasWidth, canvasHeight)
+  const lowerLeft = placeOnBoard({ x: 0, y: BOARD_HEIGHT - 1 })
+  const upperRight = placeOnBoard({ x: BOARD_WIDTH - 1, y: 0 })
+  return { left: lowerLeft.x, top: upperRight.y, right: upperRight.x, bottom: lowerLeft.y }
+}
+
 // Background-coloured pixels covering the board and post, drawn before the
 // signpost so the room behind it doesn't show through.
 export function signpostBackingPixels(canvasWidth: number, canvasHeight: number): Pixel[] {

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { CURSORS } from './cursors.ts'
+import { CURSORS, HAND_CURSOR } from './cursors.ts'
 import ViewPane, { VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
 
 describe('ViewPane', () => {
@@ -103,6 +103,106 @@ describe('ViewPane', () => {
       fireEvent.mouseMove(canvas, { clientX: 600 })
 
       expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
+  })
+
+  describe('sign cursor', () => {
+    // Renders the pane with its on-screen rect at the given position and size.
+    function renderAt(left: number, top: number, width: number, height: number) {
+      render(<ViewPane />)
+      const canvas = screen.getByRole('img')
+      const getRect = vi.spyOn(canvas, 'getBoundingClientRect')
+      getRect.mockReturnValue(new DOMRect(left, top, width, height))
+      return { canvas, getRect }
+    }
+
+    it('shows the hand over the centre of the sign', () => {
+      const { canvas } = renderAt(0, 0, 320, 240)
+
+      fireEvent.mouseMove(canvas, { clientX: 160, clientY: 120 })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('shows the hand over the sign when the pane is scaled and offset', () => {
+      const { canvas } = renderAt(50, 30, 640, 480)
+
+      fireEvent.mouseMove(canvas, { clientX: 50 + 160 * 2, clientY: 30 + 120 * 2 })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('does not show the hand at the unscaled sign position when the pane is scaled', () => {
+      // (110, 100) is over the sign at 320x240 but maps to canvas (55, 50) at 640x480.
+      const { canvas } = renderAt(0, 0, 640, 480)
+
+      fireEvent.mouseMove(canvas, { clientX: 110, clientY: 100 })
+
+      expect(canvas.style.cursor).toBe(CURSORS['turn-left'])
+    })
+
+    it.each([
+      ['above', 160, 50, 'forward'],
+      ['below', 160, 200, 'forward'],
+      ['left of', 40, 120, 'turn-left'],
+      ['right of', 300, 120, 'turn-right'],
+    ] as const)('returns to the zone cursor when moving %s the sign', (_, clientX, clientY, zone) => {
+      const { canvas } = renderAt(0, 0, 320, 240)
+
+      fireEvent.mouseMove(canvas, { clientX: 160, clientY: 120 })
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).toBe(CURSORS[zone])
+    })
+
+    // At 640x480 each canvas pixel is 2 client pixels, so odd client
+    // coordinates land half-way through a canvas pixel. Bounds are
+    // left 100, top 95, right 219, bottom 144 (inclusive).
+    it.each([
+      ['left', 200, 240],
+      ['right', 439, 240],
+      ['top', 320, 190],
+      ['bottom', 320, 289],
+    ])('shows the hand just inside the %s edge', (_, clientX, clientY) => {
+      const { canvas } = renderAt(0, 0, 640, 480)
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it.each([
+      ['left', 199, 240],
+      ['right', 440, 240],
+      ['top', 320, 189],
+      ['bottom', 320, 290],
+    ])('does not show the hand just outside the %s edge', (_, clientX, clientY) => {
+      const { canvas } = renderAt(0, 0, 640, 480)
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it('ignores mouse moves when the canvas has zero height', () => {
+      const { canvas, getRect } = renderAt(0, 0, 320, 240)
+      fireEvent.mouseMove(canvas, { clientX: 160, clientY: 120 })
+
+      // Without the guard, clientX 10 would select the turn-left cursor.
+      getRect.mockReturnValue(new DOMRect(0, 0, 320, 0))
+      fireEvent.mouseMove(canvas, { clientX: 10, clientY: 120 })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('ignores mouse moves when the canvas has zero width', () => {
+      const { canvas, getRect } = renderAt(0, 0, 320, 240)
+      fireEvent.mouseMove(canvas, { clientX: 160, clientY: 120 })
+
+      getRect.mockReturnValue(new DOMRect(0, 0, 0, 240))
+      fireEvent.mouseMove(canvas, { clientX: 10, clientY: 120 })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
     })
   })
 })
