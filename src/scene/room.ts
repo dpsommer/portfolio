@@ -1,6 +1,8 @@
 import { BACK_Z, CEILING_Y, FAR_Z, FLOOR_Y, NOOK_FRONT_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, projectSegment } from './camera.ts'
 import type { FloorPoint, Vec3 } from './camera.ts'
 import { linePoints } from './line.ts'
+import { MIRROR_BOUNDS, MIRROR_LAYERS } from './mirror.ts'
+import type { MirrorPoint } from './mirror.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
 import type { Pixel } from './types.ts'
@@ -83,6 +85,24 @@ function onWall(wall: Wall, u: number, v: number): Vec3 {
   return vec(start.x + along.x * u, start.y - v, start.z + along.z * u)
 }
 
+// The mirror hangs centred on the nook's back wall, facing the nook's place.
+export const MIRROR_WALL: WallName = 'nook-back'
+
+// Wall-local position of a point on the mirror. Its centre is at eye height.
+function mirrorToWall({ s, t }: MirrorPoint): { u: number; v: number } {
+  return { u: WALLS[MIRROR_WALL].length / 2 + s, v: CEILING_Y - t }
+}
+
+// Whether a wall-local rectangle overlaps the mirror, with a brick gap's margin.
+function isUnderMirror(wall: Wall, u0: number, u1: number, v0: number, v1: number): boolean {
+  if (wall !== WALLS[MIRROR_WALL]) return false
+  const topLeft = mirrorToWall({ s: MIRROR_BOUNDS.left, t: MIRROR_BOUNDS.top })
+  const bottomRight = mirrorToWall({ s: MIRROR_BOUNDS.right, t: MIRROR_BOUNDS.bottom })
+  return (
+    u1 > topLeft.u - BRICK_GAP && u0 < bottomRight.u + BRICK_GAP && v1 > topLeft.v - BRICK_GAP && v0 < bottomRight.v + BRICK_GAP
+  )
+}
+
 // Splits a segment into drawn runs with gaps between them, measured in world
 // units so the pattern doesn't change as the view moves.
 function brokenSegment(a: Vec3, b: Vec3, seed: number, minRun: number, maxRun: number): Segment[] {
@@ -128,6 +148,8 @@ function brickSegments(): Segment[] {
         const v1 = v0 + BRICK_HEIGHT - BRICK_GAP
         // Keep bricks off the wall's own edges.
         if (u0 <= 0 || u1 >= wall.length || v0 <= 0 || v1 >= CEILING_Y - FLOOR_Y) continue
+        // Nor behind the mirror, where they'd show through the glass.
+        if (isUnderMirror(wall, u0, u1, v0, v1)) continue
         segments.push([onWall(wall, u0, v0), onWall(wall, u1, v0)], [onWall(wall, u0, v0), onWall(wall, u0, v1)])
       }
     }
@@ -234,6 +256,16 @@ function visibleParts([a, b]: Segment, eye: FloorPoint): Segment[] {
 const BRICKS = brickSegments()
 const FLOOR = floorSegments()
 const EDGES = edgeSegments()
+const MIRROR = MIRROR_LAYERS.map(({ colour, lines }) => ({
+  colour,
+  segments: lines.map((line): Segment => {
+    const [a, b] = line.map((p) => {
+      const { u, v } = mirrorToWall(p)
+      return onWall(WALLS[MIRROR_WALL], u, v)
+    })
+    return [a, b]
+  }),
+}))
 
 type View = { yaw: number; eye: FloorPoint; width: number; height: number }
 
@@ -257,4 +289,11 @@ export function roomPixels(canvasWidth: number, canvasHeight: number, yaw = 0, e
     ...rasterise(FLOOR, FOREGROUND_DIM, view),
     ...rasterise(EDGES, FOREGROUND_WORN, view),
   ].filter(inCanvas)
+}
+
+// Pixels for the mirror, seen the same way as `roomPixels`.
+export function mirrorPixels(canvasWidth: number, canvasHeight: number, yaw = 0, eye: FloorPoint = ORIGIN): Pixel[] {
+  const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
+  const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
+  return MIRROR.flatMap(({ colour, segments }) => rasterise(segments, colour, view)).filter(inCanvas)
 }

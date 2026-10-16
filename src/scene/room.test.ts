@@ -12,9 +12,10 @@ import {
   WALL_VIEW_DISTANCE,
 } from './camera.ts'
 import type { FloorPoint } from './camera.ts'
-import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
+import { MIRROR_BOUNDS } from './mirror.ts'
+import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
-import { FLOOR_PLAN, WALLS, isOnFloor, isVisible, roomPixels } from './room.ts'
+import { FLOOR_PLAN, MIRROR_WALL, WALLS, isOnFloor, isVisible, mirrorPixels, roomPixels } from './room.ts'
 import type { WallName } from './room.ts'
 import type { Pixel } from './types.ts'
 
@@ -820,4 +821,112 @@ describe('roomPixels', () => {
     expect(performance.now() - start).toBeLessThan(500)
     expect(pixels.length).toBeGreaterThan(0)
   }, 2000)
+})
+
+describe('mirrorPixels', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  // The mirror's wall is straight ahead of the nook's place facing west.
+  const depth = PLACES.nook.x - NOOK_X
+  const wallTop = rowAt(CEILING_Y, depth)
+  const wallBottom = rowAt(FLOOR_Y, depth)
+  const fromNook = mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)
+  const extent = (pixels: Pixel[]) => ({
+    left: Math.min(...pixels.map((p) => p.x)),
+    right: Math.max(...pixels.map((p) => p.x)),
+    top: Math.min(...pixels.map((p) => p.y)),
+    bottom: Math.max(...pixels.map((p) => p.y)),
+  })
+
+  it('hangs on the nook\'s back wall, which faces the nook\'s place', () => {
+    const wall = WALLS[MIRROR_WALL]
+    expect(MIRROR_WALL).toBe('nook-back')
+    expect(wall.start.x).toBe(NOOK_X)
+    expect(wall.start.z).toBe(BACK_Z)
+    expect(wallEnd(wall)).toEqual({ x: NOOK_X, z: NOOK_FRONT_Z })
+  })
+
+  it('fits within its wall', () => {
+    expect(MIRROR_BOUNDS.right - MIRROR_BOUNDS.left).toBeLessThan(WALLS[MIRROR_WALL].length)
+  })
+
+  it('draws the mirror from the nook facing west', () => {
+    expect(fromNook.length).toBeGreaterThan(0)
+  })
+
+  it('is deterministic', () => {
+    expect(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).toEqual(fromNook)
+  })
+
+  it('uses integer coordinates within the canvas', () => {
+    for (const { x, y } of fromNook) {
+      expect(Number.isInteger(x)).toBe(true)
+      expect(Number.isInteger(y)).toBe(true)
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(WIDTH)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(HEIGHT)
+    }
+  })
+
+  it('uses the dim, worn and full foreground colours', () => {
+    expect(new Set(fromNook.map((p) => p.colour))).toEqual(new Set([FOREGROUND_DIM, FOREGROUND_WORN, FOREGROUND]))
+  })
+
+  it('is centred horizontally from the nook facing west', () => {
+    const { left, right } = extent(fromNook)
+    expect(Math.abs((left + right) / 2 - WIDTH / 2)).toBeLessThanOrEqual(2)
+  })
+
+  it('matches the projected width of its bounds from the nook', () => {
+    const { left, right } = extent(fromNook)
+    // Facing west, the wall's +z runs left on screen, so s runs left to right.
+    expect(right - left).toBeCloseTo(columnAt(MIRROR_BOUNDS.right, depth) - columnAt(MIRROR_BOUNDS.left, depth), -1)
+  })
+
+  it('spans most of the wall\'s projected height without reaching the floor or ceiling', () => {
+    const { top, bottom } = extent(fromNook)
+    expect(top).toBeGreaterThan(wallTop)
+    expect(bottom).toBeLessThan(wallBottom)
+    expect((bottom - top) / (wallBottom - wallTop)).toBeGreaterThan(0.8)
+  })
+
+  it('is centred vertically near the middle of the view', () => {
+    const { top, bottom } = extent(fromNook)
+    expect(Math.abs((top + bottom) / 2 - HEIGHT / 2)).toBeLessThan(HEIGHT * 0.05)
+  })
+
+  it('draws nothing from the nook facing east, with the mirror behind the camera', () => {
+    expect(mirrorPixels(WIDTH, HEIGHT, EAST, NOOK_EYE)).toEqual([])
+  })
+
+  it('defaults to the start facing north', () => {
+    expect(mirrorPixels(WIDTH, HEIGHT)).toEqual(mirrorPixels(WIDTH, HEIGHT, 0, ORIGIN))
+  })
+
+  it('draws a smaller mirror from the start facing west', () => {
+    const fromStart = mirrorPixels(WIDTH, HEIGHT, WEST)
+    expect(fromStart.length).toBeGreaterThan(0)
+    const near = extent(fromNook)
+    const far = extent(fromStart)
+    expect(far.bottom - far.top).toBeLessThan(near.bottom - near.top)
+    expect(far.right - far.left).toBeLessThan(near.right - near.left)
+  })
+
+  it('keeps room detail off the glass from the nook facing west', () => {
+    // The glass edge is the worn mirror layer; stay a pixel inside its extent.
+    const glass = extent(worn(fromNook))
+    const onGlass = roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE).filter(
+      (p) => p.x > glass.left + 1 && p.x < glass.right - 1 && p.y > glass.top + 1 && p.y < glass.bottom - 1,
+    )
+    expect(onGlass).toEqual([])
+  })
+
+  it('still draws bricks on the rest of the mirror\'s wall', () => {
+    const frame = extent(fromNook)
+    const bricks = dim(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).filter(
+      (p) => p.y > wallTop && p.y < wallBottom && (p.x < frame.left || p.x > frame.right),
+    )
+    expect(bricks.length).toBeGreaterThan(0)
+  })
 })

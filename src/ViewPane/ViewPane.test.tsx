@@ -4,6 +4,7 @@ import type { MockInstance } from 'vitest'
 import { drawScene } from '../scene/draw.ts'
 import { FOREGROUND } from '../scene/palette.ts'
 import { PLACES } from '../scene/places.ts'
+import { mirrorPixels } from '../scene/room.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import ViewPane, { MOVE_DURATION_MS, TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
 
@@ -437,15 +438,17 @@ describe('ViewPane', () => {
       const { canvas } = renderPane()
       clickAt(canvas, LEFT_X)
 
-      // The sign is the only thing drawn in the full foreground colour.
+      // Only the sign and the mirror's frame are drawn in the full foreground
+      // colour, so with the sign out of view only the frame's pixels are.
       const colours: string[] = []
       ctx.fillRect.mockImplementation(() => {
         colours.push(ctx.fillStyle)
       })
       frames.flush(START + TURN_DURATION_MS)
+      const frame = mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2).filter((p) => p.colour === FOREGROUND)
 
       expect(colours.length).toBeGreaterThan(0)
-      expect(colours).not.toContain(FOREGROUND)
+      expect(colours.filter((c) => c === FOREGROUND)).toHaveLength(frame.length)
     })
 
     it('ignores turn clicks during the animation', () => {

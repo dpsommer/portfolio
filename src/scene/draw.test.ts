@@ -4,7 +4,7 @@ import type { FloorPoint, ScreenPoint } from './camera.ts'
 import { drawPixels, drawScene, placeSprite, signPlacement } from './draw.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
-import { roomPixels } from './room.ts'
+import { mirrorPixels, roomPixels } from './room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
@@ -93,7 +93,7 @@ describe('drawScene', () => {
     expect(calls.slice(1, 1 + roomPixels(320, 240, yaw).length)).toEqual(toCalls(roomPixels(320, 240, yaw)))
   })
 
-  it('draws only the background and the room when the sign is out of view facing west', () => {
+  it('draws only the background, the room and the mirror when the sign is out of view facing west', () => {
     const { ctx, calls } = createFakeContext()
 
     drawScene(ctx, Math.PI / 2)
@@ -101,9 +101,39 @@ describe('drawScene', () => {
     expect(calls).toEqual([
       { args: [0, 0, 320, 240], fillStyle: BACKGROUND },
       ...toCalls(roomPixels(320, 240, Math.PI / 2)),
+      ...toCalls(mirrorPixels(320, 240, Math.PI / 2)),
     ])
-    // Only the signpost uses the full foreground colour.
-    expect(calls.some((c) => c.fillStyle === FOREGROUND)).toBe(false)
+  })
+
+  it('draws the mirror after the room', () => {
+    const { ctx, calls } = createFakeContext()
+    const room = roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
+    const mirror = mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
+
+    drawScene(ctx, Math.PI / 2, NOOK_EYE)
+
+    expect(mirror.length).toBeGreaterThan(0)
+    expect(calls.slice(1 + room.length, 1 + room.length + mirror.length)).toEqual(toCalls(mirror))
+  })
+
+  it('draws the mirror before the sign', () => {
+    const { ctx, calls } = createFakeContext()
+    const yaw = 0.8
+    const room = roomPixels(WIDTH, HEIGHT, yaw)
+    const mirror = mirrorPixels(WIDTH, HEIGHT, yaw)
+    const placement = signPlacement(yaw, WIDTH, HEIGHT)!
+    const backing = placeSprite(signpostBackingPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
+    const sign = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
+
+    drawScene(ctx, yaw)
+
+    expect(calls).toEqual([
+      { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+      ...toCalls(room),
+      ...toCalls(mirror),
+      ...toCalls(backing),
+      ...toCalls(sign),
+    ])
   })
 
   it('does not draw the sign when facing away from it', () => {
@@ -172,7 +202,7 @@ describe('drawScene', () => {
     expect(calls.slice(-placed.length)).toEqual(toCalls(placed))
   })
 
-  it('draws only the background and the room from the nook facing west', () => {
+  it('draws only the background, the room and the mirror from the nook facing west', () => {
     const { ctx, calls } = createFakeContext()
 
     drawScene(ctx, Math.PI / 2, NOOK_EYE)
@@ -180,6 +210,7 @@ describe('drawScene', () => {
     expect(calls).toEqual([
       { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
       ...toCalls(roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
+      ...toCalls(mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
     ])
   })
 

@@ -1,7 +1,7 @@
 import { ORIGIN, NEAR, projectPoint, toCamera } from './camera.ts'
 import type { FloorPoint, ScreenPoint } from './camera.ts'
 import { BACKGROUND } from './palette.ts'
-import { isVisible, roomPixels } from './room.ts'
+import { isVisible, mirrorPixels, roomPixels } from './room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
@@ -58,6 +58,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, yaw = 0, eye: FloorPoin
   ctx.fillStyle = BACKGROUND
   ctx.fillRect(0, 0, width, height)
   drawPixels(ctx, roomPixels(width, height, yaw, eye))
+  drawPixels(ctx, mirrorPixels(width, height, yaw, eye))
   const placement = signPlacement(yaw, width, height, eye)
   if (!placement) return
   const home = projectPoint(toCamera(SIGN_POSITION, 0), width, height)
