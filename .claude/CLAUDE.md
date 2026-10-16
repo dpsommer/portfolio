@@ -8,8 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — type-check (`tsc -b`, project references in `tsconfig.app.json` / `tsconfig.node.json`) then build for production
 - `npm run lint` — run oxlint (type-aware; config in `.oxlintrc.json`)
 - `npm run preview` — serve the production build locally
+- `npm test` — run the Vitest suite
 
-No test runner is configured yet. If you add tests, add Vitest (it fits the Vite toolchain) and an `npm test` script, and update this section with how to run a single test.
+## Docs
+
+- `docs/ui.md` — planned UI and interaction design. Read before working on rendering, navigation, the cursor or the mirror.
+- `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files.
+- `docs/testing.md` — test commands, Vitest setup and conventions, and how to handle canvas code in tests.
 
 ## Stack
 
@@ -20,12 +25,3 @@ TypeScript settings that affect how code is written (`tsconfig.app.json`):
 - `erasableSyntaxOnly`: no `enum`, `namespace` or constructor parameter properties. Use union types or `as const` objects.
 - `noUnusedLocals` / `noUnusedParameters`: unused code fails the build.
 - Imports may include the `.tsx`/`.ts` extension (`allowImportingTsExtensions`), as `main.tsx` does.
-
-## Product design (from README)
-
-The site is a portfolio styled as a retro first-person point-and-click dungeon crawler. The planned design:
-
-- **Rendering:** the room is drawn on an HTML5 `<canvas>`, not as DOM elements. It uses a dark background with off-white, 8-bit pixel-art elements. Walls are sparse pixelated brick patterns. Text uses a medium 8-bit retro font.
-- **Navigation:** the visitor starts facing a welcome sign. Clicking the left or right edge of the view turns the visitor, and clicking the centre moves them forward when forward movement is possible.
-- **Cursor:** a large pixelated pointer that changes by hover region: a turn arrow at the left and right edges, and a forward arrow in the centre when the visitor can move forward.
-- **Mirror:** on the left wall, one space from the start. A dial at its top has left and right buttons that rotate it through site names (LinkedIn, GitHub, …). Clicking the mirror plays a water-ripple animation that spreads from the click point to the mirror's edges, then redirects the browser to the selected profile.
