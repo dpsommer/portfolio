@@ -35,6 +35,30 @@ describe('ViewPane', () => {
     expect(screen.getByRole('img')).toHaveClass('view-pane')
   })
 
+  describe('drawing', () => {
+    it('draws the scene background on mount', () => {
+      const fakeCtx = {
+        fillStyle: '',
+        canvas: { width: VIEW_WIDTH, height: VIEW_HEIGHT },
+        fillRect: vi.fn(),
+      }
+      // spyOn returns the existing setup.ts spy; mockReturnValueOnce leaves its
+      // null default in place for other tests (mockRestore would remove it).
+      const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      getContext.mockReturnValueOnce(fakeCtx as unknown as CanvasRenderingContext2D)
+
+      render(<ViewPane />)
+
+      expect(getContext).toHaveBeenLastCalledWith('2d')
+      expect(fakeCtx.fillRect).toHaveBeenCalledWith(0, 0, VIEW_WIDTH, VIEW_HEIGHT)
+    })
+
+    it('renders without throwing when no canvas context is available', () => {
+      expect(() => render(<ViewPane />)).not.toThrow()
+      expect(screen.getByRole('img')).toBeInTheDocument()
+    })
+  })
+
   describe('cursor', () => {
     function renderWithRect(left: number, width: number) {
       render(<ViewPane />)

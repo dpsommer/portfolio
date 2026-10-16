@@ -12,4 +12,4 @@ Vitest is configured in the `test` block of `vite.config.ts` (jsdom environment)
 
 ## Canvas
 
-jsdom has no canvas implementation (`getContext` returns `null`), so canvas drawing code needs to be mocked or kept separate from pure logic that can be tested directly.
+jsdom has no canvas implementation. `src/test/setup.ts` stubs `HTMLCanvasElement.prototype.getContext` to return `null` quietly (jsdom would otherwise log an error on each call). Tests that need a context can override it with `vi.spyOn(...).mockReturnValue(fakeCtx)`. Keep drawing logic pure (functions in `src/scene/` that return `Pixel[]`) so it can be tested without a canvas.
