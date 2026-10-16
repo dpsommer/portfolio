@@ -153,20 +153,23 @@ export const CURSORS: Record<CursorZone, string> = {
 // A pointing hand for clickable things in the scene. Unlike the arrows it is
 // upright rather than lying on the floor; '+' marks the creases between fingers.
 export const HAND_MAP = [
-  '..............',
-  '...##.........',
-  '...+#+........',
-  '....##+.......',
-  '....+##.#+....',
-  '..##.##+##+#+.',
-  '..##+##+##+##.',
-  '..+##########.',
-  '...##########.',
-  '....#########.',
-  '.....#######+.',
-  '......++++++..',
-  '..............',
+  '................',
+  '................',
+  '....##..........',
+  '....+#+.........',
+  '.....##+........',
+  '.....+##.#+.....',
+  '...##.##+##+#+..',
+  '...##+##+##+##..',
+  '...+##########..',
+  '....##########..',
+  '.....#########..',
+  '......#######+..',
+  '.......++++++...',
+  '................',
+  '................',
+  '................',
 ]
 
 // The hotspot is the tip of the index finger.
-export const HAND_CURSOR = pixelMapToCursor(HAND_MAP, 'pointer', [6.5, 1])
+export const HAND_CURSOR = pixelMapToCursor(HAND_MAP, 'pointer', [5, 2])

@@ -308,12 +308,12 @@ describe('HAND_CURSOR', () => {
     expect(HAND_CURSOR.endsWith(', pointer')).toBe(true)
   })
 
-  it('puts the hotspot at 13 2', () => {
-    expect(HAND_CURSOR.endsWith('") 13 2, pointer')).toBe(true)
+  it('puts the hotspot at 10 4', () => {
+    expect(HAND_CURSOR.endsWith('") 10 4, pointer')).toBe(true)
   })
 
   it('is built from the hand map', () => {
-    expect(HAND_CURSOR).toBe(pixelMapToCursor(HAND_MAP, 'pointer', [6.5, 1]))
+    expect(HAND_CURSOR).toBe(pixelMapToCursor(HAND_MAP, 'pointer', [5, 2]))
   })
 
   it('puts the hotspot on a filled pixel', () => {
