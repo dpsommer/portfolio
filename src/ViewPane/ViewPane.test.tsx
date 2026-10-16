@@ -4,11 +4,19 @@ import type { MockInstance } from 'vitest'
 import { drawScene } from '../scene/draw.ts'
 import { FOREGROUND } from '../scene/palette.ts'
 import { PLACES } from '../scene/places.ts'
+import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/preview.ts'
 import { rippleDuration } from '../scene/ripple.ts'
-import { mirrorBounds, mirrorPixels, screenToMirror } from '../scene/room.ts'
+import { mirrorBounds, mirrorPixels, previewPixels, screenToMirror } from '../scene/room.ts'
 import type { RippleState } from '../scene/room.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
+import { MIRROR_SITE, openUrl } from './mirrorSite.ts'
 import ViewPane, { MOVE_DURATION_MS, TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
+
+// jsdom can't navigate, so clicks on the mirror go nowhere.
+vi.mock('./mirrorSite.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./mirrorSite.ts')>()),
+  openUrl: vi.fn(),
+}))
 
 // Client positions in the left, centre and right zones of a 320x240 pane at (0, 0).
 const LEFT_X = 10
@@ -1302,8 +1310,367 @@ describe('ViewPane', () => {
       expect(fills).toEqual(fillsFor())
     })
 
+    describe('going to the mirror\'s site', () => {
+      beforeEach(() => {
+        vi.mocked(openUrl).mockClear()
+      })
+
+      it('links to the GitHub profile', () => {
+        expect(MIRROR_SITE.url).toBe('https://github.com/dpsommer/')
+      })
+
+      it('does not go there mid-ripple', () => {
+        const { canvas } = renderInNook()
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+        frames.flush(START + DURATION / 2)
+
+        expect(openUrl).not.toHaveBeenCalled()
+      })
+
+      it('goes there once the ripple has finished', () => {
+        const { canvas } = renderInNook()
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+        frames.flush(START + DURATION / 2)
+
+        frames.flush(END)
+
+        expect(openUrl).toHaveBeenCalledTimes(1)
+        expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
+      })
+
+      it('goes there only once when the glass is clicked again mid-ripple', () => {
+        const { canvas } = renderInNook()
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+        frames.flush(START + DURATION / 2)
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+        frames.flush(END)
+
+        expect(openUrl).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not go there for turns or moves', () => {
+        const { canvas } = renderInNook()
+        clickAt(canvas, RIGHT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        now.mockReturnValue(START + TURN_DURATION_MS)
+        clickAt(canvas, RIGHT_X)
+        frames.flush(START + 2 * TURN_DURATION_MS)
+        now.mockReturnValue(START + 2 * TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+        frames.flush(START + 2 * TURN_DURATION_MS + MOVE_DURATION_MS)
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(openUrl).not.toHaveBeenCalled()
+      })
+
+      it.each([
+        ['the frame above the arch', FRAME_X, FRAME_Y],
+        ['the crest', MIRROR_X, MIRROR.top + 3],
+      ])('does not go there when %s is clicked', (_, clientX, clientY) => {
+        const { canvas } = renderInNook()
+
+        clickAt(canvas, clientX, clientY)
+        frames.flush(END)
+
+        expect(openUrl).not.toHaveBeenCalled()
+      })
+
+      it('does not go there when the mirror area is clicked from the start facing west', () => {
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+        frames.flush(START + MOVE_DURATION_MS)
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(openUrl).not.toHaveBeenCalled()
+      })
+
+      it('goes there at once with reduced motion, without rippling', () => {
+        vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        clickAt(canvas, CENTRE_X)
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        fills.length = 0
+
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+        expect(openUrl).toHaveBeenCalledTimes(1)
+        expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        expect(fills).toEqual([])
+      })
+
+      it('goes there at once without a canvas context', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        clickAt(canvas, CENTRE_X)
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+        expect(openUrl).toHaveBeenCalledTimes(1)
+        expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it('does not go there when the glass is clicked from the nook facing another way', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        clickAt(canvas, CENTRE_X)
+        clickAt(canvas, RIGHT_X)
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+        expect(openUrl).not.toHaveBeenCalled()
+      })
+    })
+
     function isInside(x: number, y: number) {
       return x >= MIRROR.left && x <= MIRROR.right && y >= MIRROR.top && y <= MIRROR.bottom
     }
+  })
+  describe('mirror preview', () => {
+    const WEST = Math.PI / 2
+    // A portrait screenshot, taller than the glass's aspect, so its height is cropped.
+    const IMAGE_WIDTH = 1280
+    const IMAGE_HEIGHT = 2400
+    const WHITE = new Uint8ClampedArray(PREVIEW_WIDTH * PREVIEW_HEIGHT * 4).fill(255)
+    const WHITE_PREVIEW = quantisePreview(WHITE, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+    type Fill = { args: number[]; fillStyle: string }
+    let ctx: ReturnType<typeof createFakeContext>
+    let fills: Fill[]
+    let images: FakeImage[]
+
+    // An Image that loads (or fails) as soon as its src is set.
+    class FakeImage {
+      static fail = false
+      width = IMAGE_WIDTH
+      height = IMAGE_HEIGHT
+      onload: (() => void) | null = null
+      onerror: ((error: unknown) => void) | null = null
+      private source = ''
+      constructor() {
+        images.push(this)
+      }
+      get src() {
+        return this.source
+      }
+      set src(value: string) {
+        this.source = value
+        if (FakeImage.fail) this.onerror?.(new Error('failed'))
+        else this.onload?.()
+      }
+    }
+
+    function createOffscreenContext() {
+      return {
+        imageSmoothingQuality: '',
+        drawImage: vi.fn(),
+        getImageData: vi.fn(() => ({ data: WHITE })),
+      }
+    }
+
+    // The visible canvas gets `ctx`; the offscreen one (asked for with
+    // willReadFrequently) gets `offscreen`.
+    function provideContexts(offscreen: ReturnType<typeof createOffscreenContext> | null) {
+      return vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockImplementation(((_: string, options?: CanvasRenderingContext2DSettings) =>
+          options?.willReadFrequently ? offscreen : ctx) as unknown as HTMLCanvasElement['getContext'])
+    }
+
+    // The fills drawScene makes for the nook facing west with `preview`.
+    function fillsFor(preview?: Uint8Array): Fill[] {
+      const recorded: Fill[] = []
+      const other = createFakeContext()
+      other.fillRect.mockImplementation((...args: number[]) => {
+        recorded.push({ args, fillStyle: other.fillStyle })
+      })
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, undefined, preview)
+      return recorded
+    }
+
+    // Renders and lets the preview's load settle.
+    async function renderLoaded() {
+      const result = renderPane()
+      await act(async () => {})
+      return result
+    }
+
+    // Snaps into the nook facing west (reduced motion), leaving only that view's fills.
+    function enterNook(canvas: HTMLElement) {
+      clickAt(canvas, LEFT_X)
+      fills.length = 0
+      clickAt(canvas, CENTRE_X)
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    }
+
+    beforeEach(() => {
+      ctx = createFakeContext()
+      fills = []
+      images = []
+      FakeImage.fail = false
+      ctx.fillRect.mockImplementation((...args: number[]) => {
+        fills.push({ args, fillStyle: ctx.fillStyle })
+      })
+      vi.stubGlobal('Image', FakeImage)
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+    })
+
+    afterEach(() => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      vi.unstubAllGlobals()
+    })
+
+    it('loads the mirror site\'s preview image', async () => {
+      provideContexts(createOffscreenContext())
+
+      await renderLoaded()
+
+      expect(images).toHaveLength(1)
+      expect(images[0].src).toBe(MIRROR_SITE.preview)
+    })
+
+    it('asks for an offscreen context it can read back often', async () => {
+      const getContext = provideContexts(createOffscreenContext())
+
+      await renderLoaded()
+
+      expect(getContext).toHaveBeenCalledWith('2d', { willReadFrequently: true })
+    })
+
+    it('draws the image to cover the preview grid, centred', async () => {
+      const offscreen = createOffscreenContext()
+      provideContexts(offscreen)
+
+      await renderLoaded()
+
+      expect(offscreen.drawImage).toHaveBeenCalledTimes(1)
+      const [image, x, y, width, height] = offscreen.drawImage.mock.calls[0] as unknown as [unknown, ...number[]]
+      expect(image).toBe(images[0])
+      expect(width).toBeCloseTo(PREVIEW_WIDTH)
+      expect(height).toBeGreaterThanOrEqual(PREVIEW_HEIGHT)
+      expect(width / height).toBeCloseTo(IMAGE_WIDTH / IMAGE_HEIGHT)
+      expect(x).toBeCloseTo((PREVIEW_WIDTH - width) / 2)
+      expect(y).toBeCloseTo((PREVIEW_HEIGHT - height) / 2)
+    })
+
+    it('reads back the whole preview grid', async () => {
+      const offscreen = createOffscreenContext()
+      provideContexts(offscreen)
+
+      await renderLoaded()
+
+      expect(offscreen.getImageData).toHaveBeenCalledWith(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+    })
+
+    it('redraws the view once the preview has loaded', async () => {
+      provideContexts(createOffscreenContext())
+
+      await renderLoaded()
+
+      const backgrounds = fills.filter(({ args }) => args.join() === `0,0,${VIEW_WIDTH},${VIEW_HEIGHT}`)
+      expect(backgrounds).toHaveLength(2)
+    })
+
+    it('draws the preview on the glass from the nook facing west', async () => {
+      provideContexts(createOffscreenContext())
+      const { canvas } = await renderLoaded()
+      fills.length = 0
+
+      enterNook(canvas)
+
+      expect(fills).toEqual(fillsFor(WHITE_PREVIEW))
+      const preview = previewPixels(VIEW_WIDTH, VIEW_HEIGHT, WHITE_PREVIEW, WEST, PLACES.nook)
+      expect(preview.some(({ colour }) => colour === FOREGROUND)).toBe(true)
+      expect(fills.length).toBeGreaterThan(fillsFor().length)
+    })
+
+    it('draws the preview under a ripple on the glass', async () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query }))
+      const frames = stubAnimationFrames()
+      const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+      provideContexts(createOffscreenContext())
+      const { canvas } = await renderLoaded()
+      clickAt(canvas, LEFT_X)
+      frames.flush(TURN_DURATION_MS)
+      clickAt(canvas, CENTRE_X)
+      frames.flush(MOVE_DURATION_MS)
+      const origin = screenToMirror(MIRROR_X, MIRROR_Y, VIEW_WIDTH, VIEW_HEIGHT, WEST, PLACES.nook)!
+      const ripple = { origin, elapsedMs: rippleDuration(origin) / 2 }
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      fills.length = 0
+
+      frames.flush(ripple.elapsedMs)
+
+      const expected: Fill[] = []
+      const other = createFakeContext()
+      other.fillRect.mockImplementation((...args: number[]) => {
+        expected.push({ args, fillStyle: other.fillStyle })
+      })
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, ripple, WHITE_PREVIEW)
+      expect(fills).toEqual(expected)
+      now.mockRestore()
+    })
+
+    it('draws the empty glass without an offscreen context', async () => {
+      provideContexts(null)
+      const { canvas } = await renderLoaded()
+      fills.length = 0
+
+      enterNook(canvas)
+
+      expect(fills).toEqual(fillsFor())
+    })
+
+    it('does not redraw without an offscreen context', async () => {
+      provideContexts(null)
+
+      await renderLoaded()
+
+      expect(fills.filter(({ args }) => args.join() === `0,0,${VIEW_WIDTH},${VIEW_HEIGHT}`)).toHaveLength(1)
+    })
+
+    it('draws the empty glass when the image fails to load', async () => {
+      FakeImage.fail = true
+      const offscreen = createOffscreenContext()
+      provideContexts(offscreen)
+      const { canvas } = await renderLoaded()
+      fills.length = 0
+
+      enterNook(canvas)
+
+      expect(offscreen.drawImage).not.toHaveBeenCalled()
+      expect(fills).toEqual(fillsFor())
+    })
+
+    it('does not draw the preview when unmounted before it loads', async () => {
+      // Hold the load until after unmounting.
+      let finishLoad = () => {}
+      class LateImage extends FakeImage {
+        set src(value: string) {
+          finishLoad = () => this.onload?.()
+          void value
+        }
+      }
+      vi.stubGlobal('Image', LateImage)
+      provideContexts(createOffscreenContext())
+      const { unmount } = renderPane()
+      unmount()
+      fills.length = 0
+
+      await act(async () => finishLoad())
+
+      expect(fills).toEqual([])
+    })
   })
 })

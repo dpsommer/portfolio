@@ -105,11 +105,12 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
 
 ## Draw order
 
-`drawScene(ctx, yaw, eye, ripple?)` paints in this order:
+`drawScene(ctx, yaw, eye, ripple?, preview?)` paints in this order:
 
 1. the background
 2. the room
-3. the ripple on the mirror's glass, if one is playing, under the mirror so the frame covers the rings' ends
-4. the mirror
-5. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
-6. the sprites themselves
+3. the profile preview on the mirror's glass, once loaded (distorted by the ripple, if one is playing)
+4. the ripple's rings, if one is playing
+5. the mirror, over the preview and rings so the frame covers their edges
+6. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
+7. the sprites themselves

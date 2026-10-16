@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "capture:preview": "node scripts/capture-preview.mjs"
   },
   "dependencies": {
     "oxlint-tsgolint": "^7.0.2004",
@@ -26,6 +27,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.1.3",
     "oxlint": "^1.81.0",
+    "playwright": "^1.64.1",
     "sass-embedded": "^1.105.2",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",

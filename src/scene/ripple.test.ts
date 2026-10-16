@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isOnGlass } from './mirror.ts'
 import type { MirrorPoint } from './mirror.ts'
-import { ringLines, rippleDuration, rippleRings } from './ripple.ts'
+import { ringLines, rippleDuration, rippleOffset, rippleRings } from './ripple.ts'
 
 const CENTRE: MirrorPoint = { s: 0, t: 0 }
 // Near the glass's lower right corner.
@@ -127,5 +127,79 @@ describe('ringLines', () => {
 
   it('draws nothing for a ring entirely off the glass', () => {
     expect(ringLines(CENTRE, 2)).toEqual([])
+  })
+})
+
+describe('rippleOffset', () => {
+  const RING = { radius: 0.2, strength: 1 }
+  // Signed push along the direction from the origin to `point`.
+  const radial = (origin: MirrorPoint, point: MirrorPoint) => {
+    const offset = rippleOffset(origin, [RING], point)
+    const distance = Math.hypot(point.s - origin.s, point.t - origin.t)
+    return (offset.s * (point.s - origin.s) + offset.t * (point.t - origin.t)) / distance
+  }
+
+  it('is zero with no rings', () => {
+    expect(rippleOffset(CENTRE, [], { s: 0.1, t: 0.1 })).toEqual({ s: 0, t: 0 })
+  })
+
+  it('is zero at the origin', () => {
+    expect(rippleOffset(CENTRE, [RING], CENTRE)).toEqual({ s: 0, t: 0 })
+  })
+
+  it('is negligible far from every ring', () => {
+    const { s, t } = rippleOffset(CENTRE, [RING], { s: 0, t: 0.6 })
+    expect(Math.hypot(s, t)).toBeLessThan(1e-9)
+  })
+
+  it('is zero on a ring\'s crest', () => {
+    const { s, t } = rippleOffset(CENTRE, [RING], { s: RING.radius, t: 0 })
+    expect(Math.hypot(s, t)).toBeCloseTo(0, 12)
+  })
+
+  it('pushes outward just inside a ring', () => {
+    expect(radial(CENTRE, { s: RING.radius - 0.02, t: 0 })).toBeGreaterThan(0)
+  })
+
+  it('pulls inward just outside a ring', () => {
+    expect(radial(CENTRE, { s: RING.radius + 0.02, t: 0 })).toBeLessThan(0)
+  })
+
+  it('points along the line from the origin', () => {
+    const origin = { s: 0.05, t: -0.1 }
+    const point = { s: origin.s + 0.1, t: origin.t + 0.15 }
+    const { s, t } = rippleOffset(origin, [RING], point)
+    expect(Math.hypot(s, t)).toBeGreaterThan(0)
+    // Parallel to (0.1, 0.15).
+    expect(s * 0.15 - t * 0.1).toBeCloseTo(0, 12)
+  })
+
+  it('is the same size in every direction at the same distance', () => {
+    const at = (angle: number) => {
+      const { s, t } = rippleOffset(CENTRE, [RING], { s: 0.18 * Math.cos(angle), t: 0.18 * Math.sin(angle) })
+      return Math.hypot(s, t)
+    }
+    for (const angle of [1, 2, 3, 4, 5]) expect(at(angle)).toBeCloseTo(at(0), 12)
+  })
+
+  it('peaks at 0.03 for a full-strength ring', () => {
+    // The scaled Gaussian derivative peaks at x = 1/√2, i.e. 0.03/√2 inside the ring.
+    const point = { s: RING.radius - 0.03 / Math.SQRT2, t: 0 }
+    expect(radial(CENTRE, point)).toBeCloseTo(0.03, 10)
+  })
+
+  it('scales with the ring\'s strength', () => {
+    const point = { s: 0.18, t: 0 }
+    const full = rippleOffset(CENTRE, [RING], point).s
+    const half = rippleOffset(CENTRE, [{ ...RING, strength: 0.5 }], point).s
+    expect(half).toBeCloseTo(full / 2, 12)
+  })
+
+  it('sums the pushes of several rings', () => {
+    const other = { radius: 0.25, strength: 0.7 }
+    const point = { s: 0.22, t: 0 }
+    const both = rippleOffset(CENTRE, [RING, other], point).s
+    const apart = rippleOffset(CENTRE, [RING], point).s + rippleOffset(CENTRE, [other], point).s
+    expect(both).toBeCloseTo(apart, 12)
   })
 })

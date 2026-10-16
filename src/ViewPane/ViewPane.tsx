@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
+import { MIRROR_SITE, openUrl } from './mirrorSite.ts'
 import { drawScene } from '../scene/draw.ts'
 import { TURN_YAW, turn } from '../scene/heading.ts'
 import type { Heading, TurnDirection } from '../scene/heading.ts'
@@ -9,6 +10,8 @@ import { PLACES, forwardFrom } from '../scene/places.ts'
 import type { PlaceName } from '../scene/places.ts'
 import { mirrorBounds, screenToMirror } from '../scene/room.ts'
 import type { RippleState } from '../scene/room.ts'
+import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/preview.ts'
+import type { Preview } from '../scene/preview.ts'
 import { rippleDuration } from '../scene/ripple.ts'
 import { signBoardBounds } from '../scene/signpost.ts'
 import type { Bounds } from '../scene/signpost.ts'
@@ -46,8 +49,32 @@ type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean }
 // ripple playing on the mirror.
 type View = { x: number; z: number; yaw: number; ripple?: RippleState }
 
-function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw, ripple }: View) {
-  drawScene(ctx, yaw, { x, z }, ripple)
+function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw, ripple }: View, preview: Preview | null) {
+  drawScene(ctx, yaw, { x, z }, ripple, preview ?? undefined)
+}
+
+// Loads an image and quantises it to a preview covering the glass, cropping
+// whichever dimension overflows. Resolves to null without a 2D canvas.
+function loadPreview(src: string): Promise<Preview | null> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = PREVIEW_WIDTH
+      canvas.height = PREVIEW_HEIGHT
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) return resolve(null)
+      const scale = Math.max(PREVIEW_WIDTH / image.width, PREVIEW_HEIGHT / image.height)
+      const width = image.width * scale
+      const height = image.height * scale
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(image, (PREVIEW_WIDTH - width) / 2, (PREVIEW_HEIGHT - height) / 2, width, height)
+      const { data } = ctx.getImageData(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+      resolve(quantisePreview(data, PREVIEW_WIDTH, PREVIEW_HEIGHT))
+    }
+    image.onerror = reject
+    image.src = src
+  })
 }
 
 function ViewPane() {
@@ -59,29 +86,54 @@ function ViewPane() {
   // The drawn view. Yaw isn't wrapped, so each turn animates the short way round.
   const viewRef = useRef<View>({ x: PLACES.start.x, z: PLACES.start.z, yaw: 0 })
   const frameRef = useRef<number | null>(null)
+  // The mirror's picture, once loaded.
+  const previewRef = useRef<Preview | null>(null)
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawView(ctx, viewRef.current)
+    if (ctx) drawView(ctx, viewRef.current, previewRef.current)
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
   }, [])
 
+  // Without the picture the mirror just shows empty glass.
+  useEffect(() => {
+    let cancelled = false
+    loadPreview(MIRROR_SITE.preview)
+      .then((preview) => {
+        const ctx = canvasRef.current?.getContext('2d')
+        if (cancelled || !preview) return
+        previewRef.current = preview
+        if (ctx) drawView(ctx, viewRef.current, preview)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Runs `frame` on each animation frame for `duration` ms with the elapsed
-  // time, ending with a call at exactly `duration`. Input waits until it's done.
-  function runAnimation(ctx: CanvasRenderingContext2D, duration: number, frame: (elapsed: number) => View) {
+  // time, ending with a call at exactly `duration` and then `done`. Input waits
+  // until it's finished.
+  function runAnimation(
+    ctx: CanvasRenderingContext2D,
+    duration: number,
+    frame: (elapsed: number) => View,
+    done?: () => void,
+  ) {
     setAnimating(true)
     const start = performance.now()
     const step = (now: number) => {
       const elapsed = Math.min(duration, now - start)
       viewRef.current = frame(elapsed)
-      drawView(ctx, viewRef.current)
+      drawView(ctx, viewRef.current, previewRef.current)
       if (elapsed < duration) {
         frameRef.current = requestAnimationFrame(step)
       } else {
         frameRef.current = null
         setAnimating(false)
+        done?.()
       }
     }
     frameRef.current = requestAnimationFrame(step)
@@ -93,7 +145,7 @@ function ViewPane() {
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx || prefersReducedMotion()) {
       viewRef.current = to
-      if (ctx) drawView(ctx, to)
+      if (ctx) drawView(ctx, to, previewRef.current)
       return
     }
     runAnimation(ctx, duration, (elapsed) => {
@@ -107,16 +159,25 @@ function ViewPane() {
     })
   }
 
-  // Plays a ripple on the mirror from the canvas position (x, y), if it's on the glass.
+  // Plays a ripple on the mirror from the canvas position (x, y), if it's on
+  // the glass, then goes to the mirror's site. With reduced motion or no
+  // canvas it goes straight there.
   function rippleAt(x: number, y: number) {
-    const ctx = canvasRef.current?.getContext('2d')
-    if (!ctx || prefersReducedMotion()) return
     const view = viewRef.current
     const origin = screenToMirror(x, y, VIEW_WIDTH, VIEW_HEIGHT, view.yaw, view)
     if (!origin) return
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx || prefersReducedMotion()) {
+      openUrl(MIRROR_SITE.url)
+      return
+    }
     const duration = rippleDuration(origin)
-    runAnimation(ctx, duration, (elapsed) =>
-      elapsed < duration ? { ...view, ripple: { origin, elapsedMs: elapsed } } : { ...view, ripple: undefined },
+    runAnimation(
+      ctx,
+      duration,
+      (elapsed) =>
+        elapsed < duration ? { ...view, ripple: { origin, elapsedMs: elapsed } } : { ...view, ripple: undefined },
+      () => openUrl(MIRROR_SITE.url),
     )
   }
 

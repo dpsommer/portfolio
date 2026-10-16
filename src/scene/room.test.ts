@@ -16,6 +16,7 @@ import { MIRROR_BOUNDS, isOnGlass } from './mirror.ts'
 import type { MirrorPoint } from './mirror.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
+import { GLASS_CELLS, PREVIEW_COLOURS, PREVIEW_HEIGHT, PREVIEW_WIDTH } from './preview.ts'
 import {
   FLOOR_PLAN,
   MIRROR_WALL,
@@ -24,6 +25,7 @@ import {
   isVisible,
   mirrorBounds,
   mirrorPixels,
+  previewPixels,
   ripplePixels,
   roomPixels,
   screenToMirror,
@@ -1192,5 +1194,96 @@ describe('screenToMirror', () => {
       const distance = Math.hypot(point.s, point.t)
       expect(Math.min(...radii.map((r) => Math.abs(distance - r)))).toBeLessThan(2 * PIXEL)
     }
+  })
+})
+
+describe('previewPixels', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  const CELLS = PREVIEW_WIDTH * PREVIEW_HEIGHT
+  const filled = (tone: number) => new Uint8Array(CELLS).fill(tone)
+  // Stripes of every tone, a few cells wide, so a ripple's shift shows.
+  const striped = Uint8Array.from({ length: CELLS }, (_, i) => Math.floor((i % PREVIEW_WIDTH) / 3) % 4)
+  const fromNook = (preview: Uint8Array, ripple?: { origin: MirrorPoint; elapsedMs: number }) =>
+    previewPixels(WIDTH, HEIGHT, preview, WEST, NOOK_EYE, ripple)
+  const within = (bounds: { left: number; top: number; right: number; bottom: number }, p: Pixel) =>
+    p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom
+
+  it('draws one pixel per glass cell in the full foreground from the nook facing west', () => {
+    const pixels = fromNook(filled(3))
+    expect(pixels).toHaveLength(GLASS_CELLS.length)
+    expect(new Set(pixels.map((p) => p.colour))).toEqual(new Set([FOREGROUND]))
+  })
+
+  it('draws each cell at its own pixel from the nook facing west', () => {
+    expect(new Set(fromNook(filled(3)).map(key)).size).toBe(GLASS_CELLS.length)
+  })
+
+  it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
+    const bounds = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    expect(fromNook(filled(3)).every((p) => within(bounds, p))).toBe(true)
+  })
+
+  it('uses integer coordinates within the canvas', () => {
+    for (const { x, y } of fromNook(filled(3))) {
+      expect(Number.isInteger(x)).toBe(true)
+      expect(Number.isInteger(y)).toBe(true)
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(WIDTH)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(HEIGHT)
+    }
+  })
+
+  it.each([1, 2, 3])('colours tone %i with its preview colour', (tone) => {
+    expect(new Set(fromNook(filled(tone)).map((p) => p.colour))).toEqual(new Set([PREVIEW_COLOURS[tone]]))
+  })
+
+  it('draws nothing for an all-background preview', () => {
+    expect(fromNook(filled(0))).toEqual([])
+  })
+
+  it('skips background cells', () => {
+    expect(fromNook(striped).length).toBeLessThan(GLASS_CELLS.length)
+    expect(fromNook(striped).every((p) => p.colour !== PREVIEW_COLOURS[0])).toBe(true)
+  })
+
+  it('draws nothing from the nook facing east, with the mirror behind the camera', () => {
+    expect(previewPixels(WIDTH, HEIGHT, filled(3), EAST, NOOK_EYE)).toEqual([])
+  })
+
+  it('draws fewer pixels from the start facing west, all within that view\'s mirror bounds', () => {
+    const pixels = previewPixels(WIDTH, HEIGHT, filled(3), WEST, ORIGIN)
+    const bounds = mirrorBounds(WIDTH, HEIGHT, WEST, ORIGIN)!
+    expect(pixels.length).toBeGreaterThan(0)
+    expect(new Set(pixels.map(key)).size).toBeLessThan(GLASS_CELLS.length)
+    expect(pixels.every((p) => within(bounds, p))).toBe(true)
+  })
+
+  it('defaults to the start facing north, where the mirror is out of view', () => {
+    expect(previewPixels(WIDTH, HEIGHT, filled(3))).toEqual(previewPixels(WIDTH, HEIGHT, filled(3), 0, ORIGIN))
+  })
+
+  it('changes some pixels of a patterned preview mid-ripple', () => {
+    const centre = { s: 0, t: 0 }
+    const still = pixelSet(fromNook(striped))
+    const rippled = pixelSet(fromNook(striped, { origin: centre, elapsedMs: rippleDuration(centre) / 2 }))
+    expect(rippled).not.toEqual(still)
+  })
+
+  it('draws the plain preview once the ripple is over', () => {
+    const centre = { s: 0, t: 0 }
+    const after = fromNook(striped, { origin: centre, elapsedMs: rippleDuration(centre) + 1 })
+    expect(after).toEqual(fromNook(striped))
+  })
+
+  it('draws the plain preview at the moment of the click, before any ring has set off', () => {
+    const centre = { s: 0, t: 0 }
+    expect(fromNook(striped, { origin: centre, elapsedMs: 0 })).toEqual(fromNook(striped))
+  })
+
+  it('is deterministic', () => {
+    const ripple = { origin: { s: 0.1, t: -0.2 }, elapsedMs: 900 }
+    expect(fromNook(striped, ripple)).toEqual(fromNook(striped, ripple))
   })
 })

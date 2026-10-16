@@ -4,7 +4,8 @@ import type { FloorPoint, ScreenPoint } from './camera.ts'
 import { drawPixels, drawScene, placeSprite, signPlacement } from './draw.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
-import { mirrorPixels, ripplePixels, roomPixels } from './room.ts'
+import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from './preview.ts'
+import { mirrorPixels, previewPixels, ripplePixels, roomPixels } from './room.ts'
 import type { RippleState } from './room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
@@ -263,6 +264,52 @@ describe('drawScene', () => {
       drawScene(rippling.ctx, EAST, NOOK_EYE, RIPPLE)
 
       expect(rippling.calls).toEqual(plain.calls)
+    })
+  })
+
+  describe('with a preview', () => {
+    const WEST = Math.PI / 2
+    const PREVIEW = new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(3)
+    const RIPPLE: RippleState = { origin: { s: 0, t: 0 }, elapsedMs: 900 }
+
+    it('draws the preview after the room and before the mirror', () => {
+      const { ctx, calls } = createFakeContext()
+      const preview = previewPixels(WIDTH, HEIGHT, PREVIEW, WEST, NOOK_EYE)
+      expect(preview.length).toBeGreaterThan(0)
+
+      drawScene(ctx, WEST, NOOK_EYE, undefined, PREVIEW)
+
+      expect(calls).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toCalls(preview),
+        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+      ])
+    })
+
+    it('draws the rippled preview after the room and before the ripple rings and the mirror', () => {
+      const { ctx, calls } = createFakeContext()
+
+      drawScene(ctx, WEST, NOOK_EYE, RIPPLE, PREVIEW)
+
+      expect(calls).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toCalls(previewPixels(WIDTH, HEIGHT, PREVIEW, WEST, NOOK_EYE, RIPPLE)),
+        ...toCalls(ripplePixels(WIDTH, HEIGHT, RIPPLE, WEST, NOOK_EYE)),
+        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+      ])
+    })
+
+    it('draws the same as without one with the mirror out of view', () => {
+      const EAST = (3 * Math.PI) / 2
+      const plain = createFakeContext()
+      const previewed = createFakeContext()
+
+      drawScene(plain.ctx, EAST, NOOK_EYE)
+      drawScene(previewed.ctx, EAST, NOOK_EYE, undefined, PREVIEW)
+
+      expect(previewed.calls).toEqual(plain.calls)
     })
   })
 

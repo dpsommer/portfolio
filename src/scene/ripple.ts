@@ -64,3 +64,25 @@ export function ringLines(origin: MirrorPoint, radius: number): MirrorLine[] {
   }
   return lines
 }
+
+// How far (mirror units) a full-strength ring pushes what's under it, and how
+// wide its wave is.
+const OFFSET_AMPLITUDE = 0.03
+const OFFSET_WIDTH = 0.03
+
+// How far `rings` (from `rippleRings`) push what's under `point` out from the
+// origin, in mirror-local units. Each ring is a wave, outward just behind its
+// crest and inward just ahead of it, scaled by the ring's strength.
+export function rippleOffset(origin: MirrorPoint, rings: Ring[], point: MirrorPoint): MirrorPoint {
+  const ds = point.s - origin.s
+  const dt = point.t - origin.t
+  const distance = Math.hypot(ds, dt)
+  if (distance === 0) return { s: 0, t: 0 }
+  let push = 0
+  for (const { radius, strength } of rings) {
+    const x = (radius - distance) / OFFSET_WIDTH
+    // A Gaussian's derivative, scaled to peak at 1.
+    push += strength * OFFSET_AMPLITUDE * x * Math.exp(0.5 - x * x) * Math.SQRT2
+  }
+  return { s: (ds / distance) * push, t: (dt / distance) * push }
+}

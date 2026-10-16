@@ -4,19 +4,24 @@ import {
   FAR_Z,
   FLOOR_Y,
   FOCAL_RATIO,
+  NEAR,
   NOOK_FRONT_Z,
   NOOK_X,
   ORIGIN,
   ROOM_HALF_WIDTH,
+  projectPoint,
   projectSegment,
+  toCamera,
 } from './camera.ts'
 import type { FloorPoint, Vec3 } from './camera.ts'
 import { linePoints } from './line.ts'
 import { MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './mirror.ts'
 import type { MirrorLine, MirrorPoint } from './mirror.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
+import { GLASS_CELLS, PREVIEW_COLOURS, toneAt } from './preview.ts'
+import type { Preview } from './preview.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
-import { rippleRings, ringLines } from './ripple.ts'
+import { rippleOffset, rippleRings, ringLines } from './ripple.ts'
 import type { Bounds } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
@@ -379,4 +384,48 @@ export function screenToMirror(
   // Inverse of mirrorToWall: s = u - length / 2, t = CEILING_Y - v = hit.y.
   const point = { s: u - length / 2, t: hit.y }
   return isOnGlass(point) ? point : null
+}
+
+// Where each glass cell of a preview sits in the world.
+const GLASS_CELL_POINTS = GLASS_CELLS.map((cell) => {
+  const { u, v } = mirrorToWall(cell)
+  return onWall(WALLS[MIRROR_WALL], u, v)
+})
+
+// Pixels for a preview on the mirror's glass, seen the same way as
+// `mirrorPixels`. Each cell is a block sized by how close it is, so from the
+// nook a cell is one pixel. A ripple shifts which cell's tone shows where.
+export function previewPixels(
+  canvasWidth: number,
+  canvasHeight: number,
+  preview: Preview,
+  yaw = 0,
+  eye: FloorPoint = ORIGIN,
+  ripple?: RippleState,
+): Pixel[] {
+  const rings = ripple ? rippleRings(ripple.origin, ripple.elapsedMs) : []
+  const pixels: Pixel[] = []
+  GLASS_CELLS.forEach((cell, i) => {
+    let tone = preview[cell.index]
+    if (ripple && rings.length > 0) {
+      const offset = rippleOffset(ripple.origin, rings, cell)
+      tone = toneAt(preview, cell.s - offset.s, cell.t - offset.t)
+    }
+    if (tone === 0) return
+    const world = GLASS_CELL_POINTS[i]
+    const camera = toCamera(world, yaw, eye)
+    if (camera.z < NEAR || !isVisible(world, eye)) return
+    const centre = projectPoint(camera, canvasWidth, canvasHeight)
+    // A cell is one pixel at distance 1, the nook's distance from the mirror.
+    const size = Math.max(1, Math.ceil(1 / camera.z))
+    const left = Math.floor(centre.x - (size - 1) / 2)
+    const top = Math.floor(centre.y - (size - 1) / 2)
+    const colour = PREVIEW_COLOURS[tone]
+    for (let y = top; y < top + size; y++) {
+      for (let x = left; x < left + size; x++) {
+        if (x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) pixels.push({ x, y, colour })
+      }
+    }
+  })
+  return pixels
 }
