@@ -3,7 +3,7 @@ import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../scene/palette.ts'
 export type CursorZone = 'turn-left' | 'forward' | 'turn-right'
 
 // Fraction of the pane's width at each side that turns the viewer.
-export const EDGE_ZONE_FRACTION = 0.25
+export const EDGE_ZONE_FRACTION = 0.15
 
 const PIXEL_SIZE = 2
 

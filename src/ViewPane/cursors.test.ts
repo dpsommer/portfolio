@@ -44,17 +44,19 @@ function topFaceRows(map: string[]): number[] {
 }
 
 describe('getCursorZone', () => {
-  it('uses a 0.25 edge zone', () => {
-    expect(EDGE_ZONE_FRACTION).toBe(0.25)
+  it('uses a 0.15 edge zone', () => {
+    expect(EDGE_ZONE_FRACTION).toBe(0.15)
   })
 
   it.each([
     [0, 'turn-left'],
-    [0.24, 'turn-left'],
+    [0.14, 'turn-left'],
+    [0.15, 'forward'],
     [0.25, 'forward'],
     [0.5, 'forward'],
     [0.75, 'forward'],
-    [0.76, 'turn-right'],
+    [0.85, 'forward'],
+    [0.86, 'turn-right'],
     [1, 'turn-right'],
   ])('maps %s to %s', (fraction, zone) => {
     expect(getCursorZone(fraction)).toBe(zone)

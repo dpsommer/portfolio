@@ -133,12 +133,13 @@ describe('ViewPane', () => {
     })
 
     it('does not show the hand at the unscaled sign position when the pane is scaled', () => {
-      // (110, 100) is over the sign at 320x240 but maps to canvas (55, 50) at 640x480.
+      // (110, 100) is over the sign at 320x240 but maps to canvas (55, 50) at 640x480,
+      // which is left of the sign in the forward zone.
       const { canvas } = renderAt(0, 0, 640, 480)
 
       fireEvent.mouseMove(canvas, { clientX: 110, clientY: 100 })
 
-      expect(canvas.style.cursor).toBe(CURSORS['turn-left'])
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
     })
 
     it.each([
