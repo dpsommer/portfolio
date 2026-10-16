@@ -15,7 +15,7 @@ import type { FloorPoint } from './camera.ts'
 import { MIRROR_BOUNDS } from './mirror.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
-import { FLOOR_PLAN, MIRROR_WALL, WALLS, isOnFloor, isVisible, mirrorPixels, roomPixels } from './room.ts'
+import { FLOOR_PLAN, MIRROR_WALL, WALLS, isOnFloor, isVisible, mirrorBounds, mirrorPixels, roomPixels } from './room.ts'
 import type { WallName } from './room.ts'
 import type { Pixel } from './types.ts'
 
@@ -928,5 +928,52 @@ describe('mirrorPixels', () => {
       (p) => p.y > wallTop && p.y < wallBottom && (p.x < frame.left || p.x > frame.right),
     )
     expect(bricks.length).toBeGreaterThan(0)
+  })
+})
+
+describe('mirrorBounds', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  // The inclusive extent of a set of pixels, in the shape mirrorBounds returns.
+  const extent = (pixels: Pixel[]) => ({
+    left: Math.min(...pixels.map((p) => p.x)),
+    top: Math.min(...pixels.map((p) => p.y)),
+    right: Math.max(...pixels.map((p) => p.x)),
+    bottom: Math.max(...pixels.map((p) => p.y)),
+  })
+
+  it('matches the extent of the mirror\'s pixels from the nook facing west', () => {
+    expect(mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)).toEqual(extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)))
+  })
+
+  it('contains every mirror pixel from the nook facing west', () => {
+    const bounds = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)
+    expect(bounds).not.toBeNull()
+    const { left, top, right, bottom } = bounds!
+    const outside = mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE).filter(
+      ({ x, y }) => x < left || x > right || y < top || y > bottom,
+    )
+    expect(outside).toEqual([])
+  })
+
+  it('touches the mirror\'s pixels on each edge', () => {
+    const { left, top, right, bottom } = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    const pixels = mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)
+    expect(pixels.some((p) => p.x === left)).toBe(true)
+    expect(pixels.some((p) => p.x === right)).toBe(true)
+    expect(pixels.some((p) => p.y === top)).toBe(true)
+    expect(pixels.some((p) => p.y === bottom)).toBe(true)
+  })
+
+  it('matches the extent of the smaller, distant mirror from the start facing west', () => {
+    expect(mirrorBounds(WIDTH, HEIGHT, WEST)).toEqual(extent(mirrorPixels(WIDTH, HEIGHT, WEST)))
+  })
+
+  it('returns null from the nook facing east, with the mirror behind the camera', () => {
+    expect(mirrorBounds(WIDTH, HEIGHT, EAST, NOOK_EYE)).toBeNull()
+  })
+
+  it('defaults to the start facing north', () => {
+    expect(mirrorBounds(WIDTH, HEIGHT)).toEqual(mirrorBounds(WIDTH, HEIGHT, 0, ORIGIN))
   })
 })

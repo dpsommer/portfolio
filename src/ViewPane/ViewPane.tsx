@@ -7,7 +7,9 @@ import { TURN_YAW, turn } from '../scene/heading.ts'
 import type { Heading, TurnDirection } from '../scene/heading.ts'
 import { PLACES, forwardFrom } from '../scene/places.ts'
 import type { PlaceName } from '../scene/places.ts'
+import { mirrorBounds } from '../scene/room.ts'
 import { signBoardBounds } from '../scene/signpost.ts'
+import type { Bounds } from '../scene/signpost.ts'
 import './ViewPane.scss'
 
 // Drawing resolution of the canvas; CSS scales it up to fit the screen.
@@ -19,10 +21,13 @@ export const TURN_DURATION_MS = 250
 export const MOVE_DURATION_MS = 350
 
 const SIGN_BOUNDS = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
+// The mirror as seen from the nook facing west, the view it's clicked from.
+const MIRROR_BOUNDS = mirrorBounds(VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)
 
-// Whether a point in canvas pixels is over the welcome sign's board.
-function isOverSign(x: number, y: number): boolean {
-  const { left, top, right, bottom } = SIGN_BOUNDS
+// Whether a point in canvas pixels is inside inclusive bounds.
+function isInside(bounds: Bounds | null, x: number, y: number): boolean {
+  if (!bounds) return false
+  const { left, top, right, bottom } = bounds
   return x >= left && x < right + 1 && y >= top && y < bottom + 1
 }
 
@@ -34,7 +39,7 @@ function prefersReducedMotion(): boolean {
 
 const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
 
-type Pointer = { zone: CursorZone; overSign: boolean }
+type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean }
 // What the camera is drawing: where it stands and which way it faces.
 type View = { x: number; z: number; yaw: number }
 
@@ -44,7 +49,7 @@ function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw }: View) {
 
 function ViewPane() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [pointer, setPointer] = useState<Pointer>({ zone: 'forward', overSign: false })
+  const [pointer, setPointer] = useState<Pointer>({ zone: 'forward', overSign: false, overMirror: false })
   const [place, setPlace] = useState<PlaceName>('start')
   const [heading, setHeading] = useState<Heading>('north')
   const [animating, setAnimating] = useState(false)
@@ -99,16 +104,23 @@ function ViewPane() {
     if (rect.width === 0 || rect.height === 0) return null
     const fractionX = (event.clientX - rect.left) / rect.width
     const fractionY = (event.clientY - rect.top) / rect.height
+    const x = fractionX * VIEW_WIDTH
+    const y = fractionY * VIEW_HEIGHT
     return {
       zone: getCursorZone(fractionX),
-      overSign: isOverSign(fractionX * VIEW_WIDTH, fractionY * VIEW_HEIGHT),
+      overSign: isInside(SIGN_BOUNDS, x, y),
+      overMirror: isInside(MIRROR_BOUNDS, x, y),
     }
   }
 
   function handleMouseMove(event: MouseEvent<HTMLCanvasElement>) {
     const next = pointerAt(event)
     // Only re-render when the cursor would change.
-    if (next && (next.zone !== pointer.zone || next.overSign !== pointer.overSign)) setPointer(next)
+    if (
+      next &&
+      (next.zone !== pointer.zone || next.overSign !== pointer.overSign || next.overMirror !== pointer.overMirror)
+    )
+      setPointer(next)
   }
 
   function handleClick(event: MouseEvent<HTMLCanvasElement>) {
@@ -121,14 +133,17 @@ function ViewPane() {
       return
     }
     const next = forwardFrom(place, heading)
-    // A click on the sign is for the sign, even if there's a way forward behind it.
+    // A click on the sign or mirror is for it, even if there's a way forward behind it.
     if (!next || showHand) return
     setPlace(next)
     animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS)
   }
 
-  // The sign is only clickable from where it was designed to be seen.
-  const showHand = pointer.overSign && place === 'start' && heading === 'north' && !animating
+  // The sign and mirror are only clickable from where they were designed to be seen.
+  const showHand =
+    !animating &&
+    ((pointer.overSign && place === 'start' && heading === 'north') ||
+      (pointer.overMirror && place === 'nook' && heading === 'west'))
   const canMoveForward = forwardFrom(place, heading) !== null
   const cursor = showHand
     ? HAND_CURSOR

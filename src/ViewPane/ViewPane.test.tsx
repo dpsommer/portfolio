@@ -4,7 +4,7 @@ import type { MockInstance } from 'vitest'
 import { drawScene } from '../scene/draw.ts'
 import { FOREGROUND } from '../scene/palette.ts'
 import { PLACES } from '../scene/places.ts'
-import { mirrorPixels } from '../scene/room.ts'
+import { mirrorBounds, mirrorPixels } from '../scene/room.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import ViewPane, { MOVE_DURATION_MS, TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
 
@@ -16,6 +16,13 @@ const MIDDLE_Y = 120
 // Over the sign's board, away from the post.
 const SIGN_X = 130
 const SIGN_Y = 120
+// In the centre zone but left of the mirror, seen from the nook facing west.
+const BESIDE_MIRROR_X = 70
+// The mirror's hover area: its bounds seen from the nook facing west (left 94,
+// top 37, right 226, bottom 207 at 320x240, inclusive).
+const MIRROR = mirrorBounds(VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2, PLACES.nook)!
+const MIRROR_X = Math.round((MIRROR.left + MIRROR.right) / 2)
+const MIRROR_Y = Math.round((MIRROR.top + MIRROR.bottom) / 2)
 
 // Renders the pane with its on-screen rect at (0, 0), the same size as the canvas.
 function renderPane() {
@@ -581,6 +588,173 @@ describe('ViewPane', () => {
     })
   })
 
+  describe('mirror cursor', () => {
+    let now: MockInstance<() => number> | null = null
+
+    afterEach(() => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      now?.mockRestore()
+      now = null
+      vi.unstubAllGlobals()
+    })
+
+    // Turns left to face west at the start, then steps forward into the nook.
+    function enterNook(canvas: HTMLElement) {
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+    }
+
+    it('shows the hand over the centre of the mirror in the nook facing west', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('shows the hand when the pointer is already over the mirror on arriving in the nook', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('returns to the blocked cursor when moving off the mirror', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      fireEvent.mouseMove(canvas, { clientX: BESIDE_MIRROR_X, clientY: MIDDLE_Y })
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('does nothing when the mirror is clicked', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    // At 640x480 each canvas pixel is 2 client pixels, so odd client
+    // coordinates land half-way through a canvas pixel.
+    it.each([
+      ['left', 2 * MIRROR.left, 2 * MIRROR_Y],
+      ['right', 2 * MIRROR.right + 1, 2 * MIRROR_Y],
+      ['top', 2 * MIRROR_X, 2 * MIRROR.top],
+      ['bottom', 2 * MIRROR_X, 2 * MIRROR.bottom + 1],
+    ])('shows the hand just inside the %s edge', (_, clientX, clientY) => {
+      const { canvas, getRect } = renderPane()
+      enterNook(canvas)
+      getRect.mockReturnValue(new DOMRect(0, 0, 640, 480))
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it.each([
+      ['left', 2 * MIRROR.left - 1, 2 * MIRROR_Y],
+      ['right', 2 * MIRROR.right + 2, 2 * MIRROR_Y],
+      ['top', 2 * MIRROR_X, 2 * MIRROR.top - 1],
+      ['bottom', 2 * MIRROR_X, 2 * MIRROR.bottom + 2],
+    ])('does not show the hand just outside the %s edge', (_, clientX, clientY) => {
+      const { canvas, getRect } = renderPane()
+      enterNook(canvas)
+      getRect.mockReturnValue(new DOMRect(0, 0, 640, 480))
+
+      fireEvent.mouseMove(canvas, { clientX, clientY })
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it('does not show the hand over the mirror area from the start facing west', () => {
+      // The mirror is in view far off, but is only clickable from the nook.
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      expect(canvas.style.cursor).toBe(CURSORS.forward)
+    })
+
+    it.each([
+      ['north', [RIGHT_X]],
+      ['south', [LEFT_X]],
+      ['east', [LEFT_X, LEFT_X]],
+    ] as const)('does not show the hand over the mirror area in the nook facing %s', (heading, turns) => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      for (const x of turns) clickAt(canvas, x)
+      expect(canvas).toHaveAttribute('data-heading', heading)
+
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it('shows the hand again after turning away and back to west in the nook', () => {
+      const { canvas } = renderPane()
+      enterNook(canvas)
+      clickAt(canvas, RIGHT_X)
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+
+      clickAt(canvas, LEFT_X)
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('does not show the hand until the move into the nook has finished', () => {
+      const frames = stubAnimationFrames()
+      now = vi.spyOn(performance, 'now').mockReturnValue(0)
+      const { canvas } = renderPane()
+      // Turn to west instantly (no context yet), then animate the move into the nook.
+      clickAt(canvas, LEFT_X)
+      provideContext(createFakeContext())
+      clickAt(canvas, CENTRE_X)
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+
+      frames.flush(MOVE_DURATION_MS / 2)
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+
+      frames.flush(MOVE_DURATION_MS)
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('does not show the hand until a turn back to west in the nook has finished', () => {
+      const frames = stubAnimationFrames()
+      now = vi.spyOn(performance, 'now').mockReturnValue(0)
+      const { canvas } = renderPane()
+      // Reach the nook and face north instantly, then animate the turn back to west.
+      enterNook(canvas)
+      clickAt(canvas, RIGHT_X)
+      provideContext(createFakeContext())
+      clickAt(canvas, LEFT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+
+      frames.flush(TURN_DURATION_MS)
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+  })
+
   describe('moving', () => {
     afterEach(() => {
       vi.unstubAllGlobals()
@@ -678,13 +852,13 @@ describe('ViewPane', () => {
   })
 
   describe('cursor while moving about', () => {
-    it('shows the blocked cursor in the centre after moving into the nook facing west', () => {
+    it('shows the blocked cursor beside the mirror after moving into the nook facing west', () => {
       const { canvas } = renderPane()
       clickAt(canvas, LEFT_X)
-      fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: MIDDLE_Y })
+      fireEvent.mouseMove(canvas, { clientX: BESIDE_MIRROR_X, clientY: MIDDLE_Y })
       expect(canvas.style.cursor).toBe(CURSORS.forward)
 
-      clickAt(canvas, CENTRE_X)
+      clickAt(canvas, BESIDE_MIRROR_X)
 
       expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
     })
