@@ -22,7 +22,6 @@ import { GLASS_CELLS, PREVIEW_COLOURS, toneAt } from './preview.ts'
 import type { Preview } from './preview.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
 import { rippleOffset, rippleRings, ringLines } from './ripple.ts'
-import type { Bounds } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
 // The room is seen from inside, drawn as the classic dungeon-crawler "narrowing
@@ -316,16 +315,6 @@ export function mirrorPixels(canvasWidth: number, canvasHeight: number, yaw = 0,
   const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
   const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
   return MIRROR.flatMap(({ colour, segments }) => rasterise(segments, colour, view)).filter(inCanvas)
-}
-
-// The rectangle the mirror covers on screen, in canvas pixels (inclusive), or
-// null when none of it is in view. Used as the mirror's hover area.
-export function mirrorBounds(canvasWidth: number, canvasHeight: number, yaw = 0, eye: FloorPoint = ORIGIN): Bounds | null {
-  const pixels = mirrorPixels(canvasWidth, canvasHeight, yaw, eye)
-  if (pixels.length === 0) return null
-  const xs = pixels.map(({ x }) => x)
-  const ys = pixels.map(({ y }) => y)
-  return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
 }
 
 // Rings stronger than this are worn; weaker ones are dim.

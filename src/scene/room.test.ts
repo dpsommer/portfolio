@@ -23,7 +23,6 @@ import {
   WALLS,
   isOnFloor,
   isVisible,
-  mirrorBounds,
   mirrorPixels,
   previewPixels,
   ripplePixels,
@@ -107,6 +106,14 @@ function fractionNear(pixels: Pixel[], other: Pixel[], distance: number): number
   })
   return near.length / pixels.length
 }
+
+// The inclusive extent of a set of pixels.
+const extent = (pixels: Pixel[]) => ({
+  left: Math.min(...pixels.map((p) => p.x)),
+  top: Math.min(...pixels.map((p) => p.y)),
+  right: Math.max(...pixels.map((p) => p.x)),
+  bottom: Math.max(...pixels.map((p) => p.y)),
+})
 
 describe('FLOOR_PLAN', () => {
   it('lists the corners clockwise from the far wall\'s left end, around the nook', () => {
@@ -952,53 +959,6 @@ describe('mirrorPixels', () => {
   })
 })
 
-describe('mirrorBounds', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
-  // The inclusive extent of a set of pixels, in the shape mirrorBounds returns.
-  const extent = (pixels: Pixel[]) => ({
-    left: Math.min(...pixels.map((p) => p.x)),
-    top: Math.min(...pixels.map((p) => p.y)),
-    right: Math.max(...pixels.map((p) => p.x)),
-    bottom: Math.max(...pixels.map((p) => p.y)),
-  })
-
-  it('matches the extent of the mirror\'s pixels from the nook facing west', () => {
-    expect(mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)).toEqual(extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)))
-  })
-
-  it('contains every mirror pixel from the nook facing west', () => {
-    const bounds = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)
-    expect(bounds).not.toBeNull()
-    const { left, top, right, bottom } = bounds!
-    const outside = mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE).filter(
-      ({ x, y }) => x < left || x > right || y < top || y > bottom,
-    )
-    expect(outside).toEqual([])
-  })
-
-  it('touches the mirror\'s pixels on each edge', () => {
-    const { left, top, right, bottom } = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
-    const pixels = mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)
-    expect(pixels.some((p) => p.x === left)).toBe(true)
-    expect(pixels.some((p) => p.x === right)).toBe(true)
-    expect(pixels.some((p) => p.y === top)).toBe(true)
-    expect(pixels.some((p) => p.y === bottom)).toBe(true)
-  })
-
-  it('matches the extent of the smaller, distant mirror from the start facing west', () => {
-    expect(mirrorBounds(WIDTH, HEIGHT, WEST)).toEqual(extent(mirrorPixels(WIDTH, HEIGHT, WEST)))
-  })
-
-  it('returns null from the nook facing east, with the mirror behind the camera', () => {
-    expect(mirrorBounds(WIDTH, HEIGHT, EAST, NOOK_EYE)).toBeNull()
-  })
-
-  it('defaults to the start facing north', () => {
-    expect(mirrorBounds(WIDTH, HEIGHT)).toEqual(mirrorBounds(WIDTH, HEIGHT, 0, ORIGIN))
-  })
-})
-
 describe('ripplePixels', () => {
   const WEST = Math.PI / 2
   const EAST = (3 * Math.PI) / 2
@@ -1014,7 +974,7 @@ describe('ripplePixels', () => {
   })
 
   it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
-    const { left, top, right, bottom } = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    const { left, top, right, bottom } = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
     for (const origin of [CENTRE, { s: 0.3, t: -0.45 }, { s: -0.2, t: 0.4 }]) {
       for (let ms = 100; ms < rippleDuration(origin); ms += 100) {
         const outside = fromNook(origin, ms).filter(({ x, y }) => x < left || x > right || y < top || y > bottom)
@@ -1156,7 +1116,7 @@ describe('screenToMirror', () => {
     ['the crest', WIDTH / 2, 42],
     ['a top shoulder corner, outside the arch', WIDTH / 2 + 38, HEIGHT / 2 - 58],
   ])('returns null on %s, inside the mirror\'s bounds', (_, x, y) => {
-    const { left, top, right, bottom } = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    const { left, top, right, bottom } = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
     expect(x >= left && x <= right && y >= top && y <= bottom).toBe(true)
     expect(fromNook(x, y)).toBeNull()
   })
@@ -1220,7 +1180,7 @@ describe('previewPixels', () => {
   })
 
   it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
-    const bounds = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    const bounds = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
     expect(fromNook(filled(3)).every((p) => within(bounds, p))).toBe(true)
   })
 
@@ -1254,7 +1214,7 @@ describe('previewPixels', () => {
 
   it('draws fewer pixels from the start facing west, all within that view\'s mirror bounds', () => {
     const pixels = previewPixels(WIDTH, HEIGHT, filled(3), WEST, ORIGIN)
-    const bounds = mirrorBounds(WIDTH, HEIGHT, WEST, ORIGIN)!
+    const bounds = extent(mirrorPixels(WIDTH, HEIGHT, WEST, ORIGIN))
     expect(pixels.length).toBeGreaterThan(0)
     expect(new Set(pixels.map(key)).size).toBeLessThan(GLASS_CELLS.length)
     expect(pixels.every((p) => within(bounds, p))).toBe(true)

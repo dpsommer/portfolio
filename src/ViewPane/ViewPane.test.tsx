@@ -6,7 +6,7 @@ import { FOREGROUND } from '../scene/palette.ts'
 import { PLACES } from '../scene/places.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/preview.ts'
 import { rippleDuration } from '../scene/ripple.ts'
-import { mirrorBounds, mirrorPixels, previewPixels, screenToMirror } from '../scene/room.ts'
+import { mirrorPixels, previewPixels, screenToMirror } from '../scene/room.ts'
 import type { RippleState } from '../scene/room.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITE, openUrl } from './mirrorSite.ts'
@@ -28,9 +28,15 @@ const SIGN_X = 130
 const SIGN_Y = 120
 // In the centre zone but left of the mirror, seen from the nook facing west.
 const BESIDE_MIRROR_X = 70
-// The mirror's hover area: its bounds seen from the nook facing west (left 94,
+// The rectangle the mirror covers seen from the nook facing west (left 94,
 // top 37, right 226, bottom 207 at 320x240, inclusive).
-const MIRROR = mirrorBounds(VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2, PLACES.nook)!
+const MIRROR_PIXELS = mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2, PLACES.nook)
+const MIRROR = {
+  left: Math.min(...MIRROR_PIXELS.map((p) => p.x)),
+  top: Math.min(...MIRROR_PIXELS.map((p) => p.y)),
+  right: Math.max(...MIRROR_PIXELS.map((p) => p.x)),
+  bottom: Math.max(...MIRROR_PIXELS.map((p) => p.y)),
+}
 const MIRROR_X = Math.round((MIRROR.left + MIRROR.right) / 2)
 const MIRROR_Y = Math.round((MIRROR.top + MIRROR.bottom) / 2)
 
