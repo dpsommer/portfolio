@@ -1,10 +1,22 @@
-import { BACK_Z, CEILING_Y, FAR_Z, FLOOR_Y, NOOK_FRONT_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, projectSegment } from './camera.ts'
+import {
+  BACK_Z,
+  CEILING_Y,
+  FAR_Z,
+  FLOOR_Y,
+  FOCAL_RATIO,
+  NOOK_FRONT_Z,
+  NOOK_X,
+  ORIGIN,
+  ROOM_HALF_WIDTH,
+  projectSegment,
+} from './camera.ts'
 import type { FloorPoint, Vec3 } from './camera.ts'
 import { linePoints } from './line.ts'
-import { MIRROR_BOUNDS, MIRROR_LAYERS } from './mirror.ts'
-import type { MirrorPoint } from './mirror.ts'
+import { MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './mirror.ts'
+import type { MirrorLine, MirrorPoint } from './mirror.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { createRandom, hashRandom, hashSeed } from './random.ts'
+import { rippleRings, ringLines } from './ripple.ts'
 import type { Bounds } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
@@ -257,16 +269,18 @@ function visibleParts([a, b]: Segment, eye: FloorPoint): Segment[] {
 const BRICKS = brickSegments()
 const FLOOR = floorSegments()
 const EDGES = edgeSegments()
-const MIRROR = MIRROR_LAYERS.map(({ colour, lines }) => ({
-  colour,
-  segments: lines.map((line): Segment => {
+// World-space segments for lines drawn on the mirror.
+function mirrorSegments(lines: MirrorLine[]): Segment[] {
+  return lines.map((line): Segment => {
     const [a, b] = line.map((p) => {
       const { u, v } = mirrorToWall(p)
       return onWall(WALLS[MIRROR_WALL], u, v)
     })
     return [a, b]
-  }),
-}))
+  })
+}
+
+const MIRROR = MIRROR_LAYERS.map(({ colour, lines }) => ({ colour, segments: mirrorSegments(lines) }))
 
 type View = { yaw: number; eye: FloorPoint; width: number; height: number }
 
@@ -307,4 +321,62 @@ export function mirrorBounds(canvasWidth: number, canvasHeight: number, yaw = 0,
   const xs = pixels.map(({ x }) => x)
   const ys = pixels.map(({ y }) => y)
   return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
+}
+
+// Rings stronger than this are worn; weaker ones are dim.
+const RIPPLE_WORN_STRENGTH = 0.6
+// Below this strength a ring loses pixels, more of them the weaker it gets.
+const RIPPLE_SOLID_STRENGTH = 0.35
+
+export type RippleState = { origin: MirrorPoint; elapsedMs: number }
+
+// Pixels for a ripple on the mirror's glass, seen the same way as `mirrorPixels`.
+export function ripplePixels(
+  canvasWidth: number,
+  canvasHeight: number,
+  { origin, elapsedMs }: RippleState,
+  yaw = 0,
+  eye: FloorPoint = ORIGIN,
+): Pixel[] {
+  const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
+  const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
+  return rippleRings(origin, elapsedMs).flatMap(({ radius, strength }, ring) => {
+    const colour = strength > RIPPLE_WORN_STRENGTH ? FOREGROUND_WORN : FOREGROUND_DIM
+    const kept = Math.min(1, strength / RIPPLE_SOLID_STRENGTH)
+    return rasterise(mirrorSegments(ringLines(origin, radius)), colour, view).filter(
+      (p) => inCanvas(p) && (kept === 1 || hashRandom(p.x, p.y, ring) < kept),
+    )
+  })
+}
+
+// The point on the mirror's glass under a canvas position, or null if the
+// position isn't over the glass in this view.
+export function screenToMirror(
+  x: number,
+  y: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  yaw = 0,
+  eye: FloorPoint = ORIGIN,
+): MirrorPoint | null {
+  // The ray through the position, in camera space and then in the world.
+  const focal = (FOCAL_RATIO * canvasWidth) / 2
+  const cameraX = (x - canvasWidth / 2) / focal
+  const cameraY = (canvasHeight / 2 - y) / focal
+  const cos = Math.cos(yaw)
+  const sin = Math.sin(yaw)
+  const ray = vec(cameraX * cos - sin, cameraY, cameraX * sin + cos)
+  // Where it meets the mirror's wall, if in front of the camera.
+  const { start, along, length } = WALLS[MIRROR_WALL]
+  const normal = vec(-along.z, 0, along.x)
+  const facing = normal.x * ray.x + normal.z * ray.z
+  if (facing === 0) return null
+  const distanceAlong = (normal.x * (start.x - eye.x) + normal.z * (start.z - eye.z)) / facing
+  if (distanceAlong <= 0) return null
+  const hit = vec(eye.x + ray.x * distanceAlong, ray.y * distanceAlong, eye.z + ray.z * distanceAlong)
+  if (!isVisible(hit, eye)) return null
+  const u = (hit.x - start.x) * along.x + (hit.z - start.z) * along.z
+  // Inverse of mirrorToWall: s = u - length / 2, t = CEILING_Y - v = hit.y.
+  const point = { s: u - length / 2, t: hit.y }
+  return isOnGlass(point) ? point : null
 }

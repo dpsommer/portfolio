@@ -4,7 +4,8 @@ import type { FloorPoint, ScreenPoint } from './camera.ts'
 import { drawPixels, drawScene, placeSprite, signPlacement } from './draw.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
-import { mirrorPixels, roomPixels } from './room.ts'
+import { mirrorPixels, ripplePixels, roomPixels } from './room.ts'
+import type { RippleState } from './room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
@@ -212,6 +213,57 @@ describe('drawScene', () => {
       ...toCalls(roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
       ...toCalls(mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
     ])
+  })
+
+  describe('with a ripple', () => {
+    const WEST = Math.PI / 2
+    const RIPPLE: RippleState = { origin: { s: 0, t: 0 }, elapsedMs: 900 }
+
+    it('draws more than without one, from the nook facing west', () => {
+      const plain = createFakeContext()
+      const rippling = createFakeContext()
+
+      drawScene(plain.ctx, WEST, NOOK_EYE)
+      drawScene(rippling.ctx, WEST, NOOK_EYE, RIPPLE)
+
+      expect(rippling.calls.length).toBeGreaterThan(plain.calls.length)
+    })
+
+    it('draws the ripple after the room and before the mirror', () => {
+      const { ctx, calls } = createFakeContext()
+      const ripple = ripplePixels(WIDTH, HEIGHT, RIPPLE, WEST, NOOK_EYE)
+      expect(ripple.length).toBeGreaterThan(0)
+
+      drawScene(ctx, WEST, NOOK_EYE, RIPPLE)
+
+      expect(calls).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toCalls(ripple),
+        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+      ])
+    })
+
+    it('draws the same as without one once it has finished', () => {
+      const plain = createFakeContext()
+      const finished = createFakeContext()
+
+      drawScene(plain.ctx, WEST, NOOK_EYE)
+      drawScene(finished.ctx, WEST, NOOK_EYE, { origin: { s: 0, t: 0 }, elapsedMs: 10_000 })
+
+      expect(finished.calls).toEqual(plain.calls)
+    })
+
+    it('draws the same as without one with the mirror out of view', () => {
+      const EAST = (3 * Math.PI) / 2
+      const plain = createFakeContext()
+      const rippling = createFakeContext()
+
+      drawScene(plain.ctx, EAST, NOOK_EYE)
+      drawScene(rippling.ctx, EAST, NOOK_EYE, RIPPLE)
+
+      expect(rippling.calls).toEqual(plain.calls)
+    })
   })
 
   it('never fills outside the canvas along the path to the nook', () => {

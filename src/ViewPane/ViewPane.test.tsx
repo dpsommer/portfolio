@@ -4,7 +4,9 @@ import type { MockInstance } from 'vitest'
 import { drawScene } from '../scene/draw.ts'
 import { FOREGROUND } from '../scene/palette.ts'
 import { PLACES } from '../scene/places.ts'
-import { mirrorBounds, mirrorPixels } from '../scene/room.ts'
+import { rippleDuration } from '../scene/ripple.ts'
+import { mirrorBounds, mirrorPixels, screenToMirror } from '../scene/room.ts'
+import type { RippleState } from '../scene/room.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import ViewPane, { MOVE_DURATION_MS, TURN_DURATION_MS, VIEW_HEIGHT, VIEW_WIDTH } from './ViewPane.tsx'
 
@@ -1060,5 +1062,248 @@ describe('ViewPane', () => {
       expect(canvas).toHaveAttribute('data-place', 'nook')
       expect(fills).toEqual(fillsFor(Math.PI / 2, PLACES.nook))
     })
+  })
+
+  describe('mirror ripple', () => {
+    const START = 1000
+    const WEST = Math.PI / 2
+    // On the glass but in the shoulder above the arch, inside the mirror's bounds.
+    const FRAME_X = MIRROR_X + 38
+    const FRAME_Y = MIRROR_Y - 60
+    // The glass point under the mirror's centre, and how long its ripple runs.
+    const ORIGIN = screenToMirror(MIRROR_X, MIRROR_Y, VIEW_WIDTH, VIEW_HEIGHT, WEST, PLACES.nook)!
+    const DURATION = rippleDuration(ORIGIN)
+    // A frame time at or just past the end. START + DURATION itself can round to an
+    // elapsed time a hair under DURATION.
+    const END = START + Math.ceil(DURATION)
+    type Fill = { args: number[]; fillStyle: string }
+    let ctx: ReturnType<typeof createFakeContext>
+    let frames: ReturnType<typeof stubAnimationFrames>
+    let now: MockInstance<() => number>
+    let fills: Fill[]
+
+    beforeEach(() => {
+      ctx = createFakeContext()
+      fills = []
+      ctx.fillRect.mockImplementation((...args: number[]) => {
+        fills.push({ args, fillStyle: ctx.fillStyle })
+      })
+      provideContext(ctx)
+      frames = stubAnimationFrames()
+      now = vi.spyOn(performance, 'now').mockReturnValue(START)
+    })
+
+    afterEach(() => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      now.mockRestore()
+      vi.unstubAllGlobals()
+    })
+
+    // The fills drawScene makes for the nook facing west, recorded with a separate fake context.
+    function fillsFor(ripple?: RippleState): Fill[] {
+      const recorded: Fill[] = []
+      const other = createFakeContext()
+      other.fillRect.mockImplementation((...args: number[]) => {
+        recorded.push({ args, fillStyle: other.fillStyle })
+      })
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, ripple)
+      return recorded
+    }
+
+    // Renders, turns west and steps into the nook, letting each animation finish.
+    function renderInNook() {
+      const result = renderPane()
+      clickAt(result.canvas, LEFT_X)
+      frames.flush(START + TURN_DURATION_MS)
+      clickAt(result.canvas, CENTRE_X)
+      frames.flush(START + MOVE_DURATION_MS)
+      expect(result.canvas).toHaveAttribute('data-place', 'nook')
+      expect(result.canvas).toHaveAttribute('data-heading', 'west')
+      frames.requestAnimationFrame.mockClear()
+      fills.length = 0
+      return result
+    }
+
+    it('starts on the glass at the mirror\'s centre', () => {
+      expect(ORIGIN).not.toBeNull()
+      expect(DURATION).toBeGreaterThan(TURN_DURATION_MS)
+    })
+
+    it('requests an animation frame when the glass is clicked', () => {
+      const { canvas } = renderInNook()
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(1)
+    })
+
+    it('stays in the nook facing west when the glass is clicked', () => {
+      const { canvas } = renderInNook()
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('draws the ripple on top of the plain scene mid-ripple', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      frames.flush(START + DURATION / 2)
+
+      expect(fills.length).toBeGreaterThan(fillsFor().length)
+      expect(fills).toEqual(fillsFor({ origin: ORIGIN, elapsedMs: DURATION / 2 }))
+    })
+
+    it('keeps requesting frames until the ripple duration has passed', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      frames.flush(START + DURATION / 2)
+      expect(frames.pending()).toBe(1)
+
+      frames.flush(END)
+      expect(frames.pending()).toBe(0)
+    })
+
+    it('ends drawing the plain scene, without the ripple', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + DURATION / 2)
+      fills.length = 0
+
+      frames.flush(END)
+
+      expect(fills).toEqual(fillsFor())
+    })
+
+    it.each([
+      ['turn left', LEFT_X],
+      ['turn right', RIGHT_X],
+    ])('ignores a %s click mid-ripple', (_, clientX) => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + DURATION / 2)
+
+      clickAt(canvas, clientX)
+
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(2)
+    })
+
+    it('hides the hand over the mirror mid-ripple', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + DURATION / 2)
+
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
+    })
+
+    it('shows the hand again once the ripple has finished', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      fireEvent.mouseMove(canvas, { clientX: MIRROR_X, clientY: MIRROR_Y })
+
+      frames.flush(END)
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('accepts a turn once the ripple has finished', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(END)
+
+      clickAt(canvas, LEFT_X)
+
+      expect(canvas).toHaveAttribute('data-heading', 'south')
+    })
+
+    it('does not restart the ripple when the glass is clicked again mid-ripple', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(START + DURATION / 2)
+      // A restart would time the new ripple from here.
+      now.mockReturnValue(START + DURATION / 2)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(2)
+      expect(frames.pending()).toBe(1)
+      frames.flush(END)
+      expect(frames.pending()).toBe(0)
+    })
+
+    it('can ripple again once the first ripple has finished', () => {
+      const { canvas } = renderInNook()
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      frames.flush(END)
+      frames.requestAnimationFrame.mockClear()
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      ['the frame above the arch', FRAME_X, FRAME_Y],
+      ['the crest', MIRROR_X, MIRROR.top + 3],
+    ])('does nothing when %s is clicked', (_, clientX, clientY) => {
+      expect(isInside(clientX, clientY)).toBe(true)
+      const { canvas } = renderInNook()
+
+      clickAt(canvas, clientX, clientY)
+
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      expect(fills).toEqual([])
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('keeps the hand after clicking the frame', () => {
+      const { canvas } = renderInNook()
+      fireEvent.mouseMove(canvas, { clientX: FRAME_X, clientY: FRAME_Y })
+
+      clickAt(canvas, FRAME_X, FRAME_Y)
+
+      expect(canvas.style.cursor).toBe(HAND_CURSOR)
+    })
+
+    it('shows no ripple with reduced motion', () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, CENTRE_X)
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      fills.length = 0
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+
+      expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      expect(fills).toEqual([])
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('moves into the nook rather than rippling when the mirror area is clicked from the start facing west', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, LEFT_X)
+      frames.flush(START + TURN_DURATION_MS)
+
+      clickAt(canvas, MIRROR_X, MIRROR_Y)
+      expect(canvas).toHaveAttribute('data-place', 'nook')
+      fills.length = 0
+      frames.flush(START + MOVE_DURATION_MS)
+
+      expect(frames.pending()).toBe(0)
+      expect(fills).toEqual(fillsFor())
+    })
+
+    function isInside(x: number, y: number) {
+      return x >= MIRROR.left && x <= MIRROR.right && y >= MIRROR.top && y <= MIRROR.bottom
+    }
   })
 })

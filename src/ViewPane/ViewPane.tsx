@@ -7,7 +7,9 @@ import { TURN_YAW, turn } from '../scene/heading.ts'
 import type { Heading, TurnDirection } from '../scene/heading.ts'
 import { PLACES, forwardFrom } from '../scene/places.ts'
 import type { PlaceName } from '../scene/places.ts'
-import { mirrorBounds } from '../scene/room.ts'
+import { mirrorBounds, screenToMirror } from '../scene/room.ts'
+import type { RippleState } from '../scene/room.ts'
+import { rippleDuration } from '../scene/ripple.ts'
 import { signBoardBounds } from '../scene/signpost.ts'
 import type { Bounds } from '../scene/signpost.ts'
 import './ViewPane.scss'
@@ -40,11 +42,12 @@ function prefersReducedMotion(): boolean {
 const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
 
 type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean }
-// What the camera is drawing: where it stands and which way it faces.
-type View = { x: number; z: number; yaw: number }
+// What the camera is drawing: where it stands, which way it faces, and any
+// ripple playing on the mirror.
+type View = { x: number; z: number; yaw: number; ripple?: RippleState }
 
-function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw }: View) {
-  drawScene(ctx, yaw, { x, z })
+function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw, ripple }: View) {
+  drawScene(ctx, yaw, { x, z }, ripple)
 }
 
 function ViewPane() {
@@ -65,30 +68,16 @@ function ViewPane() {
     }
   }, [])
 
-  // Animates the drawn view to `to`, or jumps there with reduced motion or no canvas.
-  function animateTo(to: View, duration: number) {
-    const from = viewRef.current
-    const ctx = canvasRef.current?.getContext('2d')
-    if (!ctx || prefersReducedMotion()) {
-      viewRef.current = to
-      if (ctx) drawView(ctx, to)
-      return
-    }
+  // Runs `frame` on each animation frame for `duration` ms with the elapsed
+  // time, ending with a call at exactly `duration`. Input waits until it's done.
+  function runAnimation(ctx: CanvasRenderingContext2D, duration: number, frame: (elapsed: number) => View) {
     setAnimating(true)
     const start = performance.now()
     const step = (now: number) => {
-      const progress = Math.min(1, (now - start) / duration)
-      const eased = easeInOut(progress)
-      viewRef.current =
-        progress < 1
-          ? {
-              x: from.x + (to.x - from.x) * eased,
-              z: from.z + (to.z - from.z) * eased,
-              yaw: from.yaw + (to.yaw - from.yaw) * eased,
-            }
-          : to
+      const elapsed = Math.min(duration, now - start)
+      viewRef.current = frame(elapsed)
       drawView(ctx, viewRef.current)
-      if (progress < 1) {
+      if (elapsed < duration) {
         frameRef.current = requestAnimationFrame(step)
       } else {
         frameRef.current = null
@@ -98,16 +87,56 @@ function ViewPane() {
     frameRef.current = requestAnimationFrame(step)
   }
 
-  // Mouse position as fractions of the canvas's on-screen size, so hit areas scale with the pane.
-  function pointerAt(event: MouseEvent<HTMLCanvasElement>): Pointer | null {
+  // Animates the drawn view to `to`, or jumps there with reduced motion or no canvas.
+  function animateTo(to: View, duration: number) {
+    const from = viewRef.current
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx || prefersReducedMotion()) {
+      viewRef.current = to
+      if (ctx) drawView(ctx, to)
+      return
+    }
+    runAnimation(ctx, duration, (elapsed) => {
+      if (elapsed >= duration) return to
+      const eased = easeInOut(elapsed / duration)
+      return {
+        x: from.x + (to.x - from.x) * eased,
+        z: from.z + (to.z - from.z) * eased,
+        yaw: from.yaw + (to.yaw - from.yaw) * eased,
+      }
+    })
+  }
+
+  // Plays a ripple on the mirror from the canvas position (x, y), if it's on the glass.
+  function rippleAt(x: number, y: number) {
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx || prefersReducedMotion()) return
+    const view = viewRef.current
+    const origin = screenToMirror(x, y, VIEW_WIDTH, VIEW_HEIGHT, view.yaw, view)
+    if (!origin) return
+    const duration = rippleDuration(origin)
+    runAnimation(ctx, duration, (elapsed) =>
+      elapsed < duration ? { ...view, ripple: { origin, elapsedMs: elapsed } } : { ...view, ripple: undefined },
+    )
+  }
+
+  // Mouse position in canvas pixels, from fractions of the canvas's on-screen
+  // size so hit areas scale with the pane.
+  function canvasPointAt(event: MouseEvent<HTMLCanvasElement>): { x: number; y: number } | null {
     const rect = event.currentTarget.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return null
-    const fractionX = (event.clientX - rect.left) / rect.width
-    const fractionY = (event.clientY - rect.top) / rect.height
-    const x = fractionX * VIEW_WIDTH
-    const y = fractionY * VIEW_HEIGHT
     return {
-      zone: getCursorZone(fractionX),
+      x: ((event.clientX - rect.left) / rect.width) * VIEW_WIDTH,
+      y: ((event.clientY - rect.top) / rect.height) * VIEW_HEIGHT,
+    }
+  }
+
+  function pointerAt(event: MouseEvent<HTMLCanvasElement>): Pointer | null {
+    const point = canvasPointAt(event)
+    if (!point) return null
+    const { x, y } = point
+    return {
+      zone: getCursorZone(x / VIEW_WIDTH),
       overSign: isInside(SIGN_BOUNDS, x, y),
       overMirror: isInside(MIRROR_BOUNDS, x, y),
     }
@@ -124,8 +153,13 @@ function ViewPane() {
   }
 
   function handleClick(event: MouseEvent<HTMLCanvasElement>) {
+    const point = canvasPointAt(event)
     const at = pointerAt(event)
-    if (!at || animating) return
+    if (!point || !at || animating) return
+    if (at.overMirror && isMirrorView) {
+      rippleAt(point.x, point.y)
+      return
+    }
     const direction = TURNS[at.zone]
     if (direction) {
       setHeading(turn(heading, direction))
@@ -140,10 +174,10 @@ function ViewPane() {
   }
 
   // The sign and mirror are only clickable from where they were designed to be seen.
+  const isMirrorView = place === 'nook' && heading === 'west'
   const showHand =
     !animating &&
-    ((pointer.overSign && place === 'start' && heading === 'north') ||
-      (pointer.overMirror && place === 'nook' && heading === 'west'))
+    ((pointer.overSign && place === 'start' && heading === 'north') || (pointer.overMirror && isMirrorView))
   const canMoveForward = forwardFrom(place, heading) !== null
   const cursor = showHand
     ? HAND_CURSOR

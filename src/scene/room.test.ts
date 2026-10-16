@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   BACK_Z,
   CEILING_Y,
@@ -12,12 +12,31 @@ import {
   WALL_VIEW_DISTANCE,
 } from './camera.ts'
 import type { FloorPoint } from './camera.ts'
-import { MIRROR_BOUNDS } from './mirror.ts'
+import { MIRROR_BOUNDS, isOnGlass } from './mirror.ts'
+import type { MirrorPoint } from './mirror.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 import { PLACES } from './places.ts'
-import { FLOOR_PLAN, MIRROR_WALL, WALLS, isOnFloor, isVisible, mirrorBounds, mirrorPixels, roomPixels } from './room.ts'
+import {
+  FLOOR_PLAN,
+  MIRROR_WALL,
+  WALLS,
+  isOnFloor,
+  isVisible,
+  mirrorBounds,
+  mirrorPixels,
+  ripplePixels,
+  roomPixels,
+  screenToMirror,
+} from './room.ts'
 import type { WallName } from './room.ts'
+import { rippleDuration, rippleRings } from './ripple.ts'
 import type { Pixel } from './types.ts'
+
+// rippleRings passes through, so tests can feed ripplePixels set rings with mockReturnValueOnce.
+vi.mock('./ripple.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ripple.ts')>()
+  return { ...actual, rippleRings: vi.fn(actual.rippleRings) }
+})
 
 const WIDTH = 320
 const HEIGHT = 240
@@ -975,5 +994,203 @@ describe('mirrorBounds', () => {
 
   it('defaults to the start facing north', () => {
     expect(mirrorBounds(WIDTH, HEIGHT)).toEqual(mirrorBounds(WIDTH, HEIGHT, 0, ORIGIN))
+  })
+})
+
+describe('ripplePixels', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  const CENTRE: MirrorPoint = { s: 0, t: 0 }
+  const duration = rippleDuration(CENTRE)
+  // Every ring has started and the first is part-way out.
+  const MID_MS = 900
+  const fromNook = (origin: MirrorPoint, elapsedMs: number) =>
+    ripplePixels(WIDTH, HEIGHT, { origin, elapsedMs }, WEST, NOOK_EYE)
+
+  it('draws pixels mid-ripple from the nook facing west', () => {
+    expect(fromNook(CENTRE, MID_MS).length).toBeGreaterThan(0)
+  })
+
+  it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
+    const { left, top, right, bottom } = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    for (const origin of [CENTRE, { s: 0.3, t: -0.45 }, { s: -0.2, t: 0.4 }]) {
+      for (let ms = 100; ms < rippleDuration(origin); ms += 100) {
+        const outside = fromNook(origin, ms).filter(({ x, y }) => x < left || x > right || y < top || y > bottom)
+        expect(outside).toEqual([])
+      }
+    }
+  })
+
+  it('uses integer coordinates within the canvas', () => {
+    for (const { x, y } of fromNook(CENTRE, MID_MS)) {
+      expect(Number.isInteger(x)).toBe(true)
+      expect(Number.isInteger(y)).toBe(true)
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(WIDTH)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(HEIGHT)
+    }
+  })
+
+  it('centres a small ring on the click', () => {
+    const pixels = fromNook(CENTRE, 400)
+    const xs = pixels.map((p) => p.x)
+    const ys = pixels.map((p) => p.y)
+    expect(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2 - WIDTH / 2)).toBeLessThanOrEqual(1)
+    expect(Math.abs((Math.min(...ys) + Math.max(...ys)) / 2 - HEIGHT / 2)).toBeLessThanOrEqual(1)
+  })
+
+  it('draws nothing at the click', () => {
+    expect(fromNook(CENTRE, 0)).toEqual([])
+  })
+
+  it('draws nothing past the duration', () => {
+    expect(fromNook(CENTRE, duration + 1)).toEqual([])
+  })
+
+  it('draws nothing from the nook facing east, with the mirror behind the camera', () => {
+    expect(ripplePixels(WIDTH, HEIGHT, { origin: CENTRE, elapsedMs: MID_MS }, EAST, NOOK_EYE)).toEqual([])
+  })
+
+  it('is deterministic', () => {
+    expect(fromNook(CENTRE, duration - 100)).toEqual(fromNook(CENTRE, duration - 100))
+  })
+
+  it('draws strong rings in the worn colour', () => {
+    // Early on both rings are near the click, so strong.
+    expect(rippleRings(CENTRE, 300).every(({ strength }) => strength > 0.6)).toBe(true)
+    const colours = new Set(fromNook(CENTRE, 300).map((p) => p.colour))
+    expect(colours).toEqual(new Set([FOREGROUND_WORN]))
+  })
+
+  it('draws weak rings in the dim colour', () => {
+    const late = duration - 100
+    expect(rippleRings(CENTRE, late).every(({ strength }) => strength < 0.6)).toBe(true)
+    const pixels = fromNook(CENTRE, late)
+    expect(pixels.length).toBeGreaterThan(0)
+    expect(new Set(pixels.map((p) => p.colour))).toEqual(new Set([FOREGROUND_DIM]))
+  })
+
+  describe('with a set ring', () => {
+    const RADIUS = 0.2
+    // A lone ring of RADIUS around the centre with the given strength.
+    const ringWith = (strength: number) => {
+      vi.mocked(rippleRings).mockReturnValueOnce([{ radius: RADIUS, strength }])
+      return fromNook(CENTRE, MID_MS)
+    }
+    const key = (p: Pixel) => `${p.x},${p.y}`
+
+    it('draws a ring stronger than 0.6 in the worn colour', () => {
+      expect(new Set(ringWith(0.61).map((p) => p.colour))).toEqual(new Set([FOREGROUND_WORN]))
+    })
+
+    it('draws a ring of 0.6 or weaker in the dim colour', () => {
+      expect(new Set(ringWith(0.6).map((p) => p.colour))).toEqual(new Set([FOREGROUND_DIM]))
+    })
+
+    it('keeps every pixel of a ring at strength 0.35 or more', () => {
+      const solid = ringWith(1).map(key)
+      expect(ringWith(0.35).map(key)).toEqual(solid)
+      expect(ringWith(0.5).map(key)).toEqual(solid)
+    })
+
+    it('keeps fewer pixels of a fainter ring, all from the solid ring', () => {
+      const solid = new Set(ringWith(0.5).map(key))
+      const faded = ringWith(0.1).map(key)
+      expect(faded.length).toBeGreaterThan(0)
+      expect(faded.length).toBeLessThan(solid.size * 0.5)
+      for (const k of faded) expect(solid.has(k)).toBe(true)
+    })
+
+    it('keeps fewer pixels the fainter the ring gets', () => {
+      const counts = [0.3, 0.2, 0.1, 0.02].map((strength) => ringWith(strength).length)
+      for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThan(counts[i - 1])
+    })
+
+    it('drops the same pixels each time', () => {
+      expect(ringWith(0.15)).toEqual(ringWith(0.15))
+    })
+  })
+})
+
+describe('screenToMirror', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  // One canvas pixel on the mirror's wall from the nook, in mirror units.
+  const PIXEL = 1 / FOCAL
+  const fromNook = (x: number, y: number) => screenToMirror(x, y, WIDTH, HEIGHT, WEST, NOOK_EYE)
+
+  it('maps the centre of the view to the centre of the glass from the nook facing west', () => {
+    const point = fromNook(WIDTH / 2, HEIGHT / 2)!
+    expect(point.s).toBeCloseTo(0)
+    expect(point.t).toBeCloseTo(0)
+  })
+
+  it('maps one pixel to about 1/128 of a mirror unit', () => {
+    expect(PIXEL).toBeCloseTo(1 / 128)
+    expect(fromNook(WIDTH / 2 + 10, HEIGHT / 2)!.s).toBeCloseTo(10 * PIXEL)
+    expect(fromNook(WIDTH / 2, HEIGHT / 2 - 10)!.t).toBeCloseTo(10 * PIXEL)
+  })
+
+  it('maps right on screen to +s', () => {
+    expect(fromNook(WIDTH / 2 + 20, HEIGHT / 2)!.s).toBeGreaterThan(0)
+  })
+
+  it('maps up on screen to +t', () => {
+    expect(fromNook(WIDTH / 2, HEIGHT / 2 - 20)!.t).toBeGreaterThan(0)
+  })
+
+  it('returns points on the glass', () => {
+    for (const [x, y] of [[130, 90], [200, 170], [160, 60], [190, 120]]) {
+      const point = fromNook(x, y)
+      expect(point).not.toBeNull()
+      expect(isOnGlass(point!)).toBe(true)
+    }
+  })
+
+  it.each([
+    ['the right side of the frame', WIDTH / 2 + 47, HEIGHT / 2],
+    ['the left side of the frame', WIDTH / 2 - 47, HEIGHT / 2],
+    ['the crest', WIDTH / 2, 42],
+    ['a top shoulder corner, outside the arch', WIDTH / 2 + 38, HEIGHT / 2 - 58],
+  ])('returns null on %s, inside the mirror\'s bounds', (_, x, y) => {
+    const { left, top, right, bottom } = mirrorBounds(WIDTH, HEIGHT, WEST, NOOK_EYE)!
+    expect(x >= left && x <= right && y >= top && y <= bottom).toBe(true)
+    expect(fromNook(x, y)).toBeNull()
+  })
+
+  it('returns null beside the mirror', () => {
+    expect(fromNook(40, HEIGHT / 2)).toBeNull()
+  })
+
+  it('returns null above the wall', () => {
+    expect(fromNook(WIDTH / 2, 0)).toBeNull()
+  })
+
+  it('returns null from the nook facing east, with the mirror behind the camera', () => {
+    expect(screenToMirror(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, EAST, NOOK_EYE)).toBeNull()
+  })
+
+  it('returns null from the start facing north, with the mirror off to the side', () => {
+    expect(screenToMirror(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT)).toBeNull()
+  })
+
+  it('maps the projected centre of the glass back to the centre from the start facing west', () => {
+    const point = screenToMirror(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, WEST)!
+    expect(point.s).toBeCloseTo(0)
+    expect(point.t).toBeCloseTo(0)
+  })
+
+  it('lands each ripple pixel near its ring', () => {
+    // Round-trips a ring through ripplePixels and back.
+    const origin = { s: 0, t: 0 }
+    const radii = rippleRings(origin, 500).map(({ radius }) => radius)
+    const pixels = ripplePixels(WIDTH, HEIGHT, { origin, elapsedMs: 500 }, WEST, NOOK_EYE)
+    expect(pixels.length).toBeGreaterThan(0)
+    for (const { x, y } of pixels) {
+      const point = fromNook(x, y)!
+      const distance = Math.hypot(point.s, point.t)
+      expect(Math.min(...radii.map((r) => Math.abs(distance - r)))).toBeLessThan(2 * PIXEL)
+    }
   })
 })

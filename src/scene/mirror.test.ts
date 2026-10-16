@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CEILING_Y, FLOOR_Y } from './camera.ts'
-import { MIRROR_BOUNDS, MIRROR_LAYERS } from './mirror.ts'
+import { GLASS_OUTLINE, MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './mirror.ts'
 import type { MirrorLine, MirrorPoint } from './mirror.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
 
@@ -138,5 +138,68 @@ describe('MIRROR_BOUNDS', () => {
   it('is centred horizontally on s 0, wider than the frame for the scrolls', () => {
     expect(MIRROR_BOUNDS.left).toBeCloseTo(-MIRROR_BOUNDS.right)
     expect(MIRROR_BOUNDS.right - MIRROR_BOUNDS.left).toBeGreaterThan(0.8)
+  })
+})
+
+describe('GLASS_OUTLINE', () => {
+  it('is the glass edge drawn in the worn layer', () => {
+    expect(GLASS.lines.flat().map(pointKey)).toEqual(
+      GLASS_OUTLINE.slice(1).flatMap((p, i) => [pointKey(GLASS_OUTLINE[i]), pointKey(p)]),
+    )
+  })
+})
+
+describe('isOnGlass', () => {
+  it('is true at the centre', () => {
+    expect(isOnGlass({ s: 0, t: 0 })).toBe(true)
+  })
+
+  it.each([
+    ['near the top of the arch', 0, 0.45],
+    ['inside the arch, off the centre line', 0.2, 0.35],
+    ['near a straight side', -0.32, -0.2],
+    ['just above the bottom edge', 0.1, -0.47],
+  ])('is true %s', (_, s, t) => {
+    expect(isOnGlass({ s, t })).toBe(true)
+  })
+
+  it.each([
+    ['the top right shoulder corner', 0.3, 0.45],
+    ['the top left shoulder corner', -0.3, 0.45],
+  ])('is false at %s, outside the arch', (_, s, t) => {
+    expect(isOnGlass({ s, t })).toBe(false)
+  })
+
+  it.each([
+    ['right side', 0.36, 0],
+    ['left side', -0.36, 0],
+    ['arch', 0, 0.52],
+    ['bottom', 0, -0.52],
+  ])('is false on the frame band at the %s', (_, s, t) => {
+    expect(isOnGlass({ s, t })).toBe(false)
+  })
+
+  it('is true on the bottom edge and false just below it', () => {
+    expect(isOnGlass({ s: 0, t: -0.48 })).toBe(true)
+    expect(isOnGlass({ s: 0, t: -0.481 })).toBe(false)
+  })
+
+  it('is false outside the mirror altogether', () => {
+    expect(isOnGlass({ s: 1, t: 0 })).toBe(false)
+  })
+
+  // The outline is the boundary, so test points a hair inside it, clear of rounding.
+  it('is true just inside every point of the glass outline', () => {
+    for (const { s, t } of GLASS_OUTLINE) expect(isOnGlass({ s: s * 0.999, t: t * 0.999 })).toBe(true)
+  })
+
+  it('is false just outside every point of the glass outline', () => {
+    for (const { s, t } of GLASS_OUTLINE) expect(isOnGlass({ s: s * 1.01, t: t * 1.01 })).toBe(false)
+  })
+
+  it('is left/right symmetric', () => {
+    for (const s of [0.1, 0.25, 0.33, 0.34]) {
+      for (const t of [-0.5, 0, 0.3, 0.45]) expect(isOnGlass({ s: -s, t })).toBe(isOnGlass({ s, t }))
+    }
   })
 })

@@ -46,6 +46,16 @@ function archOutline(inset: number): MirrorPoint[] {
   ]
 }
 
+// The glass's edge, just inside the frame.
+export const GLASS_OUTLINE = archOutline(FRAME_WIDTH)
+
+// Whether a mirror-local point is on the glass, inside the worn inner edge.
+export function isOnGlass({ s, t }: MirrorPoint): boolean {
+  const half = HALF_WIDTH - FRAME_WIDTH
+  if (Math.abs(s) > half || t < BOTTOM + FRAME_WIDTH) return false
+  return t <= SHOULDER || Math.hypot(s, t - SHOULDER) <= half
+}
+
 // The right-hand half of each symmetric ornament; the left is its reflection.
 function ornamentHalves(): MirrorPoint[][] {
   const top = SHOULDER + HALF_WIDTH
@@ -86,7 +96,7 @@ export type MirrorLayer = { colour: string; lines: MirrorLine[] }
 // Layers in drawing order, dimmest first so the frame draws over the glass.
 export const MIRROR_LAYERS: MirrorLayer[] = [
   { colour: FOREGROUND_DIM, lines: GLINTS },
-  { colour: FOREGROUND_WORN, lines: polyline(archOutline(FRAME_WIDTH)) },
+  { colour: FOREGROUND_WORN, lines: polyline(GLASS_OUTLINE) },
   { colour: FOREGROUND, lines: [...polyline(archOutline(0)), ...ornaments()] },
 ]
 

@@ -1,7 +1,8 @@
 import { ORIGIN, NEAR, projectPoint, toCamera } from './camera.ts'
 import type { FloorPoint, ScreenPoint } from './camera.ts'
 import { BACKGROUND } from './palette.ts'
-import { isVisible, mirrorPixels, roomPixels } from './room.ts'
+import { isVisible, mirrorPixels, ripplePixels, roomPixels } from './room.ts'
+import type { RippleState } from './room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
 import type { Pixel } from './types.ts'
 
@@ -52,12 +53,15 @@ export function placeSprite(
   })
 }
 
-// Draws the scene from `eye` with the camera turned `yaw` radians left of north.
-export function drawScene(ctx: CanvasRenderingContext2D, yaw = 0, eye: FloorPoint = ORIGIN) {
+// Draws the scene from `eye` with the camera turned `yaw` radians left of north,
+// with `ripple` on the mirror's glass if one is playing.
+export function drawScene(ctx: CanvasRenderingContext2D, yaw = 0, eye: FloorPoint = ORIGIN, ripple?: RippleState) {
   const { width, height } = ctx.canvas
   ctx.fillStyle = BACKGROUND
   ctx.fillRect(0, 0, width, height)
   drawPixels(ctx, roomPixels(width, height, yaw, eye))
+  // Under the mirror, so its frame covers the rings' ends.
+  if (ripple) drawPixels(ctx, ripplePixels(width, height, ripple, yaw, eye))
   drawPixels(ctx, mirrorPixels(width, height, yaw, eye))
   const placement = signPlacement(yaw, width, height, eye)
   if (!placement) return
