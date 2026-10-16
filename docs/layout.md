@@ -4,7 +4,7 @@ How the room is laid out in the world and how the camera sees it. For interactio
 
 ## World and units
 
-The room is built in world space (`src/scene/camera.ts`):
+The room is built in world space (`src/scene/core/camera.ts`):
 
 - **Axes:** x runs east (right when facing north) and y runs up. +z is north, the starting heading. The camera is always at eye height, y 0.
 - **Size:** the main room is 2 wide (`ROOM_HALF_WIDTH` 1), so x runs from −1 to 1.
@@ -12,7 +12,7 @@ The room is built in world space (`src/scene/camera.ts`):
 
 ## Floor plan
 
-`src/scene/room.ts` describes the room as a floor plan (`FLOOR_PLAN`, corners clockwise from above) and derives `WALLS` from it. Each wall runs from its corner to the next, left to right as seen from inside.
+`src/scene/room/room.ts` describes the room as a floor plan (`FLOOR_PLAN`, corners clockwise from above) and derives `WALLS` from it. Each wall runs from its corner to the next, left to right as seen from inside.
 
 ```
           z
@@ -49,7 +49,7 @@ The room is built in world space (`src/scene/camera.ts`):
 
 ## Places
 
-The spots the visitor can stand, and their exits, are in `src/scene/places.ts` (`PLACES`, `forwardFrom`).
+The spots the visitor can stand, and their exits, are in `src/scene/navigation/places.ts` (`PLACES`, `forwardFrom`).
 
 | Place | Position | Exits |
 | --- | --- | --- |
@@ -87,22 +87,22 @@ The spots the visitor can stand, and their exits, are in `src/scene/places.ts` (
 - **Bricks:** sparse bricks on every wall, drawn as just their top and left edges, in `FOREGROUND_DIM`. Bricks the mirror covers aren't drawn.
 - **Flagstones:** scattered flagstone edges on a grid of 1/3-unit floor tiles, in `FOREGROUND_DIM`. Only grid lines with floor on both sides are drawn (`isOnFloor`).
 
-Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSeed` (`src/scene/random.ts`) from its own world coordinates, not from one sequential stream. That way the detail stays put while the view turns instead of shimmering. The segments are built once; `roomPixels(width, height, yaw, eye)` only projects them.
+Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSeed` (`src/scene/core/random.ts`) from its own world coordinates, not from one sequential stream. That way the detail stays put while the view turns instead of shimmering. The segments are built once; `roomPixels(width, height, yaw, eye)` only projects them.
 
 ## Objects
 
 - **Welcome signpost:** the sprite is drawn for the start position facing north. It's anchored in the world at `SIGN_POSITION` (0, `FLOOR_Y`, 1.14).
   - From any other view it's a billboard: `signPlacement` (`src/scene/draw.ts`) projects the anchor and scales the sprite by the anchor's depth. `placeSprite` moves and scales the pixels, drawing enlarged pixels as blocks.
   - It always faces the viewer. It isn't drawn when the anchor is behind the camera or hidden by a wall.
-- **Mirror:** an ornate, arch-topped mirror (`src/scene/mirror.ts`).
+- **Mirror:** an ornate, arch-topped mirror (`src/scene/mirror/frame.ts`).
   - **Placement:** it hangs centred on the `nook-back` wall (`MIRROR_WALL` in `room.ts`), facing the nook's place, with its centre at eye height.
   - **Size:** it's 1.3 high on the 1.5-high wall, crest and pendant included, and 0.8 wide at the frame.
   - **Style:** like the room, it's sparse world-space lines, in mirror-local units (s right, t up). It's drawn in three layers:
     - dim glints on the glass
     - a worn inner glass edge
     - a bright outer frame with a diamond crest, side and corner scrolls, and a pendant with a bead
-  - **Drawing:** `mirrorPixels` projects it with the room's wall visibility. `MIRROR_BOUNDS` keeps bricks off it.
-- **Curtain pull:** a cord and acorn-shaped handle beside the mirror (`src/scene/pull.ts`).
+  - **Drawing:** `mirrorPixels` (`src/scene/mirror/pixels.ts`) projects it with the room's wall visibility. `MIRROR_BOUNDS` keeps bricks off it.
+- **Curtain pull:** a cord and acorn-shaped handle beside the mirror (`src/scene/mirror/pull.ts`).
   - **Placement:** on the mirror's wall at s `PULL_S` (0.68), right of the mirror's side scroll. The cord hangs from the ceiling to the handle's top at t 0.12, a little above eye height. That keeps the handle clear of the brick below it.
   - **Style:** mirror-local lines like the mirror: a worn cord and a band across the handle, and a bright handle outline. `pullLayers(drop)` lowers the handle by `drop` and stretches the cord, for the tug animation.
   - **Drawing:** `pullPixels` projects it like the mirror. `PULL_BOUNDS` keeps bricks off it.

@@ -1,4 +1,4 @@
-import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../scene/palette.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../scene/core/palette.ts'
 
 export type CursorZone = 'turn-left' | 'forward' | 'turn-right'
 

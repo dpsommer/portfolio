@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { CEILING_Y, FLOOR_Y } from './camera.ts'
-import { GLASS_OUTLINE, MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './mirror.ts'
-import type { MirrorLine, MirrorPoint } from './mirror.ts'
-import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
+import { CEILING_Y, FLOOR_Y } from '../core/camera.ts'
+import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { GLASS_OUTLINE, MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './frame.ts'
+import type { MirrorLine, MirrorPoint } from './frame.ts'
 
 const WALL_HEIGHT = CEILING_Y - FLOOR_Y
 const [GLINTS, GLASS, FRAME] = MIRROR_LAYERS

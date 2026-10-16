@@ -1,7 +1,7 @@
-import { FOCAL_RATIO } from './camera.ts'
-import { GLASS_OUTLINE, isOnGlass } from './mirror.ts'
-import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
-import { hashRandom } from './random.ts'
+import { FOCAL_RATIO } from '../core/camera.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { hashRandom } from '../core/random.ts'
+import { GLASS_OUTLINE, isOnGlass } from './frame.ts'
 
 // A picture shown on the mirror's glass, as a grid of cells in the scene's four
 // tones. From the nook one cell is one canvas pixel, so the grid covers the

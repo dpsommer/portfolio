@@ -1,11 +1,12 @@
-import { ORIGIN, NEAR, projectPoint, toCamera } from './camera.ts'
-import type { FloorPoint, ScreenPoint } from './camera.ts'
-import { BACKGROUND } from './palette.ts'
-import type { Preview, Shimmer } from './preview.ts'
-import { isVisible, mirrorPixels, previewPixels, pullPixels, ripplePixels, roomPixels } from './room.ts'
-import type { RippleState } from './room.ts'
-import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost.ts'
-import type { Pixel } from './types.ts'
+import { ORIGIN, NEAR, projectPoint, toCamera } from './core/camera.ts'
+import type { FloorPoint, ScreenPoint } from './core/camera.ts'
+import { BACKGROUND } from './core/palette.ts'
+import type { Pixel } from './core/types.ts'
+import { mirrorPixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
+import type { RippleState } from './mirror/pixels.ts'
+import type { Preview, Shimmer } from './mirror/preview.ts'
+import { isVisible, roomPixels } from './room/room.ts'
+import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost/signpost.ts'
 
 export function drawPixels(ctx: CanvasRenderingContext2D, pixels: Pixel[]) {
   for (const { x, y, colour } of pixels) {

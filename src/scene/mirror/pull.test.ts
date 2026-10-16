@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { CEILING_Y } from './camera.ts'
-import { MIRROR_BOUNDS } from './mirror.ts'
-import type { MirrorLine } from './mirror.ts'
-import { FOREGROUND, FOREGROUND_WORN } from './palette.ts'
+import { CEILING_Y } from '../core/camera.ts'
+import { FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
+import { MIRROR_BOUNDS } from './frame.ts'
+import type { MirrorLine } from './frame.ts'
 import { PULL_BOUNDS, PULL_S, isOnPull, pullLayers } from './pull.ts'
 
 const allPoints = (lines: MirrorLine[]) => lines.flat()

@@ -1,9 +1,9 @@
-import { FLOOR_Y } from './camera.ts'
-import type { Vec3 } from './camera.ts'
-import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
-import { GLYPH_HEIGHT, textPixels, textWidth } from './pixelFont.ts'
-import { createRandom } from './random.ts'
-import type { Pixel } from './types.ts'
+import { FLOOR_Y } from '../core/camera.ts'
+import type { Vec3 } from '../core/camera.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
+import { GLYPH_HEIGHT, textPixels, textWidth } from '../core/pixelFont.ts'
+import { createRandom } from '../core/random.ts'
+import type { Pixel } from '../core/types.ts'
 
 export const SIGN_TEXT = 'WELCOME'
 export const BOARD_WIDTH = 120

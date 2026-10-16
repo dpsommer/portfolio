@@ -13,7 +13,7 @@ import {
   projectArrow,
 } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
-import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../scene/palette.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../scene/core/palette.ts'
 
 const PREFIX = 'url("data:image/svg+xml,'
 

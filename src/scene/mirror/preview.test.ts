@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isOnGlass } from './mirror.ts'
-import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { isOnGlass } from './frame.ts'
 import {
   GLASS_CELLS,
   PIXELS_PER_UNIT,

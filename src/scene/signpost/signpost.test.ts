@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { FLOOR_Y, projectPoint, toCamera } from './camera.ts'
-import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './palette.ts'
+import { FLOOR_Y, projectPoint, toCamera } from '../core/camera.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
 import {
   BOARD_HEIGHT,
   BOARD_SLOPE,

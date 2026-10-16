@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isOnGlass } from './mirror.ts'
-import type { MirrorPoint } from './mirror.ts'
+import { isOnGlass } from './frame.ts'
+import type { MirrorPoint } from './frame.ts'
 import { ringLines, rippleDuration, rippleOffset, rippleRings } from './ripple.ts'
 
 const CENTRE: MirrorPoint = { s: 0, t: 0 }

@@ -1,7 +1,7 @@
-import { CEILING_Y } from './camera.ts'
-import { point, polyline } from './mirror.ts'
-import type { MirrorLayer, MirrorPoint } from './mirror.ts'
-import { FOREGROUND, FOREGROUND_WORN } from './palette.ts'
+import { CEILING_Y } from '../core/camera.ts'
+import { FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
+import { point, polyline } from './frame.ts'
+import type { MirrorLayer, MirrorPoint } from './frame.ts'
 
 // A curtain pull hanging beside the mirror: a cord from the ceiling ending in
 // an acorn-shaped handle. Drawn like the mirror, as sparse lines in

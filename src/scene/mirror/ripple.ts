@@ -1,5 +1,5 @@
-import { GLASS_OUTLINE, isOnGlass } from './mirror.ts'
-import type { MirrorLine, MirrorPoint } from './mirror.ts'
+import { GLASS_OUTLINE, isOnGlass } from './frame.ts'
+import type { MirrorLine, MirrorPoint } from './frame.ts'
 
 // A water ripple on the mirror's glass: rings spreading from where it was
 // clicked, in mirror-local units. Each ring starts slowly and speeds up, so the

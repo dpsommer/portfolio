@@ -1,5 +1,5 @@
-import { NOOK_X, ORIGIN, WALL_VIEW_DISTANCE } from './camera.ts'
-import type { FloorPoint } from './camera.ts'
+import { NOOK_X, ORIGIN, WALL_VIEW_DISTANCE } from '../core/camera.ts'
+import type { FloorPoint } from '../core/camera.ts'
 import type { Heading } from './heading.ts'
 
 // The spots the visitor can stand on, and where moving forward from each leads

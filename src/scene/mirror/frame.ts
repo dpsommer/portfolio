@@ -1,4 +1,4 @@
-import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from './palette.ts'
+import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 
 // An ornate wall mirror, drawn like the room as sparse lines: an arched frame
 // with a crest, side scrolls and a pendant, an inner glass edge and a couple of

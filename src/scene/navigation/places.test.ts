@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { BACK_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, WALL_VIEW_DISTANCE } from './camera.ts'
-import type { FloorPoint } from './camera.ts'
+import { BACK_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, WALL_VIEW_DISTANCE } from '../core/camera.ts'
+import type { FloorPoint } from '../core/camera.ts'
+import { FLOOR_PLAN, isOnFloor } from '../room/room.ts'
 import { HEADINGS, turn } from './heading.ts'
 import type { Heading } from './heading.ts'
 import { PLACES, forwardFrom } from './places.ts'
 import type { PlaceName } from './places.ts'
-import { FLOOR_PLAN, isOnFloor } from './room.ts'
 
 const PLACE_NAMES = Object.keys(PLACES) as PlaceName[]
 
