@@ -1,12 +1,14 @@
 import { CEILING_Y, FLOOR_Y, FOCAL_RATIO, NEAR, ORIGIN, projectPoint, toCamera } from '../core/camera.ts'
-import type { FloorPoint } from '../core/camera.ts'
+import type { FloorPoint, Vec3 } from '../core/camera.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import { hashRandom } from '../core/random.ts'
 import type { Pixel } from '../core/types.ts'
 import { MIRROR_WALL, WALLS, isVisible, mirrorToWall, onWall, rasterise, vec } from '../room/room.ts'
-import type { Segment } from '../room/room.ts'
+import type { Segment, View } from '../room/room.ts'
 import { MIRROR_LAYERS, isOnGlass } from './frame.ts'
 import type { MirrorLine, MirrorPoint } from './frame.ts'
+import { logoCells, plaqueLayers } from './plaque.ts'
+import type { Plaque } from './plaque.ts'
 import { GLASS_CELLS, PREVIEW_COLOURS, shimmerTone, toneAt } from './preview.ts'
 import type { Preview, Shimmer } from './preview.ts'
 import { pullLayers } from './pull.ts'
@@ -118,6 +120,22 @@ export function pullPixels(canvasWidth: number, canvasHeight: number, drop = 0, 
     .filter(inCanvas)
 }
 
+// Adds a cell at `world` to `pixels`, as a block sized by how close it is: one
+// pixel at distance 1, the nook's distance from the mirror.
+function cellPixels(pixels: Pixel[], world: Vec3, colour: string, { yaw, eye, width, height }: View) {
+  const camera = toCamera(world, yaw, eye)
+  if (camera.z < NEAR || !isVisible(world, eye)) return
+  const centre = projectPoint(camera, width, height)
+  const size = Math.max(1, Math.ceil(1 / camera.z))
+  const left = Math.floor(centre.x - (size - 1) / 2)
+  const top = Math.floor(centre.y - (size - 1) / 2)
+  for (let y = top; y < top + size; y++) {
+    for (let x = left; x < left + size; x++) {
+      if (x >= 0 && x < width && y >= 0 && y < height) pixels.push({ x, y, colour })
+    }
+  }
+}
+
 // Where each glass cell of a preview sits in the world.
 const GLASS_CELL_POINTS = GLASS_CELLS.map((cell) => {
   const { u, v } = mirrorToWall(cell)
@@ -137,6 +155,7 @@ export function previewPixels(
   ripple?: RippleState,
   shimmer?: Shimmer,
 ): Pixel[] {
+  const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
   const rings = ripple ? rippleRings(ripple.origin, ripple.elapsedMs) : []
   const pixels: Pixel[] = []
   GLASS_CELLS.forEach((cell, i) => {
@@ -147,21 +166,27 @@ export function previewPixels(
       const offset = rippleOffset(ripple.origin, rings, cell)
       tone = toneAt(preview, cell.s - offset.s, cell.t - offset.t)
     }
-    if (tone === 0) return
-    const world = GLASS_CELL_POINTS[i]
-    const camera = toCamera(world, yaw, eye)
-    if (camera.z < NEAR || !isVisible(world, eye)) return
-    const centre = projectPoint(camera, canvasWidth, canvasHeight)
-    // A cell is one pixel at distance 1, the nook's distance from the mirror.
-    const size = Math.max(1, Math.ceil(1 / camera.z))
-    const left = Math.floor(centre.x - (size - 1) / 2)
-    const top = Math.floor(centre.y - (size - 1) / 2)
-    const colour = PREVIEW_COLOURS[tone]
-    for (let y = top; y < top + size; y++) {
-      for (let x = left; x < left + size; x++) {
-        if (x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) pixels.push({ x, y, colour })
-      }
-    }
+    if (tone !== 0) cellPixels(pixels, GLASS_CELL_POINTS[i], PREVIEW_COLOURS[tone], view)
   })
+  return pixels
+}
+
+// Pixels for the logo plaque below the pull, seen the same way as `mirrorPixels`.
+export function plaquePixels(
+  canvasWidth: number,
+  canvasHeight: number,
+  { logo, depth = 0, turn = 0 }: Plaque,
+  yaw = 0,
+  eye: FloorPoint = ORIGIN,
+): Pixel[] {
+  const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
+  const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
+  const pixels = plaqueLayers(depth, turn)
+    .flatMap(({ colour, lines }) => rasterise(mirrorSegments(lines), colour, view))
+    .filter(inCanvas)
+  for (const cell of logoCells(logo, depth, turn)) {
+    const { u, v } = mirrorToWall(cell)
+    cellPixels(pixels, onWall(WALLS[MIRROR_WALL], u, v), PREVIEW_COLOURS[cell.tone], view)
+  }
   return pixels
 }

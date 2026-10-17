@@ -7,6 +7,7 @@ import { drawScene } from '../scene/draw.ts'
 import { screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
+import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import type { Preview, Shimmer } from '../scene/mirror/preview.ts'
 import { isOnPull } from '../scene/mirror/pull.ts'
 import { rippleDuration } from '../scene/mirror/ripple.ts'
@@ -33,6 +34,10 @@ export const SWITCH_DURATION_MS = 900
 const PULL_DROP = 0.1
 const PULL_DOWN_MS = 150
 const PULL_UP_MS = 600
+// Meanwhile the logo plaque sinks into the wall over the first PLAQUE_SINK_MS,
+// turns to the next site's logo by PLAQUE_TURN_END_MS, then pushes back out.
+const PLAQUE_SINK_MS = 200
+const PLAQUE_TURN_END_MS = 650
 
 const SIGN_BOUNDS = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
 
@@ -69,13 +74,40 @@ function pullDropAt(elapsed: number): number {
   return 0
 }
 
+// The plaque `elapsed` ms into a change of site from `fromLogo` to `toLogo`.
+// The logo swaps when the block is edge-on, half-way through its turn.
+function plaqueAt(elapsed: number, fromLogo: LogoMap, toLogo: LogoMap): Plaque {
+  if (elapsed < PLAQUE_SINK_MS) return { logo: fromLogo, depth: easeInOut(elapsed / PLAQUE_SINK_MS) }
+  if (elapsed < PLAQUE_TURN_END_MS) {
+    const turn = easeInOut((elapsed - PLAQUE_SINK_MS) / (PLAQUE_TURN_END_MS - PLAQUE_SINK_MS))
+    return { logo: turn < 0.5 ? fromLogo : toLogo, depth: 1, turn }
+  }
+  const out = Math.min(1, (elapsed - PLAQUE_TURN_END_MS) / (SWITCH_DURATION_MS - PLAQUE_TURN_END_MS))
+  return { logo: toLogo, depth: 1 - easeInOut(out) }
+}
+
 type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean; overPull: boolean }
 // What the camera is drawing: where it stands, which way it faces, and what's
 // playing on the mirror wall.
-type View = { x: number; z: number; yaw: number; ripple?: RippleState; shimmer?: Shimmer; pullDrop?: number }
+type View = {
+  x: number
+  z: number
+  yaw: number
+  ripple?: RippleState
+  shimmer?: Shimmer
+  pullDrop?: number
+  plaque?: Plaque
+}
+// What the current site puts on the mirror wall: its preview on the glass and
+// its logo on the plaque.
+type SiteLook = { preview: Preview | null; logo: LogoMap }
 
-function drawView(ctx: CanvasRenderingContext2D, { x, z, yaw, ripple, shimmer, pullDrop }: View, preview: Preview | null) {
-  drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop })
+function drawView(
+  ctx: CanvasRenderingContext2D,
+  { x, z, yaw, ripple, shimmer, pullDrop, plaque }: View,
+  { preview, logo }: SiteLook,
+) {
+  drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop, plaque: plaque ?? { logo } })
 }
 
 // Loads an image and quantises it to a preview covering the glass, cropping
@@ -121,11 +153,14 @@ function ViewPane() {
   const frameRef = useRef<number | null>(null)
   // Each site's picture for the mirror, once loaded.
   const previewsRef = useRef<(Preview | null)[]>(MIRROR_SITES.map(() => null))
-  const currentPreview = () => previewsRef.current[siteRef.current]
+  const currentLook = (): SiteLook => ({
+    preview: previewsRef.current[siteRef.current],
+    logo: MIRROR_SITES[siteRef.current].logo,
+  })
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawView(ctx, viewRef.current, currentPreview())
+    if (ctx) drawView(ctx, viewRef.current, currentLook())
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
@@ -141,7 +176,7 @@ function ViewPane() {
           previewsRef.current[index] = preview
           const ctx = canvasRef.current?.getContext('2d')
           // Mid-animation, the next frame picks it up.
-          if (ctx && index === siteRef.current && frameRef.current === null) drawView(ctx, viewRef.current, preview)
+          if (ctx && index === siteRef.current && frameRef.current === null) drawView(ctx, viewRef.current, currentLook())
         })
         .catch(() => {})
     })
@@ -164,7 +199,7 @@ function ViewPane() {
     const step = (now: number) => {
       const elapsed = Math.min(duration, now - start)
       viewRef.current = frame(elapsed)
-      drawView(ctx, viewRef.current, currentPreview())
+      drawView(ctx, viewRef.current, currentLook())
       if (elapsed < duration) {
         frameRef.current = requestAnimationFrame(step)
       } else {
@@ -182,7 +217,7 @@ function ViewPane() {
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx || prefersReducedMotion()) {
       viewRef.current = to
-      if (ctx) drawView(ctx, to, currentPreview())
+      if (ctx) drawView(ctx, to, currentLook())
       return
     }
     runAnimation(ctx, duration, (elapsed) => {
@@ -219,22 +254,29 @@ function ViewPane() {
     )
   }
 
-  // Tugs the curtain pull and shimmers the mirror over to the next site. With
-  // reduced motion or no canvas the site just changes.
+  // Tugs the curtain pull, shimmers the mirror over to the next site and turns
+  // the plaque to its logo. With reduced motion or no canvas the site just
+  // changes.
   function switchSite() {
     const view = viewRef.current
-    const from = currentPreview()
+    const from = currentLook()
     siteRef.current = (siteRef.current + 1) % MIRROR_SITES.length
     setSite(siteRef.current)
     const ctx = canvasRef.current?.getContext('2d')
+    const to = currentLook()
     if (!ctx || prefersReducedMotion()) {
-      if (ctx) drawView(ctx, view, currentPreview())
+      if (ctx) drawView(ctx, view, to)
       return
     }
     runAnimation(ctx, SWITCH_DURATION_MS, (elapsed) => {
-      if (elapsed >= SWITCH_DURATION_MS) return { ...view, shimmer: undefined, pullDrop: undefined }
+      if (elapsed >= SWITCH_DURATION_MS) return { ...view, shimmer: undefined, pullDrop: undefined, plaque: undefined }
       const progress = Math.max(0, (elapsed - PULL_DOWN_MS) / (SWITCH_DURATION_MS - PULL_DOWN_MS))
-      return { ...view, pullDrop: pullDropAt(elapsed), shimmer: { from, progress } }
+      return {
+        ...view,
+        pullDrop: pullDropAt(elapsed),
+        shimmer: { from: from.preview, progress },
+        plaque: plaqueAt(elapsed, from.logo, to.logo),
+      }
     })
   }
 

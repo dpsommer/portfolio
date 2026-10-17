@@ -4,8 +4,9 @@ import type { FloorPoint, ScreenPoint } from './core/camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './core/palette.ts'
 import type { Pixel } from './core/types.ts'
 import { drawPixels, drawScene, placeSprite, signPlacement } from './draw.ts'
-import { mirrorPixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
+import { mirrorPixels, plaquePixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
 import type { RippleState } from './mirror/pixels.ts'
+import type { Plaque } from './mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from './mirror/preview.ts'
 import { PLACES } from './navigation/places.ts'
 import { roomPixels } from './room/room.ts'
@@ -399,6 +400,84 @@ describe('drawScene', () => {
       drawScene(shimmering.ctx, EAST, NOOK_EYE, { preview: NEW, shimmer: SHIMMER, pullDrop: 0.1 })
 
       expect(shimmering.calls).toEqual(plain.calls)
+    })
+  })
+
+  describe('with a plaque', () => {
+    const WEST = Math.PI / 2
+    const EAST = (3 * Math.PI) / 2
+    const LOGO = Array.from({ length: 16 }, () => '#'.repeat(16))
+    const PLAQUE: Plaque = { logo: LOGO }
+
+    it('draws the plaque after the pull from the nook facing west', () => {
+      const { ctx, calls } = createFakeContext()
+      const plaque = plaquePixels(WIDTH, HEIGHT, PLAQUE, WEST, NOOK_EYE)
+      expect(plaque.length).toBeGreaterThan(0)
+
+      drawScene(ctx, WEST, NOOK_EYE, { plaque: PLAQUE })
+
+      expect(calls).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
+        ...toCalls(plaque),
+      ])
+    })
+
+    it('draws the plaque after the tugged pull, sunk and turned as given', () => {
+      const { ctx, calls } = createFakeContext()
+      const turning: Plaque = { logo: LOGO, depth: 1, turn: 0.3 }
+      const plaque = plaquePixels(WIDTH, HEIGHT, turning, WEST, NOOK_EYE)
+      expect(plaque).not.toEqual(plaquePixels(WIDTH, HEIGHT, PLAQUE, WEST, NOOK_EYE))
+
+      drawScene(ctx, WEST, NOOK_EYE, { plaque: turning, pullDrop: 0.1 })
+
+      const pull = pullPixels(WIDTH, HEIGHT, 0.1, WEST, NOOK_EYE)
+      expect(calls.slice(-(pull.length + plaque.length))).toEqual([...toCalls(pull), ...toCalls(plaque)])
+    })
+
+    it('draws the plaque after the pull and before the sign', () => {
+      const { ctx, calls } = createFakeContext()
+      const yaw = 0.8
+      const plaque = plaquePixels(WIDTH, HEIGHT, PLAQUE, yaw)
+      const placement = signPlacement(yaw, WIDTH, HEIGHT)!
+      const backing = placeSprite(signpostBackingPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
+      const sign = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
+      expect(plaque.length).toBeGreaterThan(0)
+
+      drawScene(ctx, yaw, ORIGIN, { plaque: PLAQUE })
+
+      expect(calls).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toCalls(roomPixels(WIDTH, HEIGHT, yaw)),
+        ...toCalls(mirrorPixels(WIDTH, HEIGHT, yaw)),
+        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, yaw)),
+        ...toCalls(plaque),
+        ...toCalls(backing),
+        ...toCalls(sign),
+      ])
+    })
+
+    it('draws nothing for the plaque without one', () => {
+      const plain = createFakeContext()
+      const withPlaque = createFakeContext()
+      const plaque = plaquePixels(WIDTH, HEIGHT, PLAQUE, WEST, NOOK_EYE)
+
+      drawScene(plain.ctx, WEST, NOOK_EYE, {})
+      drawScene(withPlaque.ctx, WEST, NOOK_EYE, { plaque: PLAQUE })
+
+      expect(withPlaque.calls).toEqual([...plain.calls, ...toCalls(plaque)])
+    })
+
+    it('draws the same as without one with the plaque out of view', () => {
+      const plain = createFakeContext()
+      const withPlaque = createFakeContext()
+
+      drawScene(plain.ctx, EAST, NOOK_EYE)
+      drawScene(withPlaque.ctx, EAST, NOOK_EYE, { plaque: PLAQUE })
+
+      expect(withPlaque.calls).toEqual(plain.calls)
     })
   })
 

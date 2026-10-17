@@ -16,6 +16,7 @@ import { createRandom, hashRandom, hashSeed } from '../core/random.ts'
 import type { Pixel } from '../core/types.ts'
 import { MIRROR_BOUNDS } from '../mirror/frame.ts'
 import type { MirrorPoint } from '../mirror/frame.ts'
+import { PLAQUE_BOUNDS } from '../mirror/plaque.ts'
 import { PULL_BOUNDS } from '../mirror/pull.ts'
 
 // The room is seen from inside, drawn as the classic dungeon-crawler "narrowing
@@ -104,11 +105,11 @@ export function mirrorToWall({ s, t }: MirrorPoint): { u: number; v: number } {
   return { u: WALLS[MIRROR_WALL].length / 2 + s, v: CEILING_Y - t }
 }
 
-// Whether a wall-local rectangle overlaps the mirror or the pull beside it,
+// Whether a wall-local rectangle overlaps the mirror or the pull and plaque beside it,
 // with a brick gap's margin.
 function isUnderFixture(wall: Wall, u0: number, u1: number, v0: number, v1: number): boolean {
   if (wall !== WALLS[MIRROR_WALL]) return false
-  return [MIRROR_BOUNDS, PULL_BOUNDS].some((bounds) => {
+  return [MIRROR_BOUNDS, PULL_BOUNDS, PLAQUE_BOUNDS].some((bounds) => {
     const topLeft = mirrorToWall({ s: bounds.left, t: bounds.top })
     const bottomRight = mirrorToWall({ s: bounds.right, t: bounds.bottom })
     return (
@@ -274,7 +275,7 @@ const BRICKS = brickSegments()
 const FLOOR = floorSegments()
 const EDGES = edgeSegments()
 
-type View = { yaw: number; eye: FloorPoint; width: number; height: number }
+export type View = { yaw: number; eye: FloorPoint; width: number; height: number }
 
 export function rasterise(segments: Segment[], colour: string, { yaw, eye, width, height }: View): Pixel[] {
   return segments.flatMap((segment) =>

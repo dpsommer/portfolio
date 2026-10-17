@@ -4,8 +4,9 @@ import type { MockInstance } from 'vitest'
 import { FOREGROUND } from '../scene/core/palette.ts'
 import { drawScene } from '../scene/draw.ts'
 import type { MirrorExtras } from '../scene/draw.ts'
-import { mirrorPixels, previewPixels, pullPixels, screenToMirror } from '../scene/mirror/pixels.ts'
+import { mirrorPixels, plaquePixels, previewPixels, pullPixels, screenToMirror } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
+import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
 import { rippleDuration } from '../scene/mirror/ripple.ts'
 import { PLACES } from '../scene/navigation/places.ts'
@@ -79,15 +80,32 @@ function pullDropAt(elapsed: number): number {
   return 0
 }
 
+// The plaque mid-switch: it sinks over 200 ms, turns by 650 ms (swapping logos
+// edge-on), then pushes back out by the end.
+function plaqueAt(elapsed: number, fromLogo: LogoMap, toLogo: LogoMap): Plaque {
+  const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
+  if (elapsed < 200) return { logo: fromLogo, depth: easeInOut(elapsed / 200) }
+  if (elapsed < 650) {
+    const turn = easeInOut((elapsed - 200) / 450)
+    return { logo: turn < 0.5 ? fromLogo : toLogo, depth: 1, turn }
+  }
+  return { logo: toLogo, depth: 1 - easeInOut(Math.min(1, (elapsed - 650) / 250)) }
+}
+
+// The plaque at rest showing the first site's logo, as the pane starts.
+const RESTING_PLAQUE: Plaque = { logo: MIRROR_SITES[0].logo }
+// The plaque at rest after one pull, showing the second site's logo.
+const NEXT_PLAQUE: Plaque = { logo: MIRROR_SITES[1].logo }
+
 // The fills drawScene makes for the nook facing west with `extras`, recorded
-// with a separate fake context.
+// with a separate fake context. The plaque defaults to the first site's.
 function sceneFills(extras?: MirrorExtras): { args: number[]; fillStyle: string }[] {
   const recorded: { args: number[]; fillStyle: string }[] = []
   const other = createFakeContext()
   other.fillRect.mockImplementation((...args: number[]) => {
     recorded.push({ args, fillStyle: other.fillStyle })
   })
-  drawScene(other as unknown as CanvasRenderingContext2D, Math.PI / 2, PLACES.nook, extras)
+  drawScene(other as unknown as CanvasRenderingContext2D, Math.PI / 2, PLACES.nook, { plaque: RESTING_PLAQUE, ...extras })
   return recorded
 }
 
@@ -512,9 +530,9 @@ describe('ViewPane', () => {
       const { canvas } = renderPane()
       clickAt(canvas, LEFT_X)
 
-      // Only the sign, the mirror's frame and the pull's handle are drawn in the
-      // full foreground colour, so with the sign out of view only the frame's
-      // and handle's pixels are.
+      // Only the sign, the mirror's frame, the pull's handle and the plaque's
+      // logo are drawn in the full foreground colour, so with the sign out of
+      // view only the frame's, handle's and logo's pixels are.
       const colours: string[] = []
       ctx.fillRect.mockImplementation(() => {
         colours.push(ctx.fillStyle)
@@ -522,9 +540,12 @@ describe('ViewPane', () => {
       frames.flush(START + TURN_DURATION_MS)
       const frame = mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, Math.PI / 2).filter((p) => p.colour === FOREGROUND)
       const handle = pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, Math.PI / 2).filter((p) => p.colour === FOREGROUND)
+      const logo = plaquePixels(VIEW_WIDTH, VIEW_HEIGHT, RESTING_PLAQUE, Math.PI / 2).filter(
+        (p) => p.colour === FOREGROUND,
+      )
 
       expect(colours.length).toBeGreaterThan(0)
-      expect(colours.filter((c) => c === FOREGROUND)).toHaveLength(frame.length + handle.length)
+      expect(colours.filter((c) => c === FOREGROUND)).toHaveLength(frame.length + handle.length + logo.length)
     })
 
     it('ignores turn clicks during the animation', () => {
@@ -1030,7 +1051,7 @@ describe('ViewPane', () => {
       other.fillRect.mockImplementation((...args: number[]) => {
         recorded.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, yaw, eye)
+      drawScene(other as unknown as CanvasRenderingContext2D, yaw, eye, { plaque: RESTING_PLAQUE })
       return recorded
     }
 
@@ -1197,7 +1218,7 @@ describe('ViewPane', () => {
       other.fillRect.mockImplementation((...args: number[]) => {
         recorded.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { ripple })
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { ripple, plaque: RESTING_PLAQUE })
       return recorded
     }
 
@@ -1725,7 +1746,14 @@ describe('ViewPane', () => {
 
       frames.flush(START + elapsed)
 
-      expect(fills).toEqual(sceneFills({ preview: null, shimmer: { from: null, progress }, pullDrop: pullDropAt(elapsed) }))
+      expect(fills).toEqual(
+        sceneFills({
+          preview: null,
+          shimmer: { from: null, progress },
+          pullDrop: pullDropAt(elapsed),
+          plaque: plaqueAt(elapsed, MIRROR_SITES[0].logo, MIRROR_SITES[1].logo),
+        }),
+      )
     })
 
     it('draws the pull lowered mid-drop', () => {
@@ -1738,7 +1766,14 @@ describe('ViewPane', () => {
 
       const dropped = pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0.1, WEST, PLACES.nook)
       expect(bottom(dropped)).toBeGreaterThan(bottom(rest))
-      expect(fills).toEqual(sceneFills({ preview: null, shimmer: { from: null, progress: 0 }, pullDrop: 0.1 }))
+      expect(fills).toEqual(
+        sceneFills({
+          preview: null,
+          shimmer: { from: null, progress: 0 },
+          pullDrop: 0.1,
+          plaque: plaqueAt(150, MIRROR_SITES[0].logo, MIRROR_SITES[1].logo),
+        }),
+      )
     })
 
     it('ends drawing the plain scene, without the shimmer or the drop', () => {
@@ -1749,7 +1784,7 @@ describe('ViewPane', () => {
 
       frames.flush(START + SWITCH_DURATION_MS)
 
-      expect(fills).toEqual(sceneFills())
+      expect(fills).toEqual(sceneFills({ plaque: NEXT_PLAQUE }))
     })
 
     it('ignores turn clicks mid-switch', () => {
@@ -1833,7 +1868,7 @@ describe('ViewPane', () => {
 
       expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
       expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
-      expect(fills).toEqual(sceneFills())
+      expect(fills).toEqual(sceneFills({ plaque: NEXT_PLAQUE }))
     })
 
     it('accepts the next pull straight away with reduced motion', () => {
@@ -1871,6 +1906,177 @@ describe('ViewPane', () => {
       pull(canvas)
 
       expect(canvas).toHaveAttribute('data-site', 'GitHub')
+    })
+
+    describe('logo plaque', () => {
+      const GITHUB_LOGO = MIRROR_SITES[0].logo
+      const LINKEDIN_LOGO = MIRROR_SITES[1].logo
+      // How far through its turn the plaque is `elapsed` ms in: eased over 200-650 ms.
+      const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
+      const turnAt = (elapsed: number) => easeInOut((elapsed - 200) / 450)
+      // The fills for a mid-switch frame with the first site's preview not yet
+      // loaded, from the nook facing west.
+      const drawnWith = (extras: MirrorExtras) => sceneFills({ preview: null, ...extras })
+
+      it('uses different logos for the two sites', () => {
+        expect(GITHUB_LOGO).not.toEqual(LINKEDIN_LOGO)
+      })
+
+      it('draws the first site\'s logo at rest before any pull', () => {
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+        fills.length = 0
+
+        frames.flush(START + MOVE_DURATION_MS)
+
+        expect(fills).toEqual(sceneFills({ plaque: { logo: GITHUB_LOGO } }))
+      })
+
+      it('starts the switch with the plaque flush, showing the old logo', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+
+        frames.flush(START)
+
+        expect(fills).toEqual(
+          drawnWith({ shimmer: { from: null, progress: 0 }, plaque: { logo: GITHUB_LOGO, depth: 0 } }),
+        )
+      })
+
+      it('sinks the plaque fully by the start of the turn', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+
+        frames.flush(START + 200)
+
+        expect(fills).toEqual(
+          drawnWith({
+            shimmer: { from: null, progress: 50 / 750 },
+            pullDrop: pullDropAt(200),
+            plaque: { logo: GITHUB_LOGO, depth: 1, turn: 0 },
+          }),
+        )
+      })
+
+      it('still shows the old logo just before the turn\'s half-way point', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+        expect(turnAt(400)).toBeLessThan(0.5)
+
+        frames.flush(START + 400)
+
+        expect(fills).toEqual(
+          drawnWith({
+            shimmer: { from: null, progress: 250 / 750 },
+            pullDrop: pullDropAt(400),
+            plaque: { logo: GITHUB_LOGO, depth: 1, turn: turnAt(400) },
+          }),
+        )
+      })
+
+      it('shows the new logo just after the turn\'s half-way point', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+        expect(turnAt(430)).toBeGreaterThan(0.5)
+
+        frames.flush(START + 430)
+
+        expect(fills).toEqual(
+          drawnWith({
+            shimmer: { from: null, progress: 280 / 750 },
+            pullDrop: pullDropAt(430),
+            plaque: { logo: LINKEDIN_LOGO, depth: 1, turn: turnAt(430) },
+          }),
+        )
+      })
+
+      it('shows the new logo after the turn\'s half-way point', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+        expect(turnAt(500)).toBeGreaterThan(0.5)
+
+        frames.flush(START + 500)
+
+        expect(fills).toEqual(
+          drawnWith({
+            shimmer: { from: null, progress: 350 / 750 },
+            pullDrop: pullDropAt(500),
+            plaque: { logo: LINKEDIN_LOGO, depth: 1, turn: turnAt(500) },
+          }),
+        )
+      })
+
+      it('pushes the plaque back out with the new logo after the turn', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+
+        frames.flush(START + 775)
+
+        expect(fills).toEqual(
+          drawnWith({ shimmer: { from: null, progress: 625 / 750 }, plaque: { logo: LINKEDIN_LOGO, depth: 1 - easeInOut(0.5) } }),
+        )
+      })
+
+      it('turns from the second site\'s logo back to the first\'s on the next pull', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+        frames.flush(START + SWITCH_DURATION_MS)
+        fills.length = 0
+
+        pull(canvas)
+        frames.flush(START + 100)
+
+        expect(fills).toEqual(
+          drawnWith({
+            shimmer: { from: null, progress: 0 },
+            pullDrop: pullDropAt(100),
+            plaque: { logo: LINKEDIN_LOGO, depth: easeInOut(0.5) },
+          }),
+        )
+      })
+
+      it('rests on the first site\'s logo again after switching there and back', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+        frames.flush(START + SWITCH_DURATION_MS)
+        pull(canvas)
+        frames.flush(START + SWITCH_DURATION_MS / 2)
+        fills.length = 0
+
+        frames.flush(START + SWITCH_DURATION_MS)
+
+        expect(fills).toEqual(sceneFills({ plaque: RESTING_PLAQUE }))
+      })
+
+      it('keeps the resting logo when turning away and back after a switch', () => {
+        const { canvas } = renderInNook()
+        pull(canvas)
+        frames.flush(START + SWITCH_DURATION_MS)
+        clickAt(canvas, RIGHT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        clickAt(canvas, LEFT_X)
+        fills.length = 0
+
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(fills).toEqual(sceneFills({ plaque: NEXT_PLAQUE }))
+      })
+
+      it('shows each new logo at once with reduced motion', () => {
+        vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+        const { canvas } = renderPane()
+        clickAt(canvas, LEFT_X)
+        clickAt(canvas, CENTRE_X)
+
+        pull(canvas)
+        fills.length = 0
+        pull(canvas)
+
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        expect(fills).toEqual(sceneFills({ plaque: RESTING_PLAQUE }))
+      })
     })
 
     it('does not switch when clicked between the mirror and the pull', () => {
@@ -1934,13 +2140,13 @@ describe('ViewPane', () => {
     }
 
     // The fills drawScene makes for the nook facing west with `preview`.
-    function fillsFor(preview?: Uint8Array): Fill[] {
+    function fillsFor(preview?: Uint8Array, plaque = RESTING_PLAQUE): Fill[] {
       const recorded: Fill[] = []
       const other = createFakeContext()
       other.fillRect.mockImplementation((...args: number[]) => {
         recorded.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { preview })
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { preview, plaque })
       return recorded
     }
 
@@ -2062,7 +2268,7 @@ describe('ViewPane', () => {
       other.fillRect.mockImplementation((...args: number[]) => {
         expected.push({ args, fillStyle: other.fillStyle })
       })
-      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { ripple, preview: WHITE_PREVIEW })
+      drawScene(other as unknown as CanvasRenderingContext2D, WEST, PLACES.nook, { ripple, preview: WHITE_PREVIEW, plaque: RESTING_PLAQUE })
       expect(fills).toEqual(expected)
       now.mockRestore()
     })
@@ -2160,7 +2366,7 @@ describe('ViewPane', () => {
         clickAt(canvas, PULL_X, HANDLE_Y)
 
         expect(canvas).toHaveAttribute('data-site', 'LinkedIn')
-        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW, NEXT_PLAQUE))
       })
 
       it('shows the first site\'s preview again after a second pull', async () => {
@@ -2192,12 +2398,19 @@ describe('ViewPane', () => {
         frames.flush(525)
 
         const shimmer = { from: WHITE_PREVIEW, progress: 0.5 }
-        expect(fills).toEqual(sceneFills({ preview: GREY_PREVIEW, shimmer, pullDrop: pullDropAt(525) }))
+        expect(fills).toEqual(
+          sceneFills({
+            preview: GREY_PREVIEW,
+            shimmer,
+            pullDrop: pullDropAt(525),
+            plaque: plaqueAt(525, GITHUB.logo, LINKEDIN.logo),
+          }),
+        )
         fills.length = 0
 
         frames.flush(SWITCH_DURATION_MS)
 
-        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW, NEXT_PLAQUE))
         now.mockRestore()
       })
 
@@ -2223,7 +2436,7 @@ describe('ViewPane', () => {
 
         await finishLoad(LINKEDIN.preview)
 
-        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW, NEXT_PLAQUE))
       })
 
       it('uses a preview that loaded while another site was shown once switched to', async () => {
@@ -2236,7 +2449,7 @@ describe('ViewPane', () => {
 
         clickAt(canvas, PULL_X, HANDLE_Y)
 
-        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW, NEXT_PLAQUE))
       })
 
       it('waits for the next frame when the preview loads mid-switch', async () => {
@@ -2257,7 +2470,7 @@ describe('ViewPane', () => {
         expect(fills).toEqual([])
 
         frames.flush(SWITCH_DURATION_MS)
-        expect(fills).toEqual(fillsFor(GREY_PREVIEW))
+        expect(fills).toEqual(fillsFor(GREY_PREVIEW, NEXT_PLAQUE))
         now.mockRestore()
       })
 

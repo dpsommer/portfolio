@@ -106,10 +106,15 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
   - **Placement:** on the mirror's wall at s `PULL_S` (0.68), right of the mirror's side scroll. The cord hangs from the ceiling to the handle's top at t 0.12, a little above eye height. That keeps the handle clear of the brick below it.
   - **Style:** mirror-local lines like the mirror: a worn cord and a band across the handle, and a bright handle outline. `pullLayers(drop)` lowers the handle by `drop` and stretches the cord, for the tug animation.
   - **Drawing:** `pullPixels` projects it like the mirror. `PULL_BOUNDS` keeps bricks off it.
+- **Logo plaque:** a block set into a niche in the mirror's wall, showing the current site's logo (`src/scene/mirror/plaque.ts`).
+  - **Placement:** centred under the pull's cord at t −0.38, in a niche 0.17 units square. That's below the pull's lowest drop and clear of the brick between them.
+  - **Map format:** logos are 16×16 `LogoMap`s (`#` full foreground, `+` worn, `-` dim, `.` empty), one cell per canvas pixel from the nook, like the preview.
+  - **Depth:** drawn in the wall's plane in the room's "narrowing box" style. `plaqueLayers(depth, turn)` draws the niche (dim), lines from its corners to the face's corners, and the face's outline (worn). Sinking (`depth` 0 to 1) shrinks the face toward the niche's centre, lengthening those lines, and `logoCells` drops the logo a tone into shadow. Turning (`turn` 0 to 1, a half turn on the vertical axis) narrows the face and logo by `|cos(π·turn)|`.
+  - **Drawing:** `plaquePixels` projects the lines like the mirror and the logo's cells as blocks, like the preview's. `PLAQUE_BOUNDS` keeps bricks off the niche.
 
 ## Draw order
 
-`drawScene(ctx, yaw, eye, { preview?, ripple?, shimmer?, pullDrop? })` paints in this order:
+`drawScene(ctx, yaw, eye, { preview?, ripple?, shimmer?, pullDrop?, plaque? })` paints in this order:
 
 1. the background
 2. the room
@@ -117,5 +122,6 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
 4. the ripple's rings, if one is playing
 5. the mirror, over the preview and rings so the frame covers their edges
 6. the curtain pull, lowered by `pullDrop`
-7. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
-8. the sprites themselves
+7. the logo plaque, if given (`ViewPane` always gives one)
+8. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
+9. the sprites themselves

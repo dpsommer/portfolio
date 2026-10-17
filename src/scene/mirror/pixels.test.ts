@@ -16,7 +16,17 @@ import { MIRROR_WALL, WALLS, roomPixels } from '../room/room.ts'
 import type { WallName } from '../room/room.ts'
 import { MIRROR_BOUNDS, isOnGlass } from './frame.ts'
 import type { MirrorPoint } from './frame.ts'
-import { mirrorPixels, previewPixels, pullPixels, ripplePixels, screenToMirror, screenToWall } from './pixels.ts'
+import {
+  mirrorPixels,
+  plaquePixels,
+  previewPixels,
+  pullPixels,
+  ripplePixels,
+  screenToMirror,
+  screenToWall,
+} from './pixels.ts'
+import { LOGO_SIZE, PLAQUE_BOUNDS } from './plaque.ts'
+import type { LogoMap, Plaque } from './plaque.ts'
 import { GLASS_CELLS, PREVIEW_COLOURS, PREVIEW_HEIGHT, PREVIEW_WIDTH } from './preview.ts'
 import type { Shimmer } from './preview.ts'
 import { PULL_S, isOnPull } from './pull.ts'
@@ -610,6 +620,127 @@ describe('pullPixels', () => {
     const near = extent(fromNook())
     const far = extent(fromStart)
     expect(far.bottom - far.top).toBeLessThan(near.bottom - near.top)
+  })
+})
+
+describe('plaquePixels', () => {
+  const WEST = Math.PI / 2
+  const EAST = (3 * Math.PI) / 2
+  // A full logo, and one with only its left half filled.
+  const FULL: LogoMap = Array.from({ length: LOGO_SIZE }, () => '#'.repeat(LOGO_SIZE))
+  const HALF: LogoMap = Array.from({ length: LOGO_SIZE }, () => '#'.repeat(LOGO_SIZE / 2) + '.'.repeat(LOGO_SIZE / 2))
+  const fromNook = (plaque: Plaque) => plaquePixels(WIDTH, HEIGHT, plaque, WEST, NOOK_EYE)
+  const resting = fromNook({ logo: FULL })
+  const logo = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND)
+  const width = (pixels: Pixel[]) => extent(pixels).right - extent(pixels).left
+
+  it('draws the plaque from the nook facing west', () => {
+    expect(resting.length).toBeGreaterThan(0)
+  })
+
+  it('uses integer coordinates within the canvas', () => {
+    for (const { x, y } of resting) {
+      expect(Number.isInteger(x)).toBe(true)
+      expect(Number.isInteger(y)).toBe(true)
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(WIDTH)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(HEIGHT)
+    }
+  })
+
+  it('is deterministic', () => {
+    expect(fromNook({ logo: FULL, depth: 0.5, turn: 0.3 })).toEqual(fromNook({ logo: FULL, depth: 0.5, turn: 0.3 }))
+  })
+
+  it('defaults to flush and facing out', () => {
+    expect(resting).toEqual(fromNook({ logo: FULL, depth: 0, turn: 0 }))
+  })
+
+  it('draws the niche dim, the face worn and a full logo in the full foreground', () => {
+    expect(new Set(resting.map((p) => p.colour))).toEqual(new Set([FOREGROUND_DIM, FOREGROUND_WORN, FOREGROUND]))
+  })
+
+  it('draws a 16 pixel square logo at rest, one pixel per cell', () => {
+    const { left, top, right, bottom } = extent(logo(resting))
+    expect(right - left + 1).toBe(LOGO_SIZE)
+    expect(bottom - top + 1).toBe(LOGO_SIZE)
+    expect(pixelSet(logo(resting)).size).toBe(LOGO_SIZE * LOGO_SIZE)
+  })
+
+  it('sits within PLAQUE_BOUNDS on screen, centred under the cord', () => {
+    const { left, top, right, bottom } = extent(resting)
+    expect(Math.abs(left - columnAt(PLAQUE_BOUNDS.left, 1))).toBeLessThanOrEqual(1)
+    expect(Math.abs(right - columnAt(PLAQUE_BOUNDS.right, 1))).toBeLessThanOrEqual(1)
+    expect(Math.abs(top - rowAt(PLAQUE_BOUNDS.top, 1))).toBeLessThanOrEqual(1)
+    expect(Math.abs(bottom - rowAt(PLAQUE_BOUNDS.bottom, 1))).toBeLessThanOrEqual(1)
+    expect(Math.abs((left + right) / 2 - columnAt(PULL_S, 1))).toBeLessThanOrEqual(1)
+  })
+
+  it('sits below the pull, even with the handle tugged down', () => {
+    const top = extent(resting).top
+    expect(top).toBeGreaterThan(extent(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)).bottom)
+    expect(top).toBeGreaterThan(extent(pullPixels(WIDTH, HEIGHT, 0.1, WEST, NOOK_EYE)).bottom)
+  })
+
+  it('sits right of the mirror', () => {
+    expect(extent(resting).left).toBeGreaterThan(extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).right)
+  })
+
+  it('draws a narrower face and logo when sunk', () => {
+    const sunk = fromNook({ logo: FULL, depth: 1 })
+    expect(width(worn(sunk))).toBeLessThan(width(worn(resting)))
+    // Sunk, the full logo is in shadow, a step down to worn.
+    expect(logo(sunk)).toEqual([])
+  })
+
+  it('keeps the niche the same when sunk', () => {
+    expect(extent(fromNook({ logo: FULL, depth: 1 }))).toEqual(extent(resting))
+  })
+
+  it('draws a narrower face and logo while turning', () => {
+    const turning = fromNook({ logo: FULL, turn: 0.3 })
+    expect(width(worn(turning))).toBeLessThan(width(worn(resting)))
+    expect(width(logo(turning))).toBeLessThan(width(logo(resting)))
+  })
+
+  it('draws the face and logo as one column edge-on', () => {
+    const edgeOn = fromNook({ logo: FULL, turn: 0.5 })
+    expect(width(worn(edgeOn))).toBeLessThanOrEqual(1)
+    expect(width(logo(edgeOn))).toBe(0)
+  })
+
+  it('draws different pixels for different logos', () => {
+    expect(fromNook({ logo: HALF })).not.toEqual(resting)
+    expect(logo(fromNook({ logo: HALF })).length).toBeLessThan(logo(resting).length)
+  })
+
+  it('draws only the niche and face for an empty logo', () => {
+    const empty = fromNook({ logo: Array.from({ length: LOGO_SIZE }, () => '.'.repeat(LOGO_SIZE)) })
+    expect(new Set(empty.map((p) => p.colour))).toEqual(new Set([FOREGROUND_DIM, FOREGROUND_WORN]))
+  })
+
+  it('draws worn and dim logo cells in their colours', () => {
+    const map = Array.from({ length: LOGO_SIZE }, (_, r) => (r < 8 ? '+' : '-').repeat(LOGO_SIZE))
+    const inside = extent(logo(resting))
+    const cells = fromNook({ logo: map }).filter(
+      (p) => p.x >= inside.left && p.x <= inside.right && p.y >= inside.top && p.y <= inside.bottom,
+    )
+    expect(new Set(cells.map((p) => p.colour))).toEqual(new Set([FOREGROUND_WORN, FOREGROUND_DIM]))
+  })
+
+  it('draws nothing from the nook facing east, with the plaque behind the camera', () => {
+    expect(plaquePixels(WIDTH, HEIGHT, { logo: FULL }, EAST, NOOK_EYE)).toEqual([])
+  })
+
+  it('draws a smaller plaque from the start facing west', () => {
+    const fromStart = plaquePixels(WIDTH, HEIGHT, { logo: FULL }, WEST)
+    expect(fromStart.length).toBeGreaterThan(0)
+    expect(width(fromStart)).toBeLessThan(width(resting))
+  })
+
+  it('defaults to facing north from the start', () => {
+    expect(plaquePixels(WIDTH, HEIGHT, { logo: FULL })).toEqual(plaquePixels(WIDTH, HEIGHT, { logo: FULL }, 0, ORIGIN))
   })
 })
 

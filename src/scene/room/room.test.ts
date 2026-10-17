@@ -14,7 +14,8 @@ import {
 import type { FloorPoint } from '../core/camera.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
-import { mirrorPixels, pullPixels } from '../mirror/pixels.ts'
+import { mirrorPixels, plaquePixels, pullPixels } from '../mirror/pixels.ts'
+import { PLAQUE_BOUNDS } from '../mirror/plaque.ts'
 import { PULL_BOUNDS } from '../mirror/pull.ts'
 import { PLACES } from '../navigation/places.ts'
 import { FLOOR_PLAN, WALLS, isOnFloor, isVisible, roomPixels } from './room.ts'
@@ -858,5 +859,37 @@ describe('roomPixels around the pull', () => {
         (p.x < pull.left || p.x > pull.right || p.y > pull.bottom),
     )
     expect(bricks.length).toBeGreaterThan(0)
+  })
+})
+
+describe('roomPixels around the plaque', () => {
+  const WEST = Math.PI / 2
+  // The plaque's niche on screen from the nook facing west, where the wall is
+  // at distance 1.
+  const NICHE = {
+    left: columnAt(PLAQUE_BOUNDS.left, 1),
+    right: columnAt(PLAQUE_BOUNDS.right, 1),
+    top: rowAt(PLAQUE_BOUNDS.top, 1),
+    bottom: rowAt(PLAQUE_BOUNDS.bottom, 1),
+  }
+  const inNiche = (p: Pixel) => p.x >= NICHE.left && p.x <= NICHE.right && p.y >= NICHE.top && p.y <= NICHE.bottom
+
+  it('finds the niche where the plaque is drawn', () => {
+    const plaque = extent(plaquePixels(WIDTH, HEIGHT, { logo: Array(16).fill('.'.repeat(16)) }, WEST, NOOK_EYE))
+    expect(Math.abs(plaque.left - NICHE.left)).toBeLessThanOrEqual(1)
+    expect(Math.abs(plaque.right - NICHE.right)).toBeLessThanOrEqual(1)
+    expect(Math.abs(plaque.top - NICHE.top)).toBeLessThanOrEqual(1)
+    expect(Math.abs(plaque.bottom - NICHE.bottom)).toBeLessThanOrEqual(1)
+  })
+
+  it('keeps bricks off the plaque\'s niche from the nook facing west', () => {
+    expect(dim(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).filter(inNiche)).toEqual([])
+  })
+
+  it('still draws bricks beside the niche, below the pull', () => {
+    const beside = dim(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).filter(
+      (p) => p.y >= NICHE.top && p.y <= NICHE.bottom && !inNiche(p),
+    )
+    expect(beside.length).toBeGreaterThan(0)
   })
 })

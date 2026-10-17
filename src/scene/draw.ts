@@ -2,8 +2,9 @@ import { ORIGIN, NEAR, projectPoint, toCamera } from './core/camera.ts'
 import type { FloorPoint, ScreenPoint } from './core/camera.ts'
 import { BACKGROUND } from './core/palette.ts'
 import type { Pixel } from './core/types.ts'
-import { mirrorPixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
+import { mirrorPixels, plaquePixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
 import type { RippleState } from './mirror/pixels.ts'
+import type { Plaque } from './mirror/plaque.ts'
 import type { Preview, Shimmer } from './mirror/preview.ts'
 import { isVisible, roomPixels } from './room/room.ts'
 import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost/signpost.ts'
@@ -57,12 +58,14 @@ export function placeSprite(
 
 // What's changing on the mirror wall, beyond the camera: the preview on the
 // glass (null or absent for empty glass), a ripple or shimmer playing on it,
-// and how far the curtain pull is tugged down.
+// how far the curtain pull is tugged down, and the logo plaque below it
+// (not drawn when absent).
 export type MirrorExtras = {
   preview?: Preview | null
   ripple?: RippleState
   shimmer?: Shimmer
   pullDrop?: number
+  plaque?: Plaque
 }
 
 // Draws the scene from `eye` with the camera turned `yaw` radians left of north.
@@ -70,7 +73,7 @@ export function drawScene(
   ctx: CanvasRenderingContext2D,
   yaw = 0,
   eye: FloorPoint = ORIGIN,
-  { preview, ripple, shimmer, pullDrop = 0 }: MirrorExtras = {},
+  { preview, ripple, shimmer, pullDrop = 0, plaque }: MirrorExtras = {},
 ) {
   const { width, height } = ctx.canvas
   ctx.fillStyle = BACKGROUND
@@ -81,6 +84,7 @@ export function drawScene(
   if (ripple) drawPixels(ctx, ripplePixels(width, height, ripple, yaw, eye))
   drawPixels(ctx, mirrorPixels(width, height, yaw, eye))
   drawPixels(ctx, pullPixels(width, height, pullDrop, yaw, eye))
+  if (plaque) drawPixels(ctx, plaquePixels(width, height, plaque, yaw, eye))
   const placement = signPlacement(yaw, width, height, eye)
   if (!placement) return
   const home = projectPoint(toCamera(SIGN_POSITION, 0), width, height)
