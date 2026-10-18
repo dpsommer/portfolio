@@ -10,6 +10,9 @@ import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
 import { rippleDuration } from '../scene/mirror/ripple.ts'
 import { PLACES } from '../scene/navigation/places.ts'
+import { NAV_BUTTON_BOUNDS } from '../scene/navigation/navButtons.ts'
+import type { NavButton } from '../scene/navigation/navButtons.ts'
+import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import ViewPane, {
@@ -135,11 +138,13 @@ function createFakeContext() {
   return ctx
 }
 
-// Makes getContext return `ctx` until the afterEach below puts back the setup's null.
+// Makes getContext return `ctx` for the room canvas, and null for the panels so
+// their drawing doesn't mix with the room's, until the afterEach below puts back
+// the setup's null.
 function provideContext(ctx: ReturnType<typeof createFakeContext>) {
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-    ctx as unknown as CanvasRenderingContext2D,
-  )
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+    return this.classList.contains('view-pane') ? ctx : null
+  } as unknown as HTMLCanvasElement['getContext'])
 }
 
 // A manual requestAnimationFrame: callbacks queue up until flushed with a timestamp.
@@ -242,7 +247,8 @@ describe('ViewPane', () => {
       ) {
         let ctx = contexts.get(this)
         if (!ctx) {
-          const created = createFakeContext()
+          // Sized like the canvas it's for, as a real context's canvas is.
+          const created = { ...createFakeContext(), canvas: { width: this.width, height: this.height } }
           const recorded: { args: number[]; fillStyle: string }[] = []
           created.fillRect.mockImplementation((...args: number[]) => {
             recorded.push({ args, fillStyle: created.fillStyle })
@@ -285,15 +291,14 @@ describe('ViewPane', () => {
       expect(panel).toHaveAttribute('aria-hidden', 'true')
     })
 
-    it.each([
-      ['lower', lowerPanel, LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT],
-      ['side', sidePanel, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT],
-    ] as const)('fills the %s panel with the background on mount', (_, find, width, height) => {
+    it('fills the side panel with the background on mount', () => {
       const fillsOn = contextPerCanvas()
 
       const { container } = render(<ViewPane />)
 
-      expect(fillsOn(find(container))).toEqual([{ args: [0, 0, width, height], fillStyle: BACKGROUND }])
+      expect(fillsOn(sidePanel(container))).toEqual([
+        { args: [0, 0, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT], fillStyle: BACKGROUND },
+      ])
     })
 
     it('leaves the room cursor unchanged when the mouse moves over a panel', () => {
@@ -304,6 +309,610 @@ describe('ViewPane', () => {
       fireEvent.mouseMove(sidePanel(container), { clientX: CENTRE_X, clientY: MIDDLE_Y })
 
       expect(canvas.style.cursor).toBe(CURSORS['turn-left'])
+    })
+
+    type Fill = { args: number[]; fillStyle: string }
+    type Enabled = Record<NavButton, boolean>
+
+    // Which buttons can be used at each place and heading the tests visit.
+    const START_NORTH: Enabled = { forward: false, back: false, left: true, right: true }
+    const START_WEST: Enabled = { forward: true, back: false, left: true, right: true }
+    const START_EAST: Enabled = { forward: false, back: true, left: true, right: true }
+    const NOOK_WEST: Enabled = { forward: false, back: true, left: true, right: true }
+
+    // The fills drawNavigationPanel makes on a canvas the lower panel's size.
+    function navPanelFills(yaw: number, enabled: Enabled): Fill[] {
+      const recorded: Fill[] = []
+      const other = { ...createFakeContext(), canvas: { width: LOWER_PANEL_WIDTH, height: LOWER_PANEL_HEIGHT } }
+      other.fillRect.mockImplementation((...args: number[]) => {
+        recorded.push({ args, fillStyle: other.fillStyle })
+      })
+      drawNavigationPanel(other as unknown as CanvasRenderingContext2D, yaw, enabled)
+      return recorded
+    }
+
+    // The fills since the panel's last background fill: its most recent drawing.
+    function lastPanelDraw(fills: Fill[]): Fill[] {
+      const isBackground = ({ args }: Fill) =>
+        args[0] === 0 && args[1] === 0 && args[2] === LOWER_PANEL_WIDTH && args[3] === LOWER_PANEL_HEIGHT
+      const starts = fills.flatMap((fill, index) => (isBackground(fill) ? [index] : []))
+      return starts.length === 0 ? [] : fills.slice(starts[starts.length - 1])
+    }
+
+    // How many times the panel has been drawn, counting its background fills.
+    function panelDraws(fills: Fill[]): number {
+      return fills.filter(({ args }) => args[2] === LOWER_PANEL_WIDTH && args[3] === LOWER_PANEL_HEIGHT).length
+    }
+
+    // Renders the pane with the room's and the lower panel's on-screen rects at
+    // (0, 0), each the same size as its canvas's drawing.
+    function renderWithPanel() {
+      const result = renderPane()
+      const panel = lowerPanel(result.container)
+      const getPanelRect = vi.spyOn(panel, 'getBoundingClientRect')
+      getPanelRect.mockReturnValue(new DOMRect(0, 0, LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT))
+      return { ...result, panel, getPanelRect }
+    }
+
+    // The middle of a button, in the panel's drawing pixels.
+    function buttonCentre(button: NavButton): { x: number; y: number } {
+      const { left, top, right, bottom } = NAV_BUTTON_BOUNDS[button]
+      return { x: (left + right + 1) / 2, y: (top + bottom + 1) / 2 }
+    }
+
+    function clickButton(panel: HTMLElement, button: NavButton) {
+      const { x, y } = buttonCentre(button)
+      fireEvent.click(panel, { clientX: x, clientY: y })
+    }
+
+    function hoverButton(panel: HTMLElement, button: NavButton) {
+      const { x, y } = buttonCentre(button)
+      fireEvent.mouseMove(panel, { clientX: x, clientY: y })
+    }
+
+    const useReducedMotion = () => vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
+
+    describe('lower panel drawing', () => {
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      it('starts with a background fill over the whole lower panel on mount', () => {
+        const fillsOn = contextPerCanvas()
+
+        const { container } = render(<ViewPane />)
+
+        expect(fillsOn(lowerPanel(container))[0]).toEqual({
+          args: [0, 0, LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT],
+          fillStyle: BACKGROUND,
+        })
+      })
+
+      it('draws the navigation panel facing north on mount, with forward and back unusable', () => {
+        const fillsOn = contextPerCanvas()
+
+        const { container } = render(<ViewPane />)
+
+        expect(fillsOn(lowerPanel(container))).toEqual(navPanelFills(0, START_NORTH))
+      })
+
+      it('draws more than the background fill on the lower panel', () => {
+        const fillsOn = contextPerCanvas()
+
+        const { container } = render(<ViewPane />)
+
+        expect(fillsOn(lowerPanel(container)).length).toBeGreaterThan(1)
+      })
+
+      it('redraws facing west, with forward usable, after turning left', () => {
+        useReducedMotion()
+        const fillsOn = contextPerCanvas()
+        const { canvas, container } = renderPane()
+
+        clickAt(canvas, LEFT_X)
+
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, START_WEST))
+      })
+
+      it('redraws facing east, with back usable, after turning right', () => {
+        useReducedMotion()
+        const fillsOn = contextPerCanvas()
+        const { canvas, container } = renderPane()
+
+        clickAt(canvas, RIGHT_X)
+
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(-Math.PI / 2, START_EAST))
+      })
+
+      it('redraws with only back usable after moving into the nook', () => {
+        useReducedMotion()
+        const fillsOn = contextPerCanvas()
+        const { canvas, container } = renderPane()
+
+        clickAt(canvas, LEFT_X)
+        clickAt(canvas, CENTRE_X)
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
+      })
+
+      it('does not redraw the panel when the mouse moves over the room', () => {
+        const fillsOn = contextPerCanvas()
+        const { canvas, container } = renderPane()
+        const before = panelDraws(fillsOn(lowerPanel(container)))
+
+        fireEvent.mouseMove(canvas, { clientX: LEFT_X, clientY: MIDDLE_Y })
+
+        expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before)
+      })
+
+      describe('while animating', () => {
+        const START = 1000
+        let frames: ReturnType<typeof stubAnimationFrames>
+        let now: MockInstance<() => number>
+
+        beforeEach(() => {
+          frames = stubAnimationFrames()
+          now = vi.spyOn(performance, 'now').mockReturnValue(START)
+        })
+
+        afterEach(() => {
+          now.mockRestore()
+        })
+
+        it('redraws the compass part way round on each frame of a turn', () => {
+          const fillsOn = contextPerCanvas()
+          const { canvas, container } = renderPane()
+          clickAt(canvas, LEFT_X)
+
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 4, START_WEST))
+        })
+
+        it('draws the panel once per frame of a turn', () => {
+          const fillsOn = contextPerCanvas()
+          const { canvas, container } = renderPane()
+          clickAt(canvas, LEFT_X)
+          const before = panelDraws(fillsOn(lowerPanel(container)))
+
+          frames.flush(START + TURN_DURATION_MS / 4)
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before + 2)
+        })
+
+        it('ends the turn with the compass facing west', () => {
+          const fillsOn = contextPerCanvas()
+          const { canvas, container } = renderPane()
+          clickAt(canvas, LEFT_X)
+
+          frames.flush(START + TURN_DURATION_MS)
+
+          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, START_WEST))
+        })
+
+        it('redraws the panel on each frame of a move, showing the buttons for where it leads', () => {
+          const fillsOn = contextPerCanvas()
+          const { canvas, container } = renderPane()
+          clickAt(canvas, LEFT_X)
+          frames.flush(START + TURN_DURATION_MS)
+          clickAt(canvas, CENTRE_X)
+          const before = panelDraws(fillsOn(lowerPanel(container)))
+
+          frames.flush(START + MOVE_DURATION_MS / 2)
+
+          expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before + 1)
+          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
+        })
+      })
+    })
+
+    describe('navigation buttons', () => {
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      it('turns left to face west when the left button is clicked', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        clickButton(panel, 'left')
+
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+        expect(canvas).toHaveAttribute('data-place', 'start')
+      })
+
+      it('turns right to face east when the right button is clicked', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        clickButton(panel, 'right')
+
+        expect(canvas).toHaveAttribute('data-heading', 'east')
+      })
+
+      it('keeps turning with each click of a turn button', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        clickButton(panel, 'left')
+        clickButton(panel, 'left')
+
+        expect(canvas).toHaveAttribute('data-heading', 'south')
+      })
+
+      it('turns the same way as clicking the room\'s edge', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        clickButton(panel, 'left')
+        clickAt(canvas, RIGHT_X)
+
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('does nothing when forward is clicked with no way forward', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        clickButton(panel, 'forward')
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('does nothing when back is clicked with no way back', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        clickButton(panel, 'back')
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('steps forward into the nook facing west', () => {
+        const { canvas, panel } = renderWithPanel()
+        clickButton(panel, 'left')
+
+        clickButton(panel, 'forward')
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it('steps back out of the nook to the start without turning', () => {
+        const { canvas, panel } = renderWithPanel()
+        clickButton(panel, 'left')
+        clickButton(panel, 'forward')
+
+        clickButton(panel, 'back')
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it('steps back from the start into the nook facing east', () => {
+        const { canvas, panel } = renderWithPanel()
+        clickButton(panel, 'right')
+
+        clickButton(panel, 'back')
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(canvas).toHaveAttribute('data-heading', 'east')
+      })
+
+      it('steps forward out of the nook facing east, after stepping back into it', () => {
+        const { canvas, panel } = renderWithPanel()
+        clickButton(panel, 'right')
+        clickButton(panel, 'back')
+
+        clickButton(panel, 'forward')
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'east')
+      })
+
+      it('does not step back from the nook facing east, where only forward leads', () => {
+        const { canvas, panel } = renderWithPanel()
+        clickButton(panel, 'right')
+        clickButton(panel, 'back')
+
+        clickButton(panel, 'back')
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+      })
+
+      it.each([
+        ['the compass', 78, 80],
+        ['the middle of the buttons', 230, 80],
+        ['the panel\'s corner', 0, 0],
+      ])('does nothing when %s is clicked', (_, clientX, clientY) => {
+        const { canvas, panel } = renderWithPanel()
+
+        fireEvent.click(panel, { clientX, clientY })
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('uses the panel\'s on-screen size and position to find the button', () => {
+        const { canvas, panel, getPanelRect } = renderWithPanel()
+        getPanelRect.mockReturnValue(new DOMRect(100, 50, LOWER_PANEL_WIDTH * 2, LOWER_PANEL_HEIGHT * 2))
+        const { x, y } = buttonCentre('left')
+
+        // Where the left button is in drawing pixels is a different button at this size.
+        fireEvent.click(panel, { clientX: x, clientY: y })
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+        fireEvent.click(panel, { clientX: 100 + x * 2, clientY: 50 + y * 2 })
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it.each([
+        ['width', new DOMRect(0, 0, 0, LOWER_PANEL_HEIGHT)],
+        ['height', new DOMRect(0, 0, LOWER_PANEL_WIDTH, 0)],
+      ])('ignores clicks when the panel has zero %s', (_, rect) => {
+        const { canvas, panel, getPanelRect } = renderWithPanel()
+        getPanelRect.mockReturnValue(rect)
+
+        clickButton(panel, 'left')
+
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('does not request animation frames without a canvas context', () => {
+        const frames = stubAnimationFrames()
+        const { panel } = renderWithPanel()
+
+        clickButton(panel, 'left')
+
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      describe('with animation', () => {
+        const START = 1000
+        let ctx: ReturnType<typeof createFakeContext>
+        let frames: ReturnType<typeof stubAnimationFrames>
+        let now: MockInstance<() => number>
+
+        beforeEach(() => {
+          ctx = createFakeContext()
+          provideContext(ctx)
+          frames = stubAnimationFrames()
+          now = vi.spyOn(performance, 'now').mockReturnValue(START)
+        })
+
+        afterEach(() => {
+          now.mockRestore()
+        })
+
+        it('animates a turn from the panel like one from the room', () => {
+          const { canvas, panel } = renderWithPanel()
+
+          clickButton(panel, 'left')
+
+          expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(1)
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('animates a step from the panel over the move duration', () => {
+          const { canvas, panel } = renderWithPanel()
+          clickButton(panel, 'right')
+          frames.flush(START + TURN_DURATION_MS)
+
+          clickButton(panel, 'back')
+          frames.flush(START + TURN_DURATION_MS)
+
+          expect(canvas).toHaveAttribute('data-place', 'nook')
+          expect(frames.pending()).toBe(1)
+          frames.flush(START + MOVE_DURATION_MS)
+          expect(frames.pending()).toBe(0)
+        })
+
+        it('does not animate when a disabled button is clicked', () => {
+          const { panel } = renderWithPanel()
+
+          clickButton(panel, 'forward')
+          clickButton(panel, 'back')
+
+          expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        })
+
+        it('ignores button clicks during a turn', () => {
+          const { canvas, panel } = renderWithPanel()
+          clickButton(panel, 'left')
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          clickButton(panel, 'left')
+          clickButton(panel, 'forward')
+
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+          expect(canvas).toHaveAttribute('data-place', 'start')
+          expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(2)
+        })
+
+        it('ignores button clicks during a move started from the room', () => {
+          const { canvas, panel } = renderWithPanel()
+          clickAt(canvas, LEFT_X)
+          frames.flush(START + TURN_DURATION_MS)
+          clickAt(canvas, CENTRE_X)
+          frames.flush(START + MOVE_DURATION_MS / 2)
+
+          clickButton(panel, 'back')
+          clickButton(panel, 'right')
+
+          expect(canvas).toHaveAttribute('data-place', 'nook')
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('ignores room clicks during a turn started from the panel', () => {
+          const { canvas, panel } = renderWithPanel()
+          clickButton(panel, 'left')
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          clickAt(canvas, LEFT_X)
+
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('accepts another button click once the animation has finished', () => {
+          const { canvas, panel } = renderWithPanel()
+          clickButton(panel, 'left')
+          frames.flush(START + TURN_DURATION_MS)
+
+          clickButton(panel, 'forward')
+
+          expect(canvas).toHaveAttribute('data-place', 'nook')
+        })
+
+        it('steps at once with reduced motion', () => {
+          useReducedMotion()
+          const { canvas, panel } = renderWithPanel()
+
+          clickButton(panel, 'left')
+          clickButton(panel, 'forward')
+
+          expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+          expect(canvas).toHaveAttribute('data-place', 'nook')
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+      })
+    })
+
+    describe('panel cursor', () => {
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      it('shows no cursor of its own before the mouse moves over it', () => {
+        const { panel } = renderWithPanel()
+
+        expect(panel.style.cursor).toBe('')
+      })
+
+      it.each(['left', 'right'] as const)('shows the hand over the %s button', (button) => {
+        const { panel } = renderWithPanel()
+
+        hoverButton(panel, button)
+
+        expect(panel.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it.each(['forward', 'back'] as const)('shows the blocked cursor over the unusable %s button', (button) => {
+        const { panel } = renderWithPanel()
+
+        hoverButton(panel, button)
+
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+
+      it('shows no cursor away from the buttons', () => {
+        const { panel } = renderWithPanel()
+        hoverButton(panel, 'left')
+
+        fireEvent.mouseMove(panel, { clientX: 78, clientY: 80 })
+
+        expect(panel.style.cursor).toBe('')
+      })
+
+      it('clears the cursor when the mouse leaves the panel', () => {
+        const { panel } = renderWithPanel()
+        hoverButton(panel, 'left')
+
+        fireEvent.mouseLeave(panel)
+
+        expect(panel.style.cursor).toBe('')
+      })
+
+      it('shows the hand over forward once there\'s a way forward', () => {
+        const { panel } = renderWithPanel()
+        hoverButton(panel, 'left')
+        clickButton(panel, 'left')
+
+        hoverButton(panel, 'forward')
+
+        expect(panel.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it('updates the cursor over a button when the place changes under it', () => {
+        const { canvas, panel } = renderWithPanel()
+        clickAt(canvas, LEFT_X)
+        hoverButton(panel, 'back')
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
+
+        clickAt(canvas, CENTRE_X)
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(panel.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it('uses the panel\'s on-screen size to find the button under the mouse', () => {
+        const { panel, getPanelRect } = renderWithPanel()
+        getPanelRect.mockReturnValue(new DOMRect(100, 50, LOWER_PANEL_WIDTH * 2, LOWER_PANEL_HEIGHT * 2))
+        const { x, y } = buttonCentre('left')
+
+        fireEvent.mouseMove(panel, { clientX: 100 + x * 2, clientY: 50 + y * 2 })
+
+        expect(panel.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it('shows no cursor when the panel has no size on screen', () => {
+        const { panel, getPanelRect } = renderWithPanel()
+        getPanelRect.mockReturnValue(new DOMRect(0, 0, 0, 0))
+
+        hoverButton(panel, 'left')
+
+        expect(panel.style.cursor).toBe('')
+      })
+
+      it('leaves the room cursor unchanged when hovering a button', () => {
+        const { canvas, panel } = renderWithPanel()
+        fireEvent.mouseMove(canvas, { clientX: LEFT_X, clientY: MIDDLE_Y })
+
+        hoverButton(panel, 'right')
+
+        expect(canvas.style.cursor).toBe(CURSORS['turn-left'])
+      })
+
+      describe('while animating', () => {
+        const START = 1000
+        let frames: ReturnType<typeof stubAnimationFrames>
+        let now: MockInstance<() => number>
+
+        beforeEach(() => {
+          provideContext(createFakeContext())
+          frames = stubAnimationFrames()
+          now = vi.spyOn(performance, 'now').mockReturnValue(START)
+        })
+
+        afterEach(() => {
+          now.mockRestore()
+        })
+
+        it('shows no cursor over a button during a turn', () => {
+          const { panel } = renderWithPanel()
+          hoverButton(panel, 'left')
+
+          clickButton(panel, 'left')
+
+          expect(panel.style.cursor).toBe('')
+        })
+
+        it('shows no cursor over a button hovered during a turn', () => {
+          const { panel } = renderWithPanel()
+          clickButton(panel, 'left')
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          hoverButton(panel, 'right')
+
+          expect(panel.style.cursor).toBe('')
+        })
+
+        it('shows the cursor again once the turn has finished', () => {
+          const { panel } = renderWithPanel()
+          hoverButton(panel, 'left')
+          clickButton(panel, 'left')
+
+          frames.flush(START + TURN_DURATION_MS)
+
+          expect(panel.style.cursor).toBe(HAND_CURSOR)
+        })
+      })
     })
   })
 
@@ -2218,13 +2827,17 @@ describe('ViewPane', () => {
       }
     }
 
-    // The visible canvas gets `ctx`; the offscreen one (asked for with
-    // willReadFrequently) gets `offscreen`.
+    // The room canvas gets `ctx`; the offscreen one (asked for with
+    // willReadFrequently) gets `offscreen`, and the panels none.
     function provideContexts(offscreen: ReturnType<typeof createOffscreenContext> | null) {
-      return vi
-        .spyOn(HTMLCanvasElement.prototype, 'getContext')
-        .mockImplementation(((_: string, options?: CanvasRenderingContext2DSettings) =>
-          options?.willReadFrequently ? offscreen : ctx) as unknown as HTMLCanvasElement['getContext'])
+      return vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (
+        this: HTMLCanvasElement,
+        _: string,
+        options?: CanvasRenderingContext2DSettings,
+      ) {
+        if (options?.willReadFrequently) return offscreen
+        return this.classList.contains('view-pane') ? ctx : null
+      } as unknown as HTMLCanvasElement['getContext'])
     }
 
     // The fills drawScene makes for the nook facing west with `preview`.

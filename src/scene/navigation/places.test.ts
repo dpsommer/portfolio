@@ -4,7 +4,7 @@ import type { FloorPoint } from '../core/camera.ts'
 import { FLOOR_PLAN, isOnFloor } from '../room/room.ts'
 import { HEADINGS, turn } from './heading.ts'
 import type { Heading } from './heading.ts'
-import { PLACES, forwardFrom } from './places.ts'
+import { PLACES, backFrom, forwardFrom } from './places.ts'
 import type { PlaceName } from './places.ts'
 
 const PLACE_NAMES = Object.keys(PLACES) as PlaceName[]
@@ -146,6 +146,47 @@ describe('forwardFrom', () => {
         const t = i / 20
         expect(isOnFloor({ x: from.x + (to.x - from.x) * t, z: from.z + (to.z - from.z) * t })).toBe(true)
       }
+    }
+  })
+})
+
+describe('backFrom', () => {
+  it.each([
+    ['start', 'north', null],
+    ['start', 'west', null],
+    ['start', 'south', null],
+    ['start', 'east', 'nook'],
+    ['nook', 'north', null],
+    ['nook', 'west', 'start'],
+    ['nook', 'south', null],
+    ['nook', 'east', null],
+  ] as const)('from the %s facing %s leads to %s', (place, heading, expected) => {
+    expect(backFrom(place, heading)).toBe(expected)
+  })
+
+  it.each(PLACE_NAMES)('goes where turning around and going forward from the %s would', (name) => {
+    for (const heading of HEADINGS) expect(backFrom(name, heading)).toBe(forwardFrom(name, turnAround(heading)))
+  })
+
+  it.each(PLACE_NAMES)('undoes a step forward out of the %s, facing the same way', (name) => {
+    for (const heading of HEADINGS) {
+      const next = forwardFrom(name, heading)
+      if (next === null) continue
+      expect(backFrom(next, heading)).toBe(name)
+    }
+  })
+
+  it.each(PLACE_NAMES)('is undone by a step forward from where it leads from the %s', (name) => {
+    for (const heading of HEADINGS) {
+      const previous = backFrom(name, heading)
+      if (previous === null) continue
+      expect(forwardFrom(previous, heading)).toBe(name)
+    }
+  })
+
+  it.each(PLACE_NAMES)('never leads both forward and back from the %s facing one way', (name) => {
+    for (const heading of HEADINGS) {
+      expect(forwardFrom(name, heading) !== null && backFrom(name, heading) !== null).toBe(false)
     }
   })
 })

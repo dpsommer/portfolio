@@ -11,3 +11,8 @@ export function turn(heading: Heading, direction: TurnDirection): Heading {
   const step = direction === 'left' ? 1 : HEADINGS.length - 1
   return HEADINGS[(HEADINGS.indexOf(heading) + step) % HEADINGS.length]
 }
+
+// The heading behind `heading`.
+export function opposite(heading: Heading): Heading {
+  return HEADINGS[(HEADINGS.indexOf(heading) + 2) % HEADINGS.length]
+}

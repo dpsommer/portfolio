@@ -3,7 +3,6 @@ import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
-import { BACKGROUND } from '../scene/core/palette.ts'
 import { drawScene } from '../scene/draw.ts'
 import { screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
@@ -14,8 +13,12 @@ import { isOnPull } from '../scene/mirror/pull.ts'
 import { rippleDuration } from '../scene/mirror/ripple.ts'
 import { TURN_YAW, turn } from '../scene/navigation/heading.ts'
 import type { Heading, TurnDirection } from '../scene/navigation/heading.ts'
-import { PLACES, forwardFrom } from '../scene/navigation/places.ts'
+import { navButtonAt } from '../scene/navigation/navButtons.ts'
+import type { NavButton } from '../scene/navigation/navButtons.ts'
+import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
+import { PLACES, backFrom, forwardFrom } from '../scene/navigation/places.ts'
 import type { PlaceName } from '../scene/navigation/places.ts'
+import { clearPanel } from '../scene/panels/panelCanvas.ts'
 import { signBoardBounds } from '../scene/signpost/signpost.ts'
 import type { Bounds } from '../scene/signpost/signpost.ts'
 import './ViewPane.scss'
@@ -72,6 +75,16 @@ function isOverPull(x: number, y: number): boolean {
 }
 
 const TURNS: Partial<Record<CursorZone, TurnDirection>> = { 'turn-left': 'left', 'turn-right': 'right' }
+
+// Which navigation buttons can be used from `place` facing `heading`.
+function enabledButtons(place: PlaceName, heading: Heading): Record<NavButton, boolean> {
+  return {
+    forward: forwardFrom(place, heading) !== null,
+    back: backFrom(place, heading) !== null,
+    left: true,
+    right: true,
+  }
+}
 
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -158,6 +171,8 @@ function ViewPane() {
   })
   const [place, setPlace] = useState<PlaceName>('start')
   const [heading, setHeading] = useState<Heading>('north')
+  // The navigation button under the mouse in the lower panel, if any.
+  const [panelButton, setPanelButton] = useState<NavButton | null>(null)
   const [animating, setAnimating] = useState(false)
   // Which of MIRROR_SITES the mirror shows. The ref is for drawing mid-animation.
   const [site, setSite] = useState(0)
@@ -175,16 +190,22 @@ function ViewPane() {
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) drawView(ctx, viewRef.current, currentLook())
-    for (const panel of [lowerPanelRef.current, sidePanelRef.current]) {
-      const panelCtx = panel?.getContext('2d')
-      if (!panel || !panelCtx) continue
-      panelCtx.fillStyle = BACKGROUND
-      panelCtx.fillRect(0, 0, panel.width, panel.height)
-    }
+    const sideCtx = sidePanelRef.current?.getContext('2d')
+    if (sideCtx) clearPanel(sideCtx)
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
   }, [])
+
+  // The navigation panel's compass follows the drawn yaw and its buttons the
+  // current place and heading. Turns and moves redraw it every frame too.
+  const drawPanel = (enabled: Record<NavButton, boolean>) => {
+    const ctx = lowerPanelRef.current?.getContext('2d')
+    if (ctx) drawNavigationPanel(ctx, viewRef.current.yaw, enabled)
+  }
+  useEffect(() => {
+    drawPanel(enabledButtons(place, heading))
+  }, [place, heading])
 
   // Without its picture a site shows empty glass.
   useEffect(() => {
@@ -213,6 +234,7 @@ function ViewPane() {
     duration: number,
     frame: (elapsed: number) => View,
     done?: () => void,
+    panelButtons?: Record<NavButton, boolean>,
   ) {
     setAnimating(true)
     const start = performance.now()
@@ -220,6 +242,7 @@ function ViewPane() {
       const elapsed = Math.min(duration, now - start)
       viewRef.current = frame(elapsed)
       drawView(ctx, viewRef.current, currentLook())
+      if (panelButtons) drawPanel(panelButtons)
       if (elapsed < duration) {
         frameRef.current = requestAnimationFrame(step)
       } else {
@@ -231,8 +254,9 @@ function ViewPane() {
     frameRef.current = requestAnimationFrame(step)
   }
 
-  // Animates the drawn view to `to`, or jumps there with reduced motion or no canvas.
-  function animateTo(to: View, duration: number) {
+  // Animates the drawn view to `to`, or jumps there with reduced motion or no
+  // canvas. The navigation panel turns along with it, showing `panelButtons`.
+  function animateTo(to: View, duration: number, panelButtons: Record<NavButton, boolean>) {
     const from = viewRef.current
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx || prefersReducedMotion()) {
@@ -240,15 +264,39 @@ function ViewPane() {
       if (ctx) drawView(ctx, to, currentLook())
       return
     }
-    runAnimation(ctx, duration, (elapsed) => {
-      if (elapsed >= duration) return to
-      const eased = easeInOut(elapsed / duration)
-      return {
-        x: from.x + (to.x - from.x) * eased,
-        z: from.z + (to.z - from.z) * eased,
-        yaw: from.yaw + (to.yaw - from.yaw) * eased,
-      }
-    })
+    runAnimation(
+      ctx,
+      duration,
+      (elapsed) => {
+        if (elapsed >= duration) return to
+        const eased = easeInOut(elapsed / duration)
+        return {
+          x: from.x + (to.x - from.x) * eased,
+          z: from.z + (to.z - from.z) * eased,
+          yaw: from.yaw + (to.yaw - from.yaw) * eased,
+        }
+      },
+      undefined,
+      panelButtons,
+    )
+  }
+
+  // Turns a quarter turn in `direction`, as the room's edges and the panel's
+  // turn buttons do.
+  function turnView(direction: TurnDirection) {
+    const next = turn(heading, direction)
+    setHeading(next)
+    animateTo(
+      { ...viewRef.current, yaw: viewRef.current.yaw + TURN_YAW[direction] },
+      TURN_DURATION_MS,
+      enabledButtons(place, next),
+    )
+  }
+
+  // Moves to `next` without turning, for stepping forward or back.
+  function moveTo(next: PlaceName) {
+    setPlace(next)
+    animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS, enabledButtons(next, heading))
   }
 
   // Plays a ripple on the mirror from the canvas position (x, y), if it's on
@@ -300,14 +348,15 @@ function ViewPane() {
     })
   }
 
-  // Mouse position in canvas pixels, from fractions of the canvas's on-screen
-  // size so hit areas scale with the pane.
+  // Mouse position in the canvas's drawing pixels, from fractions of its
+  // on-screen size so hit areas scale with the pane.
   function canvasPointAt(event: MouseEvent<HTMLCanvasElement>): { x: number; y: number } | null {
-    const rect = event.currentTarget.getBoundingClientRect()
+    const canvas = event.currentTarget
+    const rect = canvas.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return null
     return {
-      x: ((event.clientX - rect.left) / rect.width) * VIEW_WIDTH,
-      y: ((event.clientY - rect.top) / rect.height) * VIEW_HEIGHT,
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
     }
   }
 
@@ -350,15 +399,36 @@ function ViewPane() {
     }
     const direction = TURNS[at.zone]
     if (direction) {
-      setHeading(turn(heading, direction))
-      animateTo({ ...viewRef.current, yaw: viewRef.current.yaw + TURN_YAW[direction] }, TURN_DURATION_MS)
+      turnView(direction)
       return
     }
     const next = forwardFrom(place, heading)
     // A click on the sign, mirror or pull is for it, even if there's a way forward behind it.
     if (!next || showHand) return
-    setPlace(next)
-    animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS)
+    moveTo(next)
+  }
+
+  function panelButtonAt(event: MouseEvent<HTMLCanvasElement>): NavButton | null {
+    const point = canvasPointAt(event)
+    return point && navButtonAt(point.x, point.y)
+  }
+
+  function handlePanelMouseMove(event: MouseEvent<HTMLCanvasElement>) {
+    const next = panelButtonAt(event)
+    if (next !== panelButton) setPanelButton(next)
+  }
+
+  // The panel's buttons do what clicking the room does: turn left or right,
+  // or step forward, plus stepping back without turning.
+  function handlePanelClick(event: MouseEvent<HTMLCanvasElement>) {
+    const button = panelButtonAt(event)
+    if (!button || animating || !enabledButtons(place, heading)[button]) return
+    if (button === 'left' || button === 'right') {
+      turnView(button)
+      return
+    }
+    const next = button === 'forward' ? forwardFrom(place, heading) : backFrom(place, heading)
+    if (next) moveTo(next)
   }
 
   // The sign, mirror and pull are only clickable from where they were designed to be seen.
@@ -373,6 +443,12 @@ function ViewPane() {
     : pointer.zone === 'forward' && !canMoveForward
       ? BLOCKED_CURSOR
       : CURSORS[pointer.zone]
+  const panelCursor =
+    panelButton === null || animating
+      ? undefined
+      : enabledButtons(place, heading)[panelButton]
+        ? HAND_CURSOR
+        : BLOCKED_CURSOR
   return (
     <div className="view-pane-frame">
       <canvas
@@ -396,6 +472,10 @@ function ViewPane() {
         width={LOWER_PANEL_WIDTH}
         height={LOWER_PANEL_HEIGHT}
         aria-hidden="true"
+        style={{ cursor: panelCursor }}
+        onMouseMove={handlePanelMouseMove}
+        onMouseLeave={() => setPanelButton(null)}
+        onClick={handlePanelClick}
       />
       <div className="view-pane-divider view-pane-divider--vertical" />
       <canvas
