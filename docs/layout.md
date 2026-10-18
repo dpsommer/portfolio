@@ -1,6 +1,6 @@
 # Room layout and view
 
-How the room is laid out in the world and how the camera sees it. For interaction design (navigation, the cursor and the mirror's behaviour), see [ui.md](ui.md).
+How the room is laid out in the world and how the camera sees it. For moving between places see [navigation.md](navigation.md); for the mirror and its fixtures see [mirror.md](mirror.md).
 
 ## World and units
 
@@ -59,6 +59,14 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 - **From the start:** the side walls and the back wall are all 1 away.
 - **From the nook:** its back wall, its side wall and the main back wall are all 1 away.
 
+### Adding a place
+
+1. If it needs new walls, add corners to `PLAN` in `room.ts` (clockwise, each with the wall running from it and a seed for its bricks), and any new constants to `src/scene/core/camera.ts`.
+2. Put it `WALL_VIEW_DISTANCE` from the walls framing it, so its close-up walls match the others.
+3. Add it to `PLACES` with its exits, and add the reverse exit to its neighbour. `backFrom` follows from the exits.
+4. Check what it can see: `isVisible` and `visibleParts` handle hiding, but objects shown in a view (like the sign) may need checking from the new spot.
+5. Add its views to [What each view shows](#what-each-view-shows).
+
 ## Camera and projection
 
 - **Camera:** it stands at an `eye` position on the floor plan and only turns about the vertical axis. Its yaw is in radians, anticlockwise from north.
@@ -91,26 +99,10 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
 
 ## Objects
 
-- **Welcome signpost:** the sprite is drawn for the start position facing north. It's anchored in the world at `SIGN_POSITION` (0, `FLOOR_Y`, 1.14).
-  - From any other view it's a billboard: `signPlacement` (`src/scene/draw.ts`) projects the anchor and scales the sprite by the anchor's depth. `placeSprite` moves and scales the pixels, drawing enlarged pixels as blocks.
-  - It always faces the viewer. It isn't drawn when the anchor is behind the camera or hidden by a wall.
-- **Mirror:** an ornate, arch-topped mirror (`src/scene/mirror/frame.ts`).
-  - **Placement:** it hangs centred on the `nook-back` wall (`MIRROR_WALL` in `room.ts`), facing the nook's place, with its centre at eye height.
-  - **Size:** it's 1.3 high on the 1.5-high wall, crest and pendant included, and 0.8 wide at the frame.
-  - **Style:** like the room, it's sparse world-space lines, in mirror-local units (s right, t up). It's drawn in three layers:
-    - dim glints on the glass
-    - a worn inner glass edge
-    - a bright outer frame with a diamond crest, side and corner scrolls, and a pendant with a bead
-  - **Drawing:** `mirrorPixels` (`src/scene/mirror/pixels.ts`) projects it with the room's wall visibility. `MIRROR_BOUNDS` keeps bricks off it.
-- **Curtain pull:** a cord and acorn-shaped handle beside the mirror (`src/scene/mirror/pull.ts`).
-  - **Placement:** on the mirror's wall at s `PULL_S` (0.68), right of the mirror's side scroll. The cord hangs from the ceiling to the handle's top at t 0.12, a little above eye height. That keeps the handle clear of the brick below it.
-  - **Style:** mirror-local lines like the mirror: a worn cord and a band across the handle, and a bright handle outline. `pullLayers(drop)` lowers the handle by `drop` and stretches the cord, for the tug animation.
-  - **Drawing:** `pullPixels` projects it like the mirror. `PULL_BOUNDS` keeps bricks off it.
-- **Logo plaque:** a block set into a niche in the mirror's wall, showing the current site's logo (`src/scene/mirror/plaque.ts`).
-  - **Placement:** centred under the pull's cord at t −0.38, in a niche 0.17 units square. That's below the pull's lowest drop and clear of the brick between them.
-  - **Map format:** logos are 16×16 `LogoMap`s (`#` full foreground, `+` worn, `-` dim, `.` empty), one cell per canvas pixel from the nook, like the preview.
-  - **Depth:** drawn in the wall's plane in the room's "narrowing box" style. `plaqueLayers(depth, turn)` draws the niche (dim), lines from its corners to the face's corners, and the face's outline (worn). Sinking (`depth` 0 to 1) shrinks the face toward the niche's centre, lengthening those lines, and `logoCells` drops the logo a tone into shadow. Turning (`turn` 0 to 1, a half turn on the vertical axis) narrows the face and logo by `|cos(π·turn)|`.
-  - **Drawing:** `plaquePixels` projects the lines like the mirror and the logo's cells as blocks, like the preview's. `PLAQUE_BOUNDS` keeps bricks off the niche.
+- **Welcome signpost** (`src/scene/signpost/signpost.ts`): a double-outlined "WELCOME" board on a single post that sticks up `POST_PROTRUSION` pixels above it, over a fading ground line. The board is tilted by shifting pixels along `BOARD_SLOPE` rather than by canvas rotation, which keeps it crisp. It's worn: a chipped top-right corner, a crack, and outline and text pixels randomly dropped or dimmed.
+  - **Placement:** the sprite is drawn for the start position facing north, anchored in the world at `SIGN_POSITION` (on the floor, in front of the far wall).
+  - **Other views:** it's a billboard that always faces the viewer. `signPlacement` (`src/scene/draw.ts`) projects the anchor and scales the sprite by the anchor's depth, and `placeSprite` moves and scales the pixels, drawing enlarged pixels as blocks. It isn't drawn when the anchor is behind the camera or hidden by a wall.
+- **Mirror, curtain pull and logo plaque:** on the `nook-back` wall (`MIRROR_WALL` in `room.ts`), facing the nook's place, with the mirror's centre at eye height. The pull hangs to the mirror's right and the plaque sits in a niche below it. They're drawn in mirror-local units and keep bricks off themselves with their bounds; see [mirror.md](mirror.md).
 
 ## Draw order
 

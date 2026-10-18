@@ -13,10 +13,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Docs
 
-- `docs/ui.md` — planned UI and interaction design. Read before working on rendering, navigation, the cursor or the mirror.
+`docs/README.md` indexes them all. Read the relevant doc before changing that area, and update it when behaviour changes.
+
+- `docs/ui.md` — the site's concept and look, and which doc covers each part.
+- `docs/architecture.md` — how `src/` is organised, the pure `Pixel[]` scene modules, art rules (palette, font, seeded randomness), the rendering loop and shared animation rules. Read before any rendering work.
+- `docs/pane.md` — the view pane's areas, scaling, frame and dividing bands.
 - `docs/layout.md` — the room's floor plan, places, camera and projection, visibility, room detail, object placement and draw order. Read before changing the room, places or what a view shows.
-- `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files.
-- `docs/testing.md` — test commands, Vitest setup and conventions, and how to handle canvas code in tests.
+- `docs/navigation.md` — turning and moving, the navigation panel's compass and buttons, and the arrow keys.
+- `docs/cursor.md` — which cursor shows where, hover areas and the cursor pixel maps. Anything added to a panel must set a pixel-art cursor.
+- `docs/mirror.md` — the mirror's sites, previews, ripple, curtain pull, logo plaque and site switching, and how to add a site.
+- `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files, plus where helpers go.
+- `docs/testing.md` — test commands, Vitest setup, how to handle canvas code, shared helpers and test style.
 
 ## Stack
 
