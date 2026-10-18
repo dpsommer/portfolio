@@ -1,5 +1,8 @@
+import { linePoints } from '../core/line.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { hashRandom } from '../core/random.ts'
 import type { Pixel } from '../core/types.ts'
+import { weather } from '../panels/panelCanvas.ts'
 import type { Bounds } from '../signpost/signpost.ts'
 
 // Four direction buttons to the right of the compass, laid out like a
@@ -11,7 +14,10 @@ export type NavButton = 'forward' | 'back' | 'left' | 'right'
 const PAD_CENTRE = { x: 230, y: 66 }
 export const BUTTON_SIZE = 30
 const BUTTON_GAP = 2
-const INNER_INSET = 2
+// How far a keycap's top face is inset from its base: it sits up and back, so
+// more of the base shows below it.
+const FACE_INSET = { side: 3, top: 2, bottom: 6 }
+const KEY_SEED = 43
 
 // Bounds of the button in `column` (−1 to 1, from the left) and `row` (0 on
 // top, 1 below).
@@ -73,37 +79,78 @@ function turnArrow(button: NavButton, x: number, y: number, n: number): { x: num
   }
 }
 
-function rectOutline({ left, top, right, bottom }: Bounds, colour: string): Pixel[] {
-  const pixels: Pixel[] = []
-  for (let x = left; x <= right; x++) pixels.push({ x, y: top, colour }, { x, y: bottom, colour })
-  for (let y = top + 1; y < bottom; y++) pixels.push({ x: left, y, colour }, { x: right, y, colour })
-  return pixels
+// Points on a rectangle's outline. With `cutCorners` its corner pixels are
+// left out, for the stepped corners of the pane's frame.
+function rectOutline({ left, top, right, bottom }: Bounds, cutCorners = false): { x: number; y: number }[] {
+  const points: { x: number; y: number }[] = []
+  const inset = cutCorners ? 1 : 0
+  for (let x = left + inset; x <= right - inset; x++) points.push({ x, y: top }, { x, y: bottom })
+  for (let y = top + 1; y < bottom; y++) points.push({ x: left, y }, { x: right, y })
+  return points
 }
 
-// Pixels for all four buttons: a double outline like the frame's and an arrow.
-// Buttons that can't be used are drawn dim.
+// Pixels for one keycap. Its top face sits up and back from its base, like the
+// logo plaque's face in its niche: lines join the face's corners to the base's,
+// and the deeper front edge below the face is shaded with a dotted line. The
+// arrow on the face casts a worn shadow down and to the right. A key that
+// can't be used is drawn dim, without the shadow.
+function keycapPixels(button: NavButton, index: number, enabled: boolean): Pixel[] {
+  const base = NAV_BUTTON_BOUNDS[button]
+  const face = {
+    left: base.left + FACE_INSET.side,
+    top: base.top + FACE_INSET.top,
+    right: base.right - FACE_INSET.side,
+    bottom: base.bottom - FACE_INSET.bottom,
+  }
+  const bright = enabled ? FOREGROUND : FOREGROUND_DIM
+  const worn = enabled ? FOREGROUND_WORN : FOREGROUND_DIM
+  const corners = [
+    linePoints(face.left, face.top, base.left + 1, base.top + 1),
+    linePoints(face.right, face.top, base.right - 1, base.top + 1),
+    linePoints(face.left, face.bottom, base.left + 1, base.bottom - 1),
+    linePoints(face.right, face.bottom, base.right - 1, base.bottom - 1),
+  ].flat()
+  const frontShade: { x: number; y: number }[] = []
+  const shadeY = Math.round((face.bottom + base.bottom) / 2)
+  for (let x = face.left + 1; x < face.right; x += 2) frontShade.push({ x, y: shadeY })
+
+  const n = ARROW_MAP.length
+  const arrowLeft = face.left + Math.floor((face.right - face.left + 1 - n) / 2)
+  const arrowTop = face.top + Math.floor((face.bottom - face.top + 1 - n) / 2)
+  const arrow = new Set<string>()
+  const arrowPoints: { x: number; y: number }[] = []
+  ARROW_MAP.forEach((row, y) =>
+    row.split('').forEach((cell, x) => {
+      if (cell !== '#') return
+      const turned = turnArrow(button, x, y, n)
+      const point = { x: arrowLeft + turned.x, y: arrowTop + turned.y }
+      arrow.add(`${point.x},${point.y}`)
+      arrowPoints.push(point)
+    }),
+  )
+  const shadow = enabled
+    ? arrowPoints.map((p) => ({ x: p.x + 1, y: p.y + 1 })).filter((p) => !arrow.has(`${p.x},${p.y}`))
+    : []
+
+  const parts: [{ x: number; y: number }[], string, number][] = [
+    [rectOutline(base, true), worn, 0.06],
+    [corners, FOREGROUND_DIM, 0.1],
+    [frontShade, FOREGROUND_DIM, 0.1],
+    [rectOutline(face), bright, 0.04],
+    [shadow, FOREGROUND_DIM, 0],
+    [arrowPoints, bright, 0.02],
+  ]
+  return parts.flatMap(([points, colour, dropChance], part) =>
+    points.flatMap((p) => {
+      const roll = hashRandom(KEY_SEED, index, part, p.x - base.left, p.y - base.top)
+      const weathered = weather(colour, roll, dropChance, 0.18)
+      return weathered ? [{ ...p, colour: weathered }] : []
+    }),
+  )
+}
+
+// Pixels for all four buttons, drawn as worn keycaps with arrows. Buttons that
+// can't be used are drawn dim.
 export function navButtonPixels(enabled: Record<NavButton, boolean>): Pixel[] {
-  return NAV_BUTTONS.flatMap((button) => {
-    const bounds = NAV_BUTTON_BOUNDS[button]
-    const outer = enabled[button] ? FOREGROUND : FOREGROUND_DIM
-    const inner = enabled[button] ? FOREGROUND_WORN : FOREGROUND_DIM
-    const inset = {
-      left: bounds.left + INNER_INSET,
-      top: bounds.top + INNER_INSET,
-      right: bounds.right - INNER_INSET,
-      bottom: bounds.bottom - INNER_INSET,
-    }
-    const n = ARROW_MAP.length
-    const arrowLeft = bounds.left + Math.floor((BUTTON_SIZE - n) / 2)
-    const arrowTop = bounds.top + Math.floor((BUTTON_SIZE - n) / 2)
-    const arrow: Pixel[] = []
-    ARROW_MAP.forEach((row, y) =>
-      row.split('').forEach((cell, x) => {
-        if (cell !== '#') return
-        const turned = turnArrow(button, x, y, n)
-        arrow.push({ x: arrowLeft + turned.x, y: arrowTop + turned.y, colour: outer })
-      }),
-    )
-    return [...rectOutline(bounds, outer), ...rectOutline(inset, inner), ...arrow]
-  })
+  return NAV_BUTTONS.flatMap((button, index) => keycapPixels(button, index, enabled[button]))
 }
