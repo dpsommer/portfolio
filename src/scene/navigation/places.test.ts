@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { BACK_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, WALL_VIEW_DISTANCE } from '../core/camera.ts'
 import type { FloorPoint } from '../core/camera.ts'
 import { FLOOR_PLAN, isOnFloor } from '../room/room.ts'
-import { HEADINGS, turn } from './heading.ts'
+import { HEADINGS, opposite } from './heading.ts'
 import type { Heading } from './heading.ts'
 import { PLACES, backFrom, forwardFrom } from './places.ts'
 import type { PlaceName } from './places.ts'
 
 const PLACE_NAMES = Object.keys(PLACES) as PlaceName[]
-
-const turnAround = (heading: Heading) => turn(turn(heading, 'left'), 'left')
 
 // Unit steps on the floor plan for each heading.
 const DIRECTIONS: Record<Heading, FloorPoint> = {
@@ -118,19 +116,18 @@ describe('forwardFrom', () => {
     for (const heading of HEADINGS) {
       const next = forwardFrom(name, heading)
       if (next === null) continue
-      expect(forwardFrom(next, turnAround(heading))).toBe(name)
+      expect(forwardFrom(next, opposite(heading))).toBe(name)
     }
   })
 
   it.each(PLACE_NAMES)('moves from the %s in the direction it faces', (name) => {
-    const directions = DIRECTIONS
     for (const heading of HEADINGS) {
       const next = forwardFrom(name, heading)
       if (next === null) continue
       const dx = PLACES[next].x - PLACES[name].x
       const dz = PLACES[next].z - PLACES[name].z
-      const along = dx * directions[heading].x + dz * directions[heading].z
-      const across = dx * directions[heading].z - dz * directions[heading].x
+      const along = dx * DIRECTIONS[heading].x + dz * DIRECTIONS[heading].z
+      const across = dx * DIRECTIONS[heading].z - dz * DIRECTIONS[heading].x
       expect(along).toBeGreaterThan(0)
       expect(across).toBeCloseTo(0)
     }
@@ -165,23 +162,7 @@ describe('backFrom', () => {
   })
 
   it.each(PLACE_NAMES)('goes where turning around and going forward from the %s would', (name) => {
-    for (const heading of HEADINGS) expect(backFrom(name, heading)).toBe(forwardFrom(name, turnAround(heading)))
-  })
-
-  it.each(PLACE_NAMES)('undoes a step forward out of the %s, facing the same way', (name) => {
-    for (const heading of HEADINGS) {
-      const next = forwardFrom(name, heading)
-      if (next === null) continue
-      expect(backFrom(next, heading)).toBe(name)
-    }
-  })
-
-  it.each(PLACE_NAMES)('is undone by a step forward from where it leads from the %s', (name) => {
-    for (const heading of HEADINGS) {
-      const previous = backFrom(name, heading)
-      if (previous === null) continue
-      expect(forwardFrom(previous, heading)).toBe(name)
-    }
+    for (const heading of HEADINGS) expect(backFrom(name, heading)).toBe(forwardFrom(name, opposite(heading)))
   })
 
   it.each(PLACE_NAMES)('never leads both forward and back from the %s facing one way', (name) => {

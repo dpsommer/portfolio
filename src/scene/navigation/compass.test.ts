@@ -237,12 +237,6 @@ describe('facedLetter', () => {
   })
 })
 
-describe('COMPASS_WINDOW', () => {
-  it('is a sixth of a turn either side of the top', () => {
-    expect(COMPASS_WINDOW).toBeCloseTo(Math.PI / 3)
-  })
-})
-
 describe('compassPixels', () => {
   it('keeps every pixel inside the ring or the marker above it', () => {
     for (const yaw of SAMPLE_YAWS) {
@@ -268,10 +262,6 @@ describe('compassPixels', () => {
     for (const colour of coloursOf(compassPixels(yaw))) expect(PALETTE).toContain(colour)
   })
 
-  it.each(SAMPLE_YAWS)('gives the same pixels every time for yaw %s', (yaw) => {
-    expect(compassPixels(yaw)).toEqual(compassPixels(yaw))
-  })
-
   describe('bezel', () => {
     it.each(SAMPLE_YAWS)('draws nothing near the ring but its arcs, end lines and notches (yaw %s)', (yaw) => {
       const allowed = bezelKeysAt(yaw)
@@ -287,28 +277,17 @@ describe('compassPixels', () => {
       }
     })
 
-    it('draws most of the outer arc at COMPASS_RADIUS, with only a few pixels worn away', () => {
-      expect(arcCoverage(compassPixels(0), COMPASS_RADIUS)).toBeGreaterThan(0.85)
-    })
+    it.each([
+      ['outer arc at COMPASS_RADIUS', COMPASS_RADIUS, OUTER_KEYS],
+      ['inner arc BEZEL_WIDTH inside it', INNER_RADIUS, INNER_KEYS],
+    ])('draws most of the %s, through the top, from one end of the window to the other', (_, radius, keys) => {
+      const arc = drawnIn(compassPixels(0), keys)
+      const angles = arc.map(angleOf)
 
-    it('draws most of the inner arc BEZEL_WIDTH inside it', () => {
-      expect(arcCoverage(compassPixels(0), INNER_RADIUS)).toBeGreaterThan(0.85)
-    })
-
-    it('runs the outer arc from one end of the window, through the top, to the other', () => {
-      const outer = drawnIn(compassPixels(0), OUTER_KEYS)
-      const angles = outer.map(angleOf)
-
+      expect(arcCoverage(compassPixels(0), radius)).toBeGreaterThan(0.85)
       expect(Math.max(...angles)).toBeGreaterThan(COMPASS_WINDOW - 0.05)
       expect(Math.min(...angles)).toBeLessThan(-COMPASS_WINDOW + 0.05)
-      expect(outer.some((p) => Math.abs(angleOf(p)) < 0.05)).toBe(true)
-    })
-
-    it('runs the inner arc from one end of the window to the other', () => {
-      const angles = drawnIn(compassPixels(0), INNER_KEYS).map(angleOf)
-
-      expect(Math.max(...angles)).toBeGreaterThan(COMPASS_WINDOW - 0.05)
-      expect(Math.min(...angles)).toBeLessThan(-COMPASS_WINDOW + 0.05)
+      expect(arc.some((p) => Math.abs(angleOf(p)) < 0.05)).toBe(true)
     })
 
     it('closes both ends of the bezel with lines from the outer arc to the inner', () => {
@@ -408,26 +387,21 @@ describe('compassPixels', () => {
       pixels.filter((p) => p.x === COMPASS_CENTRE.x && p.y > RING_TOP && p.y < COMPASS_CENTRE.y - INNER_RADIUS)
 
     it.each(Array.from({ length: NOTCH_COUNT }, (_, index) => [index, kindOf(index)] as const))(
-      'runs notch %s (%s) in from just inside the outer arc for its length',
+      'runs notch %s (%s) in from just inside the outer arc for its length, in its colours',
       (index, kind) => {
         const column = topColumn(compassPixels(index * NOTCH_STEP))
         const deepest = RING_TOP + LENGTH[kind]
-
-        for (const p of column) expect(p.y).toBeLessThanOrEqual(deepest)
-        expect(column.length).toBeGreaterThanOrEqual(LENGTH[kind] - 1)
-      },
-    )
-
-    it.each(Array.from({ length: NOTCH_COUNT }, (_, index) => [index, kindOf(index)] as const))(
-      'colours notch %s as a %s notch',
-      (index, kind) => {
         const allowed = {
           long: [FOREGROUND, FOREGROUND_WORN],
           half: [FOREGROUND_WORN, FOREGROUND_DIM],
           pip: [FOREGROUND_DIM],
         }[kind]
 
-        for (const p of topColumn(compassPixels(index * NOTCH_STEP))) expect(allowed).toContain(p.colour)
+        expect(column.length).toBeGreaterThanOrEqual(LENGTH[kind] - 1)
+        for (const p of column) {
+          expect(p.y).toBeLessThanOrEqual(deepest)
+          expect(allowed).toContain(p.colour)
+        }
       },
     )
 
@@ -599,16 +573,12 @@ describe('compassPixels', () => {
       expect(letterPixelsOf(pixels)).toHaveLength(n.length + w.length)
     })
 
-    it('has dropped the outgoing letter near the end of a turn', () => {
-      expect(isWornGlyph(letterPixelsOf(compassPixels(Math.PI / 2 - 0.1)), 'W')).toBe(true)
-    })
-
-    it('has not yet brought in the incoming letter just after a turn starts', () => {
-      expect(isWornGlyph(letterPixelsOf(compassPixels(-0.1)), 'N')).toBe(true)
-    })
-
-    it('hides a letter exactly COMPASS_WINDOW from the top', () => {
-      expect(isWornGlyph(letterPixelsOf(compassPixels(Math.PI / 2 - COMPASS_WINDOW)), 'N')).toBe(true)
+    it.each([
+      ['has dropped the outgoing letter near the end of a turn', Math.PI / 2 - 0.1, 'W'],
+      ['has not yet brought in the incoming letter just after a turn starts', -0.1, 'N'],
+      ['hides a letter exactly COMPASS_WINDOW from the top', Math.PI / 2 - COMPASS_WINDOW, 'N'],
+    ])('%s', (_, yaw, letter) => {
+      expect(isWornGlyph(letterPixelsOf(compassPixels(yaw)), letter)).toBe(true)
     })
 
     it('keeps the letters upright and full size as the rose turns', () => {

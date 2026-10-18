@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { createFakeContext, toFills } from '../test/fakeContext.ts'
 import { ORIGIN, projectPoint, toCamera } from './core/camera.ts'
 import type { FloorPoint, ScreenPoint } from './core/camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './core/palette.ts'
 import type { Pixel } from './core/types.ts'
 import { drawPixels, drawScene, placeSprite, signPlacement } from './draw.ts'
+import type { MirrorExtras } from './draw.ts'
 import { mirrorPixels, plaquePixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
 import type { RippleState } from './mirror/pixels.ts'
 import type { Plaque } from './mirror/plaque.ts'
@@ -20,20 +22,12 @@ const NOOK_EYE: FloorPoint = { x: PLACES.nook.x, z: PLACES.nook.z }
 const HOME = projectPoint(toCamera(SIGN_POSITION, 0), WIDTH, HEIGHT)
 const inCanvas = (p: Pixel) => p.x >= 0 && p.x < WIDTH && p.y >= 0 && p.y < HEIGHT
 
-type Call = { args: number[]; fillStyle: string }
-
-function createFakeContext() {
-  const calls: Call[] = []
-  const fillRect = vi.fn((...args: number[]) => {
-    calls.push({ args, fillStyle: ctx.fillStyle })
-  })
-  const ctx = { fillStyle: '', canvas: { width: 320, height: 240 }, fillRect }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls, fillRect }
-}
+const WEST = Math.PI / 2
+const EAST = (3 * Math.PI) / 2
 
 describe('drawPixels', () => {
   it('fills a 1x1 rect per pixel with that pixel\'s colour', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
     const pixels: Pixel[] = [
       { x: 1, y: 2, colour: FOREGROUND },
       { x: 3, y: 4, colour: FOREGROUND_WORN },
@@ -41,7 +35,7 @@ describe('drawPixels', () => {
 
     drawPixels(ctx, pixels)
 
-    expect(calls).toEqual([
+    expect(fills).toEqual([
       { args: [1, 2, 1, 1], fillStyle: FOREGROUND },
       { args: [3, 4, 1, 1], fillStyle: FOREGROUND_WORN },
     ])
@@ -57,24 +51,16 @@ describe('drawPixels', () => {
 })
 
 describe('drawScene', () => {
-  it('first fills the whole canvas with the background colour', () => {
-    const { ctx, calls } = createFakeContext()
+  it('fills the background, then draws the room, the signpost backing and the signpost, in that order', () => {
+    const { ctx, fills } = createFakeContext()
 
     drawScene(ctx)
 
-    expect(calls[0]).toEqual({ args: [0, 0, 320, 240], fillStyle: BACKGROUND })
-  })
-
-  it('then draws the room, the signpost backing and the signpost, in that order', () => {
-    const { ctx, calls } = createFakeContext()
-
-    drawScene(ctx)
-
-    expect(calls).toEqual([
+    expect(fills).toEqual([
       { args: [0, 0, 320, 240], fillStyle: BACKGROUND },
-      ...toCalls(roomPixels(320, 240)),
-      ...toCalls(signpostBackingPixels(320, 240)),
-      ...toCalls(signpostPixels(320, 240)),
+      ...toFills(roomPixels(320, 240)),
+      ...toFills(signpostBackingPixels(320, 240)),
+      ...toFills(signpostPixels(320, 240)),
     ])
   })
 
@@ -85,44 +71,24 @@ describe('drawScene', () => {
     drawScene(byDefault.ctx)
     drawScene(north.ctx, 0)
 
-    expect(byDefault.calls).toEqual(north.calls)
-  })
-
-  it('draws the room at the given yaw', () => {
-    const { ctx, calls } = createFakeContext()
-    const yaw = Math.PI / 2
-
-    drawScene(ctx, yaw)
-
-    expect(calls.slice(1, 1 + roomPixels(320, 240, yaw).length)).toEqual(toCalls(roomPixels(320, 240, yaw)))
+    expect(byDefault.fills).toEqual(north.fills)
   })
 
   it('draws only the background, the room, the mirror and the pull when the sign is out of view facing west', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
 
     drawScene(ctx, Math.PI / 2)
 
-    expect(calls).toEqual([
+    expect(fills).toEqual([
       { args: [0, 0, 320, 240], fillStyle: BACKGROUND },
-      ...toCalls(roomPixels(320, 240, Math.PI / 2)),
-      ...toCalls(mirrorPixels(320, 240, Math.PI / 2)),
-      ...toCalls(pullPixels(320, 240, 0, Math.PI / 2)),
+      ...toFills(roomPixels(320, 240, Math.PI / 2)),
+      ...toFills(mirrorPixels(320, 240, Math.PI / 2)),
+      ...toFills(pullPixels(320, 240, 0, Math.PI / 2)),
     ])
   })
 
-  it('draws the mirror after the room', () => {
-    const { ctx, calls } = createFakeContext()
-    const room = roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
-    const mirror = mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
-
-    drawScene(ctx, Math.PI / 2, NOOK_EYE)
-
-    expect(mirror.length).toBeGreaterThan(0)
-    expect(calls.slice(1 + room.length, 1 + room.length + mirror.length)).toEqual(toCalls(mirror))
-  })
-
   it('draws the mirror before the sign', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
     const yaw = 0.8
     const room = roomPixels(WIDTH, HEIGHT, yaw)
     const mirror = mirrorPixels(WIDTH, HEIGHT, yaw)
@@ -132,26 +98,26 @@ describe('drawScene', () => {
 
     drawScene(ctx, yaw)
 
-    expect(calls).toEqual([
+    expect(fills).toEqual([
       { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-      ...toCalls(room),
-      ...toCalls(mirror),
-      ...toCalls(pullPixels(WIDTH, HEIGHT, 0, yaw)),
-      ...toCalls(backing),
-      ...toCalls(sign),
+      ...toFills(room),
+      ...toFills(mirror),
+      ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw)),
+      ...toFills(backing),
+      ...toFills(sign),
     ])
   })
 
   it('does not draw the sign when facing away from it', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
 
     drawScene(ctx, Math.PI)
 
-    expect(calls.some((c) => c.fillStyle === FOREGROUND)).toBe(false)
+    expect(fills.some((c) => c.fillStyle === FOREGROUND)).toBe(false)
   })
 
   it('draws the sign moved by signPlacement after a small turn', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
     const yaw = 0.2
     const placement = signPlacement(yaw, WIDTH, HEIGHT)!
     const placed = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT).filter(inCanvas)
@@ -159,11 +125,11 @@ describe('drawScene', () => {
     drawScene(ctx, yaw)
 
     expect(placement.anchor.x).toBeGreaterThan(WIDTH / 2)
-    expect(calls.slice(-placed.length)).toEqual(toCalls(placed))
+    expect(fills.slice(-placed.length)).toEqual(toFills(placed))
   })
 
   it('skips sign pixels moved off the canvas', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
     const yaw = 0.8
     const placement = signPlacement(yaw, WIDTH, HEIGHT)!
     const sign = signpostPixels(WIDTH, HEIGHT)
@@ -176,7 +142,7 @@ describe('drawScene', () => {
     expect(placed.length).toBeGreaterThan(0)
     expect(placed.length).toBeLessThan(sign.length * blockSize ** 2)
     expect(placed.every(inCanvas)).toBe(true)
-    expect(calls.slice(-placed.length)).toEqual(toCalls(placed))
+    expect(fills.slice(-placed.length)).toEqual(toFills(placed))
   })
 
   it('defaults the eye to the start', () => {
@@ -186,43 +152,34 @@ describe('drawScene', () => {
     drawScene(byDefault.ctx, 0.3)
     drawScene(atOrigin.ctx, 0.3, ORIGIN)
 
-    expect(byDefault.calls).toEqual(atOrigin.calls)
-  })
-
-  it('draws the room from the given eye', () => {
-    const { ctx, calls } = createFakeContext()
-    const room = roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)
-
-    drawScene(ctx, Math.PI / 2, NOOK_EYE)
-
-    expect(calls.slice(1, 1 + room.length)).toEqual(toCalls(room))
+    expect(byDefault.fills).toEqual(atOrigin.fills)
   })
 
   it('draws the sign from the nook facing north', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
     const placed = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, signPlacement(0, WIDTH, HEIGHT, NOOK_EYE)!, WIDTH, HEIGHT).filter(inCanvas)
 
     drawScene(ctx, 0, NOOK_EYE)
 
     expect(placed.length).toBeGreaterThan(0)
-    expect(calls.slice(-placed.length)).toEqual(toCalls(placed))
+    expect(fills.slice(-placed.length)).toEqual(toFills(placed))
   })
 
   it('draws only the background, the room, the mirror and the pull from the nook facing west', () => {
-    const { ctx, calls } = createFakeContext()
+    const { ctx, fills } = createFakeContext()
+    expect(mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE).length).toBeGreaterThan(0)
 
     drawScene(ctx, Math.PI / 2, NOOK_EYE)
 
-    expect(calls).toEqual([
+    expect(fills).toEqual([
       { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-      ...toCalls(roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
-      ...toCalls(mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
-      ...toCalls(pullPixels(WIDTH, HEIGHT, 0, Math.PI / 2, NOOK_EYE)),
+      ...toFills(roomPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
+      ...toFills(mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
+      ...toFills(pullPixels(WIDTH, HEIGHT, 0, Math.PI / 2, NOOK_EYE)),
     ])
   })
 
   describe('with a ripple', () => {
-    const WEST = Math.PI / 2
     const RIPPLE: RippleState = { origin: { s: 0, t: 0 }, elapsedMs: 900 }
 
     it('draws more than without one, from the nook facing west', () => {
@@ -232,22 +189,22 @@ describe('drawScene', () => {
       drawScene(plain.ctx, WEST, NOOK_EYE)
       drawScene(rippling.ctx, WEST, NOOK_EYE, { ripple: RIPPLE })
 
-      expect(rippling.calls.length).toBeGreaterThan(plain.calls.length)
+      expect(rippling.fills.length).toBeGreaterThan(plain.fills.length)
     })
 
     it('draws the ripple after the room and before the mirror', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const ripple = ripplePixels(WIDTH, HEIGHT, RIPPLE, WEST, NOOK_EYE)
       expect(ripple.length).toBeGreaterThan(0)
 
       drawScene(ctx, WEST, NOOK_EYE, { ripple: RIPPLE })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(ripple),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(ripple),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
       ])
     })
 
@@ -258,84 +215,60 @@ describe('drawScene', () => {
       drawScene(plain.ctx, WEST, NOOK_EYE)
       drawScene(finished.ctx, WEST, NOOK_EYE, { ripple: { origin: { s: 0, t: 0 }, elapsedMs: 10_000 } })
 
-      expect(finished.calls).toEqual(plain.calls)
-    })
-
-    it('draws the same as without one with the mirror out of view', () => {
-      const EAST = (3 * Math.PI) / 2
-      const plain = createFakeContext()
-      const rippling = createFakeContext()
-
-      drawScene(plain.ctx, EAST, NOOK_EYE)
-      drawScene(rippling.ctx, EAST, NOOK_EYE, { ripple: RIPPLE })
-
-      expect(rippling.calls).toEqual(plain.calls)
+      expect(finished.fills).toEqual(plain.fills)
     })
   })
 
   describe('with a preview', () => {
-    const WEST = Math.PI / 2
     const PREVIEW = new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(3)
     const RIPPLE: RippleState = { origin: { s: 0, t: 0 }, elapsedMs: 900 }
 
     it('draws the preview after the room and before the mirror', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const preview = previewPixels(WIDTH, HEIGHT, PREVIEW, WEST, NOOK_EYE)
       expect(preview.length).toBeGreaterThan(0)
 
       drawScene(ctx, WEST, NOOK_EYE, { preview: PREVIEW })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(preview),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(preview),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
       ])
     })
 
     it('draws the rippled preview after the room and before the ripple rings and the mirror', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
 
       drawScene(ctx, WEST, NOOK_EYE, { ripple: RIPPLE, preview: PREVIEW })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(previewPixels(WIDTH, HEIGHT, PREVIEW, WEST, NOOK_EYE, RIPPLE)),
-        ...toCalls(ripplePixels(WIDTH, HEIGHT, RIPPLE, WEST, NOOK_EYE)),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(previewPixels(WIDTH, HEIGHT, PREVIEW, WEST, NOOK_EYE, RIPPLE)),
+        ...toFills(ripplePixels(WIDTH, HEIGHT, RIPPLE, WEST, NOOK_EYE)),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
       ])
-    })
-
-    it('draws the same as without one with the mirror out of view', () => {
-      const EAST = (3 * Math.PI) / 2
-      const plain = createFakeContext()
-      const previewed = createFakeContext()
-
-      drawScene(plain.ctx, EAST, NOOK_EYE)
-      drawScene(previewed.ctx, EAST, NOOK_EYE, { preview: PREVIEW })
-
-      expect(previewed.calls).toEqual(plain.calls)
     })
   })
 
   describe('with the pull tugged', () => {
-    const WEST = Math.PI / 2
 
     it('draws the pull lowered by pullDrop after the mirror', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const dropped = pullPixels(WIDTH, HEIGHT, 0.1, WEST, NOOK_EYE)
       expect(dropped).not.toEqual(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE))
 
       drawScene(ctx, WEST, NOOK_EYE, { pullDrop: 0.1 })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(dropped),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(dropped),
       ])
     })
 
@@ -346,29 +279,28 @@ describe('drawScene', () => {
       drawScene(plain.ctx, WEST, NOOK_EYE)
       drawScene(zero.ctx, WEST, NOOK_EYE, { pullDrop: 0 })
 
-      expect(zero.calls).toEqual(plain.calls)
+      expect(zero.fills).toEqual(plain.fills)
     })
   })
 
   describe('with a shimmer', () => {
-    const WEST = Math.PI / 2
     const OLD = new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(1)
     const NEW = new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(3)
     const SHIMMER = { from: OLD, progress: 0.5 }
 
     it('draws the shimmering preview after the room and before the mirror and the pull', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const shimmering = previewPixels(WIDTH, HEIGHT, NEW, WEST, NOOK_EYE, undefined, SHIMMER)
       expect(shimmering).not.toEqual(previewPixels(WIDTH, HEIGHT, NEW, WEST, NOOK_EYE))
 
       drawScene(ctx, WEST, NOOK_EYE, { preview: NEW, shimmer: SHIMMER, pullDrop: 0.05 })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(shimmering),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0.05, WEST, NOOK_EYE)),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(shimmering),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0.05, WEST, NOOK_EYE)),
       ])
     })
 
@@ -376,57 +308,44 @@ describe('drawScene', () => {
       ['null', null],
       ['absent', undefined],
     ])('draws the old preview shimmering away with the new preview %s', (_, preview) => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const fading = previewPixels(WIDTH, HEIGHT, null, WEST, NOOK_EYE, undefined, SHIMMER)
       expect(fading.length).toBeGreaterThan(0)
 
       drawScene(ctx, WEST, NOOK_EYE, { preview, shimmer: SHIMMER })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(fading),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(fading),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
       ])
-    })
-
-    it('draws the same as without one with the mirror out of view', () => {
-      const EAST = (3 * Math.PI) / 2
-      const plain = createFakeContext()
-      const shimmering = createFakeContext()
-
-      drawScene(plain.ctx, EAST, NOOK_EYE)
-      drawScene(shimmering.ctx, EAST, NOOK_EYE, { preview: NEW, shimmer: SHIMMER, pullDrop: 0.1 })
-
-      expect(shimmering.calls).toEqual(plain.calls)
     })
   })
 
   describe('with a plaque', () => {
-    const WEST = Math.PI / 2
-    const EAST = (3 * Math.PI) / 2
     const LOGO = Array.from({ length: 16 }, () => '#'.repeat(16))
     const PLAQUE: Plaque = { logo: LOGO }
 
     it('draws the plaque after the pull from the nook facing west', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const plaque = plaquePixels(WIDTH, HEIGHT, PLAQUE, WEST, NOOK_EYE)
       expect(plaque.length).toBeGreaterThan(0)
 
       drawScene(ctx, WEST, NOOK_EYE, { plaque: PLAQUE })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
-        ...toCalls(plaque),
+        ...toFills(roomPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, WEST, NOOK_EYE)),
+        ...toFills(plaque),
       ])
     })
 
     it('draws the plaque after the tugged pull, sunk and turned as given', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const turning: Plaque = { logo: LOGO, depth: 1, turn: 0.3 }
       const plaque = plaquePixels(WIDTH, HEIGHT, turning, WEST, NOOK_EYE)
       expect(plaque).not.toEqual(plaquePixels(WIDTH, HEIGHT, PLAQUE, WEST, NOOK_EYE))
@@ -434,11 +353,11 @@ describe('drawScene', () => {
       drawScene(ctx, WEST, NOOK_EYE, { plaque: turning, pullDrop: 0.1 })
 
       const pull = pullPixels(WIDTH, HEIGHT, 0.1, WEST, NOOK_EYE)
-      expect(calls.slice(-(pull.length + plaque.length))).toEqual([...toCalls(pull), ...toCalls(plaque)])
+      expect(fills.slice(-(pull.length + plaque.length))).toEqual([...toFills(pull), ...toFills(plaque)])
     })
 
     it('draws the plaque after the pull and before the sign', () => {
-      const { ctx, calls } = createFakeContext()
+      const { ctx, fills } = createFakeContext()
       const yaw = 0.8
       const plaque = plaquePixels(WIDTH, HEIGHT, PLAQUE, yaw)
       const placement = signPlacement(yaw, WIDTH, HEIGHT)!
@@ -448,14 +367,14 @@ describe('drawScene', () => {
 
       drawScene(ctx, yaw, ORIGIN, { plaque: PLAQUE })
 
-      expect(calls).toEqual([
+      expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-        ...toCalls(roomPixels(WIDTH, HEIGHT, yaw)),
-        ...toCalls(mirrorPixels(WIDTH, HEIGHT, yaw)),
-        ...toCalls(pullPixels(WIDTH, HEIGHT, 0, yaw)),
-        ...toCalls(plaque),
-        ...toCalls(backing),
-        ...toCalls(sign),
+        ...toFills(roomPixels(WIDTH, HEIGHT, yaw)),
+        ...toFills(mirrorPixels(WIDTH, HEIGHT, yaw)),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw)),
+        ...toFills(plaque),
+        ...toFills(backing),
+        ...toFills(sign),
       ])
     })
 
@@ -467,50 +386,51 @@ describe('drawScene', () => {
       drawScene(plain.ctx, WEST, NOOK_EYE, {})
       drawScene(withPlaque.ctx, WEST, NOOK_EYE, { plaque: PLAQUE })
 
-      expect(withPlaque.calls).toEqual([...plain.calls, ...toCalls(plaque)])
-    })
-
-    it('draws the same as without one with the plaque out of view', () => {
-      const plain = createFakeContext()
-      const withPlaque = createFakeContext()
-
-      drawScene(plain.ctx, EAST, NOOK_EYE)
-      drawScene(withPlaque.ctx, EAST, NOOK_EYE, { plaque: PLAQUE })
-
-      expect(withPlaque.calls).toEqual(plain.calls)
+      expect(withPlaque.fills).toEqual([...plain.fills, ...toFills(plaque)])
     })
   })
 
-  it('never fills outside the canvas along the path to the nook', () => {
-    for (const x of [0, 0.25, 0.5, 0.75, 1].map((t) => t * NOOK_EYE.x)) {
-      for (const yaw of [0, 0.6, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
-        const { ctx, calls } = createFakeContext()
-        drawScene(ctx, yaw, { x, z: 0 })
-        for (const { args } of calls.slice(1)) {
-          expect(args[0]).toBeGreaterThanOrEqual(0)
-          expect(args[0]).toBeLessThan(WIDTH)
-          expect(args[1]).toBeGreaterThanOrEqual(0)
-          expect(args[1]).toBeLessThan(HEIGHT)
-        }
-      }
-    }
+  it.each<[string, MirrorExtras]>([
+    ['a ripple', { ripple: { origin: { s: 0, t: 0 }, elapsedMs: 900 } }],
+    ['a preview', { preview: new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(3) }],
+    [
+      'a shimmer and a tugged pull',
+      {
+        preview: new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(3),
+        shimmer: { from: new Uint8Array(PREVIEW_WIDTH * PREVIEW_HEIGHT).fill(1), progress: 0.5 },
+        pullDrop: 0.1,
+      },
+    ],
+    ['a plaque', { plaque: { logo: Array.from({ length: 16 }, () => '#'.repeat(16)) } }],
+  ])('draws the same with %s as without, with the mirror out of view', (_, extras) => {
+    const plain = createFakeContext()
+    const withExtras = createFakeContext()
+
+    drawScene(plain.ctx, EAST, NOOK_EYE)
+    drawScene(withExtras.ctx, EAST, NOOK_EYE, extras)
+
+    expect(withExtras.fills).toEqual(plain.fills)
   })
 
-  it('never fills outside the canvas while panning', () => {
-    for (const yaw of [-1.2, -0.8, -0.4, 0.4, 0.8, 1.2]) {
-      const { ctx, calls } = createFakeContext()
-      drawScene(ctx, yaw)
-      for (const { args } of calls.slice(1)) {
+  it('never fills outside the canvas while panning or along the path to the nook', () => {
+    const views = [
+      ...[-1.2, -0.8, -0.4, 0.4, 0.8, 1.2].map((yaw) => ({ yaw, eye: ORIGIN })),
+      ...[0, 0.25, 0.5, 0.75, 1].flatMap((t) =>
+        [0, 0.6, WEST, Math.PI, EAST].map((yaw) => ({ yaw, eye: { x: t * NOOK_EYE.x, z: 0 } })),
+      ),
+    ]
+    for (const { yaw, eye } of views) {
+      const { ctx, fills } = createFakeContext()
+      drawScene(ctx, yaw, eye)
+      for (const { args } of fills.slice(1)) {
         expect(args[0]).toBeGreaterThanOrEqual(0)
-        expect(args[0]).toBeLessThan(320)
+        expect(args[0]).toBeLessThan(WIDTH)
+        expect(args[1]).toBeGreaterThanOrEqual(0)
+        expect(args[1]).toBeLessThan(HEIGHT)
       }
     }
   })
 })
-
-function toCalls(pixels: Pixel[]): Call[] {
-  return pixels.map(({ x, y, colour }) => ({ args: [x, y, 1, 1], fillStyle: colour }))
-}
 
 describe('signPlacement', () => {
   it('puts the anchor at its projected position at full size from the start facing north', () => {
@@ -548,12 +468,13 @@ describe('signPlacement', () => {
     expect(large.scale).toBeCloseTo(small.scale)
   })
 
-  it('is null facing south, with the sign behind the camera', () => {
-    expect(signPlacement(Math.PI, WIDTH, HEIGHT)).toBeNull()
-  })
-
-  it.each([Math.PI / 2, -Math.PI / 2])('is null at yaw %f, with the sign level with the camera', (yaw) => {
-    expect(signPlacement(yaw, WIDTH, HEIGHT)).toBeNull()
+  it.each([
+    ['facing south, with the sign behind the camera', Math.PI, ORIGIN],
+    ['facing west, with the sign level with the camera', Math.PI / 2, ORIGIN],
+    ['facing east, with the sign level with the camera', -Math.PI / 2, ORIGIN],
+    ['from the nook facing west, with the sign behind the camera', Math.PI / 2, NOOK_EYE],
+  ])('is null %s', (_, yaw, eye) => {
+    expect(signPlacement(yaw, WIDTH, HEIGHT, eye)).toBeNull()
   })
 
   it('doubles the scale from half the distance', () => {
@@ -579,10 +500,6 @@ describe('signPlacement', () => {
     expect(placement).not.toBeNull()
     expect(placement!.anchor.x).toBeLessThan(WIDTH / 2)
     expect(placement!.anchor.x).toBeGreaterThan(0)
-  })
-
-  it('is null from the nook facing west, with the sign behind the camera', () => {
-    expect(signPlacement(Math.PI / 2, WIDTH, HEIGHT, NOOK_EYE)).toBeNull()
   })
 
   it('is null when a wall hides the sign, even though it is in front of the camera', () => {

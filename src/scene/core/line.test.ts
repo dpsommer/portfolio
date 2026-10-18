@@ -7,7 +7,7 @@ type Point = { x: number; y: number }
 const key = ({ x, y }: Point) => `${x},${y}`
 const sortedKeys = (points: Point[]) => points.map(key).sort()
 
-// Lengths of the runs of consecutive indices in `kept` and of the gaps between them.
+// Lengths of the runs of consecutive values in `indices` and of the gaps between them.
 function runsAndGaps(indices: number[]) {
   const runs: number[] = []
   const gaps: number[] = []
@@ -37,16 +37,12 @@ describe('linePoints', () => {
     expect(linePoints(4, 4, 4, 4)).toEqual([{ x: 4, y: 4 }])
   })
 
-  it('draws a horizontal line one pixel per column', () => {
-    expect(linePoints(0, 0, 5, 0)).toEqual([0, 1, 2, 3, 4, 5].map((x) => ({ x, y: 0 })))
-  })
-
-  it('draws a vertical line one pixel per row', () => {
-    expect(linePoints(0, 0, 0, 4)).toEqual([0, 1, 2, 3, 4].map((y) => ({ x: 0, y })))
-  })
-
-  it('draws a 45-degree diagonal one pixel per step', () => {
-    expect(linePoints(0, 0, 3, 3)).toEqual([0, 1, 2, 3].map((n) => ({ x: n, y: n })))
+  it.each([
+    ['a horizontal line one pixel per column', 5, 0, [0, 1, 2, 3, 4, 5].map((x) => ({ x, y: 0 }))],
+    ['a vertical line one pixel per row', 0, 4, [0, 1, 2, 3, 4].map((y) => ({ x: 0, y }))],
+    ['a 45-degree diagonal one pixel per step', 3, 3, [0, 1, 2, 3].map((n) => ({ x: n, y: n }))],
+  ])('draws %s', (_, x1, y1, expected) => {
+    expect(linePoints(0, 0, x1, y1)).toEqual(expected)
   })
 
   it('has one point per step along the major axis', () => {

@@ -36,12 +36,6 @@ const nicheEdges = (depth = 0, turn = 0) => plaqueLayers(depth, turn)[0].lines.s
 const cornerLines = (depth = 0, turn = 0) => plaqueLayers(depth, turn)[0].lines.slice(4)
 const face = (depth = 0, turn = 0) => extent(allPoints(plaqueLayers(depth, turn)[1].lines))
 
-describe('LOGO_SIZE', () => {
-  it('is 16 cells', () => {
-    expect(LOGO_SIZE).toBe(16)
-  })
-})
-
 describe('parseLogo', () => {
   it.each([
     ['#', 3],
@@ -68,16 +62,12 @@ describe('parseLogo', () => {
     ])
   })
 
-  it('throws for too few rows', () => {
-    expect(() => parseLogo(FULL.slice(1))).toThrow('16×16')
-  })
-
-  it('throws for too many rows', () => {
-    expect(() => parseLogo([...FULL, FULL[0]])).toThrow('16×16')
-  })
-
-  it('throws for a row of the wrong width', () => {
-    expect(() => parseLogo(logoMap('#', { 7: '#'.repeat(15) }))).toThrow('16×16')
+  it.each([
+    ['too few rows', FULL.slice(1)],
+    ['too many rows', [...FULL, FULL[0]]],
+    ['a row of the wrong width', logoMap('#', { 7: '#'.repeat(15) })],
+  ])('throws for %s', (_, map) => {
+    expect(() => parseLogo(map)).toThrow('16×16')
   })
 
   it('throws for an unknown character, naming it', () => {

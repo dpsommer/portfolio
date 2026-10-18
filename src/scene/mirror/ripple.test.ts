@@ -58,21 +58,13 @@ describe('rippleRings', () => {
   })
 
   it.each([
-    ['the centre', CENTRE],
-    ['near an edge', NEAR_EDGE],
-  ])('has nothing alive at the duration for a click at %s', (_, origin) => {
-    expect(rippleRings(origin, rippleDuration(origin))).toEqual([])
-  })
-
-  it.each([
-    ['the centre', CENTRE],
-    ['near an edge', NEAR_EDGE],
-  ])('has nothing alive 1 ms after the duration for a click at %s', (_, origin) => {
-    expect(rippleRings(origin, rippleDuration(origin) + 1)).toEqual([])
-  })
-
-  it('has nothing alive after the duration', () => {
-    expect(rippleRings(CENTRE, rippleDuration(CENTRE) + 500)).toEqual([])
+    ['the centre', CENTRE, 0],
+    ['near an edge', NEAR_EDGE, 0],
+    ['the centre', CENTRE, 1],
+    ['near an edge', NEAR_EDGE, 1],
+    ['the centre', CENTRE, 500],
+  ])('has nothing alive for a click at %s, %i ms after the duration', (_, origin, after) => {
+    expect(rippleRings(origin, rippleDuration(origin) + after)).toEqual([])
   })
 
   it('still has a ring alive just before the duration', () => {

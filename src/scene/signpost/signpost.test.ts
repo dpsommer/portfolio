@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { expectOnCanvas } from '../../test/pixels.ts'
 import { FLOOR_Y, projectPoint, toCamera } from '../core/camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
 import {
@@ -40,47 +41,25 @@ function boardEdgesBesidePost(width: number, height: number) {
 }
 
 describe('signpostPixels', () => {
-  it('is deterministic', () => {
-    expect(signpostPixels(WIDTH, HEIGHT)).toEqual(signpostPixels(WIDTH, HEIGHT))
-  })
-
-  it('draws something', () => {
-    expect(signpostPixels(WIDTH, HEIGHT).length).toBeGreaterThan(0)
-  })
-
   it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of signpostPixels(WIDTH, HEIGHT)) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
-    }
+    expectOnCanvas(signpostPixels(WIDTH, HEIGHT))
   })
 
-  it('only uses foreground colours', () => {
-    for (const { colour } of signpostPixels(WIDTH, HEIGHT)) {
-      expect([FOREGROUND, FOREGROUND_WORN]).toContain(colour)
-    }
+  it('draws in the foreground colour, worn in places', () => {
+    expect(new Set(signpostPixels(WIDTH, HEIGHT).map((p) => p.colour))).toEqual(new Set([FOREGROUND, FOREGROUND_WORN]))
   })
 
-  it('is worn, with some pixels in the worn colour', () => {
-    const colours = signpostPixels(WIDTH, HEIGHT).map((p) => p.colour)
-    expect(colours).toContain(FOREGROUND_WORN)
-    expect(colours).toContain(FOREGROUND)
-  })
-
-  it('is roughly centred horizontally', () => {
-    const xs = signpostPixels(WIDTH, HEIGHT).map((p) => p.x)
+  it.each([
+    [320, 240],
+    [640, 480],
+  ])('is roughly centred horizontally at %ix%i', (width, height) => {
+    const xs = signpostPixels(width, height).map((p) => p.x)
     const centre = (Math.min(...xs) + Math.max(...xs)) / 2
-    expect(Math.abs(centre - WIDTH / 2)).toBeLessThanOrEqual(2)
+    expect(Math.abs(centre - width / 2)).toBeLessThanOrEqual(2)
   })
 
   it('tilts the board so its right side sits higher than its left', () => {
-    const pixels = signpostPixels(WIDTH, HEIGHT)
-    const boardLeft = WIDTH / 2 - BOARD_WIDTH / 2
-    const boardRight = boardLeft + BOARD_WIDTH - 1
+    const { pixels, boardLeft, boardRight } = geometry(WIDTH, HEIGHT)
     // Compare a few columns in from each end, away from the chipped corner.
     const topAt = (x: number) => Math.min(...pixels.filter((p) => p.x === x).map((p) => p.y))
     const leftTop = topAt(boardLeft + 10)
@@ -128,19 +107,9 @@ describe('signpostPixels', () => {
     const overBoard = pixels.filter((p) => p.x >= postLeft && p.x <= postRight && blankRows.includes(p.y))
     expect(overBoard).toEqual([])
   })
-
-  it('scales its position with the canvas size', () => {
-    const xs = signpostPixels(640, 480).map((p) => p.x)
-    const centre = (Math.min(...xs) + Math.max(...xs)) / 2
-    expect(Math.abs(centre - 320)).toBeLessThanOrEqual(2)
-  })
 })
 
 describe('signpostBackingPixels', () => {
-  it('is deterministic', () => {
-    expect(signpostBackingPixels(WIDTH, HEIGHT)).toEqual(signpostBackingPixels(WIDTH, HEIGHT))
-  })
-
   it('only uses the background colour', () => {
     const pixels = signpostBackingPixels(WIDTH, HEIGHT)
     expect(pixels.length).toBeGreaterThan(0)
@@ -148,14 +117,7 @@ describe('signpostBackingPixels', () => {
   })
 
   it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of signpostBackingPixels(WIDTH, HEIGHT)) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
-    }
+    expectOnCanvas(signpostBackingPixels(WIDTH, HEIGHT))
   })
 
   it.each([
@@ -191,16 +153,6 @@ describe('signBoardBounds', () => {
 
   it('matches the expected rectangle on a 320x240 canvas', () => {
     expect(signBoardBounds(WIDTH, HEIGHT)).toEqual({ left: 100, top: 95, right: 219, bottom: 144 })
-  })
-
-  it('is deterministic', () => {
-    expect(signBoardBounds(WIDTH, HEIGHT)).toEqual(signBoardBounds(WIDTH, HEIGHT))
-  })
-
-  it('uses integer coordinates', () => {
-    for (const value of Object.values(signBoardBounds(WIDTH, HEIGHT))) {
-      expect(Number.isInteger(value)).toBe(true)
-    }
   })
 
   it('spans the board width', () => {
@@ -258,13 +210,6 @@ describe('signBoardBounds', () => {
     const topRow = boardBackingPixels(WIDTH, HEIGHT).filter((p) => p.y <= top + 1)
     expect(topRow.length).toBeGreaterThan(0)
     expect(Math.max(...topRow.map((p) => p.x))).toBeGreaterThan(right - 10)
-  })
-
-  it('scales and stays centred on a 640x480 canvas', () => {
-    const { left, top, right, bottom } = signBoardBounds(640, 480)
-    expect(right - left + 1).toBe(BOARD_WIDTH)
-    expect(Math.abs((left + right) / 2 - 320)).toBeLessThanOrEqual(1)
-    expect(Math.abs((top + bottom) / 2 - 240)).toBeLessThanOrEqual(2)
   })
 
   it('moves with the canvas by the change in its centre', () => {

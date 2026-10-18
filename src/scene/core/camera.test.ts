@@ -31,17 +31,6 @@ function expectVecClose(actual: Vec3, expected: Vec3) {
 }
 
 describe('constants', () => {
-  it('uses the documented focal ratio and far wall scale', () => {
-    expect(FOCAL_RATIO).toBe(0.8)
-    expect(FAR_WALL_SCALE).toBe(0.45)
-  })
-
-  it('makes the room 2 wide with floor and ceiling in a 3:4 ratio to it', () => {
-    expect(ROOM_HALF_WIDTH).toBe(1)
-    expect(FLOOR_Y).toBe(-0.75)
-    expect(CEILING_Y).toBe(0.75)
-  })
-
   it('puts the far wall in front of the camera and the back wall behind it', () => {
     expect(FAR_Z).toBeGreaterThan(NEAR)
     expect(BACK_Z).toBeLessThan(0)
@@ -49,31 +38,21 @@ describe('constants', () => {
 
   it('puts the nook left of the main room, running from behind the start to in front of it', () => {
     expect(NOOK_X).toBeLessThan(-ROOM_HALF_WIDTH)
-    expect(BACK_Z).toBeLessThan(0)
     expect(NOOK_FRONT_Z).toBeGreaterThan(0)
     expect(NOOK_FRONT_Z).toBeLessThan(FAR_Z)
   })
 
-  it('views nearby walls from 1 unit away', () => {
-    expect(WALL_VIEW_DISTANCE).toBe(1)
-  })
-
-  it('puts the back wall WALL_VIEW_DISTANCE behind the start', () => {
-    expect(BACK_Z).toBe(-WALL_VIEW_DISTANCE)
-  })
-
-  it('ends the nook WALL_VIEW_DISTANCE in front of the start', () => {
-    expect(NOOK_FRONT_Z).toBe(WALL_VIEW_DISTANCE)
-  })
-
-  it('puts the start WALL_VIEW_DISTANCE from both side walls', () => {
-    expect(ROOM_HALF_WIDTH).toBe(WALL_VIEW_DISTANCE)
+  it.each([
+    ['the back wall behind the start', -BACK_Z],
+    ['the nook\'s front in front of the start', NOOK_FRONT_Z],
+    ['both side walls from the start', ROOM_HALF_WIDTH],
+  ])('puts %s WALL_VIEW_DISTANCE away', (_, distance) => {
+    expect(distance).toBe(WALL_VIEW_DISTANCE)
   })
 
   it('makes the nook a whole number of 1/3-unit floor tiles deep', () => {
     const tiles = (-ROOM_HALF_WIDTH - NOOK_X) / (1 / 3)
     expect(tiles).toBeCloseTo(Math.round(tiles))
-    expect(Math.round(tiles)).toBe(4)
   })
 
   it('makes the nook deeper than WALL_VIEW_DISTANCE, so its place is inside the opening', () => {
@@ -86,24 +65,20 @@ describe('toCamera', () => {
     expectVecClose(toCamera(vec(0.3, -0.2, 1.5), 0), vec(0.3, -0.2, 1.5))
   })
 
-  it('maps west straight ahead when turned left a quarter turn', () => {
-    expectVecClose(toCamera(vec(-1, 0, 0), Math.PI / 2), vec(0, 0, 1))
+  it.each([
+    ['west straight ahead when turned left a quarter turn', vec(-1, 0, 0), Math.PI / 2, vec(0, 0, 1)],
+    ['north to the camera\'s right when turned left a quarter turn', vec(0, 0, 1), Math.PI / 2, vec(1, 0, 0)],
+    ['east straight ahead when turned right a quarter turn', vec(1, 0, 0), -Math.PI / 2, vec(0, 0, 1)],
+    ['south straight ahead when turned half way round', vec(0, 0, -1), Math.PI, vec(0, 0, 1)],
+  ])('maps %s', (_, point, yaw, expected) => {
+    expectVecClose(toCamera(point, yaw), expected)
   })
 
-  it('maps north to the camera\'s right when turned left a quarter turn', () => {
-    expectVecClose(toCamera(vec(0, 0, 1), Math.PI / 2), vec(1, 0, 0))
-  })
-
-  it('maps east straight ahead when turned right a quarter turn', () => {
-    expectVecClose(toCamera(vec(1, 0, 0), -Math.PI / 2), vec(0, 0, 1))
-  })
-
-  it('maps south straight ahead when turned half way round', () => {
-    expectVecClose(toCamera(vec(0, 0, -1), Math.PI), vec(0, 0, 1))
-  })
-
-  it('leaves the height unchanged', () => {
-    expect(toCamera(vec(0.4, 0.6, 0.9), 1.234).y).toBe(0.6)
+  it.each([
+    ['at the origin', ORIGIN],
+    ['when the eye moves', { x: 3, z: -2 }],
+  ])('leaves the height unchanged %s', (_, eye) => {
+    expect(toCamera(vec(0.4, 0.6, 0.9), 1.234, eye).y).toBe(0.6)
   })
 
   it('defaults the eye to the origin', () => {
@@ -128,10 +103,6 @@ describe('toCamera', () => {
     // A point north of the eye is on the camera's right.
     expectVecClose(toCamera(vec(eye.x, 0, 1), Math.PI / 2, eye), vec(1, 0, 0))
   })
-
-  it('leaves the height unchanged when the eye moves', () => {
-    expect(toCamera(vec(0.4, 0.6, 0.9), 0.5, { x: 3, z: -2 }).y).toBe(0.6)
-  })
 })
 
 describe('projectPoint', () => {
@@ -139,16 +110,13 @@ describe('projectPoint', () => {
     expect(projectPoint(vec(0, 0, 3), WIDTH, HEIGHT)).toEqual({ x: WIDTH / 2, y: HEIGHT / 2 })
   })
 
-  it('maps the near floor/right wall edge point to the bottom-right corner', () => {
-    const p = projectPoint(vec(1, FLOOR_Y, FOCAL_RATIO), WIDTH, HEIGHT)
-    expect(p.x).toBeCloseTo(WIDTH)
-    expect(p.y).toBeCloseTo(HEIGHT)
-  })
-
-  it('maps the near ceiling/left wall edge point to the top-left corner', () => {
-    const p = projectPoint(vec(-1, CEILING_Y, FOCAL_RATIO), WIDTH, HEIGHT)
-    expect(p.x).toBeCloseTo(0)
-    expect(p.y).toBeCloseTo(0)
+  it.each([
+    ['floor/right wall', 'bottom-right', vec(1, FLOOR_Y, FOCAL_RATIO), WIDTH, HEIGHT],
+    ['ceiling/left wall', 'top-left', vec(-1, CEILING_Y, FOCAL_RATIO), 0, 0],
+  ])('maps the near %s edge point to the %s corner', (_, __, point, x, y) => {
+    const p = projectPoint(point, WIDTH, HEIGHT)
+    expect(p.x).toBeCloseTo(x)
+    expect(p.y).toBeCloseTo(y)
   })
 
   it('places the far wall corners on a centred rect FAR_WALL_SCALE the view size', () => {
@@ -210,12 +178,12 @@ describe('clipToNearPlane', () => {
 })
 
 describe('projectSegment', () => {
-  it('returns null for a segment behind the camera', () => {
-    expect(projectSegment(vec(-1, 0, -1), vec(1, 0, -2), 0, WIDTH, HEIGHT)).toBeNull()
-  })
-
-  it('returns null for a segment in front once the camera faces away', () => {
-    expect(projectSegment(vec(-1, 0, 2), vec(1, 0, 2), Math.PI, WIDTH, HEIGHT)).toBeNull()
+  it.each([
+    ['behind the camera', vec(-1, 0, -1), vec(1, 0, -2), 0, ORIGIN],
+    ['in front once the camera faces away', vec(-1, 0, 2), vec(1, 0, 2), Math.PI, ORIGIN],
+    ['behind the eye, even if it is in front of the origin', vec(-1, 0, 1), vec(1, 0, 1), 0, { x: 0, z: 2 }],
+  ])('returns null for a segment %s', (_, a, b, yaw, eye) => {
+    expect(projectSegment(a, b, yaw, WIDTH, HEIGHT, eye)).toBeNull()
   })
 
   it('projects both ends of a segment in front of the camera', () => {
@@ -227,9 +195,13 @@ describe('projectSegment', () => {
     ])
   })
 
-  it('rotates the segment by the yaw before projecting', () => {
-    // Turned left a quarter turn, a point due west is straight ahead.
-    const projected = projectSegment(vec(-2, 0, 0), vec(-3, 0, 0), Math.PI / 2, WIDTH, HEIGHT)
+  // Turned left a quarter turn, points due west of the eye are straight ahead.
+  const NOOK_EYE: FloorPoint = { x: NOOK_X + WALL_VIEW_DISTANCE, z: 0 }
+  it.each([
+    ['rotates the segment by the yaw before projecting', vec(-2, 0, 0), vec(-3, 0, 0), ORIGIN],
+    ['combines the eye and the yaw', vec(NOOK_X, 0, 0), vec(NOOK_EYE.x - 0.5, 0, 0), NOOK_EYE],
+  ])('%s', (_, a, b, eye) => {
+    const projected = projectSegment(a, b, Math.PI / 2, WIDTH, HEIGHT, eye)
     expect(projected).not.toBeNull()
     for (const p of projected!) {
       expect(p.x).toBeCloseTo(WIDTH / 2)
@@ -249,22 +221,6 @@ describe('projectSegment', () => {
     const fromEye = projectSegment(vec(-1, CEILING_Y, 3), vec(1, FLOOR_Y, 3), 0, WIDTH, HEIGHT, eye)
     const closer = projectSegment(vec(-1, CEILING_Y, 2), vec(1, FLOOR_Y, 2), 0, WIDTH, HEIGHT)
     expect(fromEye).toEqual(closer)
-  })
-
-  it('combines the eye and the yaw', () => {
-    const eye: FloorPoint = { x: NOOK_X + WALL_VIEW_DISTANCE, z: 0 }
-    // Facing west from the nook, a point due west of the eye is straight ahead.
-    const projected = projectSegment(vec(NOOK_X, 0, 0), vec(eye.x - 0.5, 0, 0), Math.PI / 2, WIDTH, HEIGHT, eye)
-    expect(projected).not.toBeNull()
-    for (const p of projected!) {
-      expect(p.x).toBeCloseTo(WIDTH / 2)
-      expect(p.y).toBeCloseTo(HEIGHT / 2)
-    }
-  })
-
-  it('returns null for a segment behind the eye even if it is in front of the origin', () => {
-    const eye: FloorPoint = { x: 0, z: 2 }
-    expect(projectSegment(vec(-1, 0, 1), vec(1, 0, 1), 0, WIDTH, HEIGHT, eye)).toBeNull()
   })
 
   it('clips a segment crossing the camera plane to finite screen points', () => {

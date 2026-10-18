@@ -7,6 +7,9 @@ import { afterEach, vi } from 'vitest'
 vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 
 // Vitest globals are disabled, so Testing Library can't register its own cleanup.
+// Tests that hand out a context put back the null one afterwards (mockRestore
+// would remove the stub altogether).
 afterEach(() => {
   cleanup()
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 })
