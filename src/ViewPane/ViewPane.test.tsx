@@ -11,7 +11,8 @@ import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/
 import { rippleDuration } from '../scene/mirror/ripple.ts'
 import { PLACES } from '../scene/navigation/places.ts'
 import { NAV_BUTTON_BOUNDS } from '../scene/navigation/navButtons.ts'
-import type { NavButton } from '../scene/navigation/navButtons.ts'
+import { navButtonPixels } from '../scene/navigation/navButtons.ts'
+import type { KeyPress, NavButton } from '../scene/navigation/navButtons.ts'
 import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
@@ -319,17 +320,24 @@ describe('ViewPane', () => {
     const START_WEST: Enabled = { forward: true, back: false, left: true, right: true }
     const START_EAST: Enabled = { forward: false, back: true, left: true, right: true }
     const NOOK_WEST: Enabled = { forward: false, back: true, left: true, right: true }
+    // Mid-move the pressed key looks usable while it's held, even where it
+    // won't be once the move ends.
+    const NOOK_WEST_FORWARD_HELD: Enabled = { ...NOOK_WEST, forward: true }
 
     // The fills drawNavigationPanel makes on a canvas the lower panel's size.
-    function navPanelFills(yaw: number, enabled: Enabled): Fill[] {
+    function navPanelFills(yaw: number, enabled: Enabled, press?: KeyPress): Fill[] {
       const recorded: Fill[] = []
       const other = { ...createFakeContext(), canvas: { width: LOWER_PANEL_WIDTH, height: LOWER_PANEL_HEIGHT } }
       other.fillRect.mockImplementation((...args: number[]) => {
         recorded.push({ args, fillStyle: other.fillStyle })
       })
-      drawNavigationPanel(other as unknown as CanvasRenderingContext2D, yaw, enabled)
+      drawNavigationPanel(other as unknown as CanvasRenderingContext2D, yaw, enabled, press)
       return recorded
     }
+
+    // The fills for the panel's buttons alone, drawn last on each panel draw.
+    const buttonFills = (enabled: Enabled, press?: KeyPress): Fill[] =>
+      navButtonPixels(enabled, press).map(({ x, y, colour }) => ({ args: [x, y, 1, 1], fillStyle: colour }))
 
     // The fills since the panel's last background fill: its most recent drawing.
     function lastPanelDraw(fills: Fill[]): Fill[] {
@@ -467,7 +475,9 @@ describe('ViewPane', () => {
 
           frames.flush(START + TURN_DURATION_MS / 2)
 
-          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 4, START_WEST))
+          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(
+            navPanelFills(Math.PI / 4, START_WEST, { button: 'left', depth: 1 }),
+          )
         })
 
         it('draws the panel once per frame of a turn', () => {
@@ -503,8 +513,224 @@ describe('ViewPane', () => {
           frames.flush(START + MOVE_DURATION_MS / 2)
 
           expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before + 1)
-          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
+          expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(
+            navPanelFills(Math.PI / 2, NOOK_WEST_FORWARD_HELD, { button: 'forward', depth: 1 }),
+          )
         })
+      })
+    })
+
+    describe('key presses', () => {
+      const START = 1000
+      let frames: ReturnType<typeof stubAnimationFrames>
+      let now: MockInstance<() => number>
+      let fillsOn: ReturnType<typeof contextPerCanvas>
+
+      beforeEach(() => {
+        frames = stubAnimationFrames()
+        now = vi.spyOn(performance, 'now').mockReturnValue(START)
+        fillsOn = contextPerCanvas()
+      })
+
+      afterEach(() => {
+        now.mockRestore()
+        vi.unstubAllGlobals()
+      })
+
+      // The buttons as last drawn on the panel, which come last in its drawing.
+      function lastButtons(container: HTMLElement, expected: Fill[]): Fill[] {
+        return lastPanelDraw(fillsOn(lowerPanel(container))).slice(-expected.length)
+      }
+
+      // Expects the panel's latest drawing to show `enabled` with `press`.
+      function expectButtons(container: HTMLElement, enabled: Enabled, press?: KeyPress) {
+        const expected = buttonFills(enabled, press)
+        expect(lastButtons(container, expected)).toEqual(expected)
+      }
+
+      // Turns west from the start and steps into the nook, letting each finish.
+      function intoNook(canvas: HTMLElement) {
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+        frames.flush(START + MOVE_DURATION_MS)
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+      }
+
+      it.each([
+        ['left', LEFT_X, START_WEST],
+        ['right', RIGHT_X, START_EAST],
+      ] as const)('presses the %s key for a turn from the room\'s edge', (button, x, enabled) => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, x)
+
+        frames.flush(START + TURN_DURATION_MS / 2)
+
+        expectButtons(container, enabled, { button, depth: 1 })
+      })
+
+      it('presses the forward key for a step from the room\'s centre', () => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+
+        frames.flush(START + MOVE_DURATION_MS / 2)
+
+        expectButtons(container, NOOK_WEST_FORWARD_HELD, { button: 'forward', depth: 1 })
+      })
+
+      it.each([
+        ['left', START_WEST],
+        ['right', START_EAST],
+      ] as const)('presses the %s key for a turn from the panel', (button, enabled) => {
+        const { container, panel } = renderWithPanel()
+        clickButton(panel, button)
+
+        frames.flush(START + TURN_DURATION_MS / 2)
+
+        expectButtons(container, enabled, { button, depth: 1 })
+      })
+
+      it('presses the forward key for a step forward from the panel', () => {
+        const { container, panel } = renderWithPanel()
+        clickButton(panel, 'left')
+        frames.flush(START + TURN_DURATION_MS)
+        clickButton(panel, 'forward')
+
+        frames.flush(START + MOVE_DURATION_MS / 2)
+
+        expectButtons(container, NOOK_WEST_FORWARD_HELD, { button: 'forward', depth: 1 })
+      })
+
+      it('presses the back key for a step back from the panel', () => {
+        const { canvas, container, panel } = renderWithPanel()
+        clickButton(panel, 'right')
+        frames.flush(START + TURN_DURATION_MS)
+        clickButton(panel, 'back')
+
+        frames.flush(START + MOVE_DURATION_MS / 2)
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        // In the nook facing east only forward leads anywhere, but the back key
+        // looks usable while it's held.
+        expectButtons(container, { forward: true, back: true, left: true, right: true }, { button: 'back', depth: 1 })
+      })
+
+      // The key goes down over the first 60 ms and comes up over the last 60 ms.
+      it.each([
+        [0, 0],
+        [20, 1 / 3],
+        [40, 2 / 3],
+        [60, 1],
+        [TURN_DURATION_MS / 2, 1],
+        [TURN_DURATION_MS - 60, 1],
+        [TURN_DURATION_MS - 40, 2 / 3],
+        [TURN_DURATION_MS - 20, 1 / 3],
+      ])('has the key %s ms into a turn at depth %s', (elapsed, depth) => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+
+        frames.flush(START + elapsed)
+
+        expectButtons(container, START_WEST, { button: 'left', depth })
+      })
+
+      it.each([
+        [20, 1 / 3],
+        [MOVE_DURATION_MS / 2, 1],
+        [MOVE_DURATION_MS - 20, 1 / 3],
+      ])('has the key %s ms into a move at depth %s', (elapsed, depth) => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+
+        frames.flush(START + elapsed)
+
+        expectButtons(container, NOOK_WEST_FORWARD_HELD, { button: 'forward', depth })
+      })
+
+      it('presses the key further down part way in than at the start of a turn', () => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + 20)
+        const shallow = buttonFills(START_WEST, { button: 'left', depth: 1 / 3 })
+        expect(lastButtons(container, shallow)).toEqual(shallow)
+
+        frames.flush(START + 40)
+
+        expect(lastButtons(container, shallow)).not.toEqual(shallow)
+      })
+
+      it('releases the key on the last frame of a turn', () => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS / 2)
+
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(frames.pending()).toBe(0)
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, START_WEST))
+      })
+
+      it('releases the key on the last frame of a move', () => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+        clickAt(canvas, CENTRE_X)
+        frames.flush(START + MOVE_DURATION_MS / 2)
+
+        frames.flush(START + MOVE_DURATION_MS)
+
+        expect(frames.pending()).toBe(0)
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
+      })
+
+      it('releases the key when a late frame runs past the end of a turn', () => {
+        const { canvas, container } = renderPane()
+        clickAt(canvas, LEFT_X)
+
+        frames.flush(START + TURN_DURATION_MS + 100)
+
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, START_WEST))
+      })
+
+      it('presses no key with reduced motion', () => {
+        useReducedMotion()
+        const { container, panel } = renderWithPanel()
+
+        clickButton(panel, 'left')
+        clickButton(panel, 'forward')
+
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
+      })
+
+      it('does not draw the panel during a mirror ripple', () => {
+        const { canvas, container } = renderPane()
+        intoNook(canvas)
+        const before = panelDraws(fillsOn(lowerPanel(container)))
+
+        clickAt(canvas, MIRROR_X, MIRROR_Y)
+        frames.flush(START + 50)
+        frames.flush(START + 100)
+
+        expect(frames.pending()).toBe(1)
+        expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before)
+      })
+
+      it('does not draw the panel during a curtain pull', () => {
+        const { canvas, container } = renderPane()
+        intoNook(canvas)
+        const before = panelDraws(fillsOn(lowerPanel(container)))
+
+        clickAt(canvas, PULL_X, HANDLE_Y)
+        frames.flush(START + 50)
+        frames.flush(START + 100)
+
+        expect(frames.pending()).toBe(1)
+        expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before)
       })
     })
 

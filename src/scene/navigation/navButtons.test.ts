@@ -4,8 +4,8 @@ import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
 import type { Bounds } from '../signpost/signpost.ts'
 import { COMPASS_CENTRE, COMPASS_RADIUS } from './compass.ts'
-import { ARROW_MAP, BUTTON_SIZE, NAV_BUTTON_BOUNDS, navButtonAt, navButtonPixels } from './navButtons.ts'
-import type { NavButton } from './navButtons.ts'
+import { ARROW_MAP, BUTTON_SIZE, NAV_BUTTON_BOUNDS, PRESS_DEPTH, navButtonAt, navButtonPixels } from './navButtons.ts'
+import type { KeyPress, NavButton } from './navButtons.ts'
 
 // The lower panel's drawing size, which the buttons must fit in.
 const PANEL_WIDTH = 320
@@ -32,20 +32,22 @@ const PALETTE = [FOREGROUND, FOREGROUND_WORN, FOREGROUND_DIM]
 const FACE_INSET = { side: 3, top: 2, bottom: 6 }
 
 const buttonPixels = (pixels: Pixel[], button: NavButton) => pixels.filter(inBounds(NAV_BUTTON_BOUNDS[button]))
-const faceOf = (button: NavButton): Bounds => {
+// The face of `button`'s keycap, sunk `sink` pixels down when pressed.
+const faceOf = (button: NavButton, sink = 0): Bounds => {
   const base = NAV_BUTTON_BOUNDS[button]
   return {
     left: base.left + FACE_INSET.side,
-    top: base.top + FACE_INSET.top,
+    top: base.top + FACE_INSET.top + sink,
     right: base.right - FACE_INSET.side,
-    bottom: base.bottom - FACE_INSET.bottom,
+    bottom: base.bottom - FACE_INSET.bottom + sink,
   }
 }
 // Inside the face's outline there's only the arrow and its shadow.
-const insideFace = (pixels: Pixel[], button: NavButton) => pixels.filter(inBounds(shrink(faceOf(button), 1)))
+const insideFace = (pixels: Pixel[], button: NavButton, sink = 0) =>
+  pixels.filter(inBounds(shrink(faceOf(button, sink), 1)))
 // The arrow: what's inside the face and not the dim shadow.
-const arrowPixels = (pixels: Pixel[], button: NavButton) =>
-  insideFace(pixels, button).filter((p) => p.colour !== FOREGROUND_DIM)
+const arrowPixels = (pixels: Pixel[], button: NavButton, sink = 0) =>
+  insideFace(pixels, button, sink).filter((p) => p.colour !== FOREGROUND_DIM)
 
 // Points on a rectangle's outline, without its corners if `cutCorners`.
 function outline({ left, top, right, bottom }: Bounds, cutCorners = false): { x: number; y: number }[] {
@@ -74,10 +76,10 @@ type Part = 'base' | 'face' | 'corners' | 'shade' | 'arrow' | 'shadow'
 // keycap: a base with cut corners, a top face inset from it, lines from the
 // face's corners to the base's (inset by 1), a dotted shade half-way between
 // the face's bottom and the base's, and the arrow centred on the face with a
-// shadow down and to the right.
-function partsOf(button: NavButton): Record<Part, Set<string>> {
+// shadow down and to the right. Pressing sinks the face `sink` pixels.
+function partsOf(button: NavButton, sink = 0): Record<Part, Set<string>> {
   const base = NAV_BUTTON_BOUNDS[button]
-  const face = faceOf(button)
+  const face = faceOf(button, sink)
   const corners = [
     linePoints(face.left, face.top, base.left + 1, base.top + 1),
     linePoints(face.right, face.top, base.right - 1, base.top + 1),
@@ -600,6 +602,156 @@ describe('navButtonPixels', () => {
       for (const other of BUTTONS.filter((b) => b !== button)) {
         expect(buttonPixels(disabled, other)).toEqual(buttonPixels(enabled, other))
       }
+    })
+  })
+
+  describe('a pressed keycap', () => {
+    const press = (button: NavButton, depth = 1): KeyPress => ({ button, depth })
+    // A part's drawn pixels, as keys with colours, relative to `origin`'s top left.
+    const relativeTo = (pixels: Pixel[], origin: Bounds) =>
+      pixels.map((p) => `${p.x - origin.left},${p.y - origin.top}:${p.colour}`).sort()
+    // The face outline's own pixels: drawn there, and not the dim corner lines.
+    const facePixels = (pixels: Pixel[], button: NavButton, sink: number) => {
+      const { face } = partsOf(button, sink)
+      return pixels.filter((p) => face.has(key(p)) && p.colour !== FOREGROUND_DIM)
+    }
+
+    it('sinks a fully pressed key PRESS_DEPTH (3) pixels', () => {
+      expect(PRESS_DEPTH).toBe(3)
+    })
+
+    it.each(BUTTONS)('draws nothing on the pressed %s key but its parts with the face sunk', (button) => {
+      const parts = partsOf(button, PRESS_DEPTH)
+      const allowed = new Set((['base', 'face', 'corners', 'shade', 'arrow'] as const).flatMap((part) => [...parts[part]]))
+
+      for (const p of buttonPixels(navButtonPixels(ALL_ENABLED, press(button)), button)) {
+        expect(allowed.has(key(p))).toBe(true)
+      }
+    })
+
+    it.each(BUTTONS)('moves the pressed %s key\'s face top and bottom down, keeping its sides', (button) => {
+      const face = facePixels(navButtonPixels(ALL_ENABLED, press(button)), button, PRESS_DEPTH)
+      const base = NAV_BUTTON_BOUNDS[button]
+      const xs = face.map((p) => p.x)
+      const ys = face.map((p) => p.y)
+
+      expect(Math.min(...xs) - base.left).toBe(3)
+      expect(base.right - Math.max(...xs)).toBe(3)
+      expect(Math.min(...ys) - base.top).toBe(2 + PRESS_DEPTH)
+      expect(base.bottom - Math.max(...ys)).toBe(6 - PRESS_DEPTH)
+    })
+
+    it.each(BUTTONS)('draws most of the pressed %s key\'s sunk face outline', (button) => {
+      const { face } = partsOf(button, PRESS_DEPTH)
+
+      expect(drawnIn(navButtonPixels(ALL_ENABLED, press(button)), face).length).toBeGreaterThan(0.85 * face.size)
+    })
+
+    it.each(BUTTONS)('leaves the pressed %s key\'s base as it is', (button) => {
+      expect(partPattern(navButtonPixels(ALL_ENABLED, press(button)), button, 'base')).toEqual(
+        partPattern(navButtonPixels(ALL_ENABLED), button, 'base'),
+      )
+    })
+
+    it.each(BUTTONS)('joins the pressed %s key\'s sunk face corners to its base corners', (button) => {
+      const pixels = navButtonPixels(ALL_ENABLED, press(button))
+      const { corners } = partsOf(button, PRESS_DEPTH)
+      const drawn = drawnIn(pixels, corners)
+
+      expect(drawn.length).toBeGreaterThan(0.8 * corners.size)
+      expect(drawn.every((p) => p.colour === FOREGROUND_DIM)).toBe(true)
+    })
+
+    it.each(BUTTONS)('moves the pressed %s key\'s front shade half-way between the sunk face and the base', (button) => {
+      const base = NAV_BUTTON_BOUNDS[button]
+      const face = faceOf(button, PRESS_DEPTH)
+      const shadeY = Math.round((face.bottom + base.bottom) / 2)
+      const below = buttonPixels(navButtonPixels(ALL_ENABLED, press(button)), button).filter(
+        (p) => p.y > face.bottom && p.y < base.bottom && p.x > face.left && p.x < face.right,
+      )
+
+      expect(below.length).toBeGreaterThanOrEqual(0.5 * partsOf(button, PRESS_DEPTH).shade.size)
+      expect(below.every((p) => p.y === shadeY)).toBe(true)
+    })
+
+    it.each(BUTTONS)('moves the pressed %s key\'s arrow down with its face, nearly whole', (button) => {
+      const arrow = arrowPixels(navButtonPixels(ALL_ENABLED, press(button)), button, PRESS_DEPTH)
+      const expected = partsOf(button, PRESS_DEPTH).arrow
+
+      expect(arrow.every((p) => expected.has(key(p)))).toBe(true)
+      expect(arrow.length).toBeGreaterThan(0.95 * ARROW_CELLS)
+    })
+
+    it.each(BUTTONS)('draws no shadow on the pressed %s key', (button) => {
+      const inside = insideFace(navButtonPixels(ALL_ENABLED, press(button)), button, PRESS_DEPTH)
+
+      expect(inside.some((p) => p.colour === FOREGROUND_DIM)).toBe(false)
+    })
+
+    it.each([0.2, 0.5, 1])('draws no shadow while the key is down at depth %s', (depth) => {
+      const sink = Math.round(depth * PRESS_DEPTH)
+      const inside = insideFace(navButtonPixels(ALL_ENABLED, press('left', depth)), 'left', sink)
+
+      expect(sink).toBeGreaterThan(0)
+      expect(inside.some((p) => p.colour === FOREGROUND_DIM)).toBe(false)
+    })
+
+    it.each(BUTTONS)('wears the pressed %s key\'s face as when it\'s up, moved down with it', (button) => {
+      const up = facePixels(navButtonPixels(ALL_ENABLED), button, 0)
+      const down = facePixels(navButtonPixels(ALL_ENABLED, press(button)), button, PRESS_DEPTH)
+
+      expect(relativeTo(down, faceOf(button, PRESS_DEPTH))).toEqual(relativeTo(up, faceOf(button)))
+    })
+
+    it.each(BUTTONS)('wears the pressed %s key\'s arrow as when it\'s up, moved down with it', (button) => {
+      const up = arrowPixels(navButtonPixels(ALL_ENABLED), button)
+      const down = arrowPixels(navButtonPixels(ALL_ENABLED, press(button)), button, PRESS_DEPTH)
+
+      expect(relativeTo(down, faceOf(button, PRESS_DEPTH))).toEqual(relativeTo(up, faceOf(button)))
+    })
+
+    it.each(BUTTONS)('leaves the other keys as they are when %s is pressed', (button) => {
+      const up = navButtonPixels(ALL_ENABLED)
+      const pressed = navButtonPixels(ALL_ENABLED, press(button))
+
+      for (const other of BUTTONS.filter((b) => b !== button)) {
+        expect(buttonPixels(pressed, other)).toEqual(buttonPixels(up, other))
+      }
+    })
+
+    it.each(BUTTONS)('draws the %s key as unpressed at depth 0', (button) => {
+      expect(navButtonPixels(ALL_ENABLED, press(button, 0))).toEqual(navButtonPixels(ALL_ENABLED))
+    })
+
+    it('draws the same pixels with no press as before presses existed', () => {
+      expect(navButtonPixels(ALL_ENABLED, undefined)).toEqual(navButtonPixels(ALL_ENABLED))
+    })
+
+    it.each([
+      [0.1, 0],
+      [0.17, 1],
+      [0.5, 2],
+      [0.8, 2],
+      [0.84, 3],
+      [1, 3],
+    ])('sinks the face at depth %s by %s whole pixels', (depth, sink) => {
+      const pixels = navButtonPixels(ALL_ENABLED, press('forward', depth))
+      const face = facePixels(pixels, 'forward', sink)
+
+      expect(Math.min(...face.map((p) => p.y))).toBe(faceOf('forward').top + sink)
+      expect(Math.max(...face.map((p) => p.y))).toBe(faceOf('forward').bottom + sink)
+    })
+
+    it('rounds a press too shallow to sink a pixel to no press at all', () => {
+      expect(navButtonPixels(ALL_ENABLED, press('back', 0.1))).toEqual(navButtonPixels(ALL_ENABLED))
+    })
+
+    it.each([1.5, 10])('sinks no further than PRESS_DEPTH at depth %s', (depth) => {
+      expect(navButtonPixels(ALL_ENABLED, press('right', depth))).toEqual(navButtonPixels(ALL_ENABLED, press('right', 1)))
+    })
+
+    it.each([-0.5, -10])('draws the key as unpressed at depth %s', (depth) => {
+      expect(navButtonPixels(ALL_ENABLED, press('right', depth))).toEqual(navButtonPixels(ALL_ENABLED))
     })
   })
 })

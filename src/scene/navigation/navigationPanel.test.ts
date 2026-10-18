@@ -3,7 +3,7 @@ import { BACKGROUND } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
 import { compassPixels } from './compass.ts'
 import { navButtonPixels } from './navButtons.ts'
-import type { NavButton } from './navButtons.ts'
+import type { KeyPress, NavButton } from './navButtons.ts'
 import { drawNavigationPanel } from './navigationPanel.ts'
 
 type Call = { args: number[]; fillStyle: string }
@@ -76,5 +76,31 @@ describe('drawNavigationPanel', () => {
       ...fillsFor(compassPixels(1)),
       ...fillsFor(navButtonPixels(SOME_DISABLED)),
     ])
+  })
+
+  it.each<KeyPress>([
+    { button: 'left', depth: 1 },
+    { button: 'forward', depth: 0.5 },
+    { button: 'back', depth: 0 },
+  ])('draws the buttons with the key pressed as in %j', (press) => {
+    const { ctx, calls } = createFakeContext()
+
+    drawNavigationPanel(ctx, 1, ALL_ENABLED, press)
+
+    expect(calls).toEqual([
+      { args: [0, 0, 320, 155], fillStyle: BACKGROUND },
+      ...fillsFor(compassPixels(1)),
+      ...fillsFor(navButtonPixels(ALL_ENABLED, press)),
+    ])
+  })
+
+  it('draws a pressed key differently from an unpressed one', () => {
+    const pressed = createFakeContext()
+    const unpressed = createFakeContext()
+
+    drawNavigationPanel(pressed.ctx, 0, ALL_ENABLED, { button: 'right', depth: 1 })
+    drawNavigationPanel(unpressed.ctx, 0, ALL_ENABLED)
+
+    expect(pressed.calls).not.toEqual(unpressed.calls)
   })
 })

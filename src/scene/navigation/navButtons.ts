@@ -18,6 +18,14 @@ const BUTTON_GAP = 2
 // more of the base shows below it.
 const FACE_INSET = { side: 3, top: 2, bottom: 6 }
 const KEY_SEED = 43
+// How far (pixels) a fully pressed key's face sinks towards its base.
+export const PRESS_DEPTH = 3
+// Keycap parts from this index on are the face and what's on it. They're worn
+// relative to the face, so their wear moves with them as the key is pressed.
+const FIRST_FACE_PART = 3
+
+// A key being pressed, and how far down it is from 0 (up) to 1 (fully down).
+export type KeyPress = { button: NavButton; depth: number }
 
 // Bounds of the button in `column` (−1 to 1, from the left) and `row` (0 on
 // top, 1 below).
@@ -93,14 +101,16 @@ function rectOutline({ left, top, right, bottom }: Bounds, cutCorners = false): 
 // logo plaque's face in its niche: lines join the face's corners to the base's,
 // and the deeper front edge below the face is shaded with a dotted line. The
 // arrow on the face casts a worn shadow down and to the right. A key that
-// can't be used is drawn dim, without the shadow.
-function keycapPixels(button: NavButton, index: number, enabled: boolean): Pixel[] {
+// can't be used is drawn dim, without the shadow. Pressing sinks the face
+// `sink` whole pixels down towards the front of the base, and the arrow lies
+// flat while it's down, without its shadow.
+function keycapPixels(button: NavButton, index: number, enabled: boolean, sink: number): Pixel[] {
   const base = NAV_BUTTON_BOUNDS[button]
   const face = {
     left: base.left + FACE_INSET.side,
-    top: base.top + FACE_INSET.top,
+    top: base.top + FACE_INSET.top + sink,
     right: base.right - FACE_INSET.side,
-    bottom: base.bottom - FACE_INSET.bottom,
+    bottom: base.bottom - FACE_INSET.bottom + sink,
   }
   const bright = enabled ? FOREGROUND : FOREGROUND_DIM
   const worn = enabled ? FOREGROUND_WORN : FOREGROUND_DIM
@@ -128,9 +138,10 @@ function keycapPixels(button: NavButton, index: number, enabled: boolean): Pixel
       arrowPoints.push(point)
     }),
   )
-  const shadow = enabled
-    ? arrowPoints.map((p) => ({ x: p.x + 1, y: p.y + 1 })).filter((p) => !arrow.has(`${p.x},${p.y}`))
-    : []
+  const shadow =
+    enabled && sink === 0
+      ? arrowPoints.map((p) => ({ x: p.x + 1, y: p.y + 1 })).filter((p) => !arrow.has(`${p.x},${p.y}`))
+      : []
 
   const parts: [{ x: number; y: number }[], string, number][] = [
     [rectOutline(base, true), worn, 0.06],
@@ -142,7 +153,8 @@ function keycapPixels(button: NavButton, index: number, enabled: boolean): Pixel
   ]
   return parts.flatMap(([points, colour, dropChance], part) =>
     points.flatMap((p) => {
-      const roll = hashRandom(KEY_SEED, index, part, p.x - base.left, p.y - base.top)
+      const origin = part >= FIRST_FACE_PART ? face : base
+      const roll = hashRandom(KEY_SEED, index, part, p.x - origin.left, p.y - origin.top)
       const weathered = weather(colour, roll, dropChance, 0.18)
       return weathered ? [{ ...p, colour: weathered }] : []
     }),
@@ -150,7 +162,10 @@ function keycapPixels(button: NavButton, index: number, enabled: boolean): Pixel
 }
 
 // Pixels for all four buttons, drawn as worn keycaps with arrows. Buttons that
-// can't be used are drawn dim.
-export function navButtonPixels(enabled: Record<NavButton, boolean>): Pixel[] {
-  return NAV_BUTTONS.flatMap((button, index) => keycapPixels(button, index, enabled[button]))
+// can't be used are drawn dim, and `press` sinks the key being pressed.
+export function navButtonPixels(enabled: Record<NavButton, boolean>, press?: KeyPress): Pixel[] {
+  return NAV_BUTTONS.flatMap((button, index) => {
+    const sink = press?.button === button ? Math.round(Math.min(1, Math.max(0, press.depth)) * PRESS_DEPTH) : 0
+    return keycapPixels(button, index, enabled[button], sink)
+  })
 }
