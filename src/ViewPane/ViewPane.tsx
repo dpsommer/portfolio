@@ -505,7 +505,9 @@ function ViewPane() {
   const panelCursor =
     panelButton !== null && !animating && enabledButtons(place, heading)[panelButton] ? HAND_CURSOR : BLOCKED_CURSOR
   return (
-    <div className="view-pane-frame">
+    // The frame, dividers and side panel inherit the blocked hand; the room
+    // and lower panel set their own cursors.
+    <div className="view-pane-frame" style={{ cursor: BLOCKED_CURSOR }}>
       <canvas
         ref={canvasRef}
         className="view-pane"
@@ -539,7 +541,6 @@ function ViewPane() {
         width={SIDE_PANEL_WIDTH}
         height={SIDE_PANEL_HEIGHT}
         aria-hidden="true"
-        style={{ cursor: BLOCKED_CURSOR }}
       />
     </div>
   )

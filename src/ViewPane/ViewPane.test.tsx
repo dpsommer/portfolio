@@ -302,19 +302,21 @@ describe('ViewPane', () => {
       ])
     })
 
-    it('shows the blocked cursor over the side panel', () => {
+    it('shows the blocked cursor over the frame, which its dividers and the side panel inherit', () => {
       const { container } = render(<ViewPane />)
 
-      expect(sidePanel(container).style.cursor).toBe(BLOCKED_CURSOR)
+      expect(container.querySelector<HTMLElement>('.view-pane-frame')!.style.cursor).toBe(BLOCKED_CURSOR)
+      for (const element of [sidePanel(container), ...container.querySelectorAll<HTMLElement>('.view-pane-divider')]) {
+        expect(element.style.cursor).toBe('')
+      }
     })
 
-    it('keeps the blocked cursor over the side panel when the mouse moves over it', () => {
+    it('keeps the blocked cursor over the frame when the mouse moves over the side panel', () => {
       const { container } = render(<ViewPane />)
-      const panel = sidePanel(container)
 
-      fireEvent.mouseMove(panel, { clientX: CENTRE_X, clientY: MIDDLE_Y })
+      fireEvent.mouseMove(sidePanel(container), { clientX: CENTRE_X, clientY: MIDDLE_Y })
 
-      expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
+      expect(container.querySelector<HTMLElement>('.view-pane-frame')!.style.cursor).toBe(BLOCKED_CURSOR)
     })
 
     it('leaves the room cursor unchanged when the mouse moves over a panel', () => {
