@@ -396,6 +396,12 @@ describe('previewPixels', () => {
     expect(new Set(fromNook(filled(3)).map(key)).size).toBe(GLASS_CELLS.length)
   })
 
+  it('draws one pixel per glass cell facing west again after a full turn', () => {
+    // Four right turns from west, added up as the view does: 3π/2 short by rounding error.
+    const turnedRound = [1, 2, 3, 4].reduce((yaw) => yaw - Math.PI / 2, WEST)
+    expect(previewPixels(WIDTH, HEIGHT, filled(3), turnedRound, NOOK_EYE)).toHaveLength(GLASS_CELLS.length)
+  })
+
   it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
     const bounds = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
     expect(fromNook(filled(3)).every((p) => within(bounds, p))).toBe(true)
@@ -727,6 +733,12 @@ describe('plaquePixels', () => {
       (p) => p.x >= inside.left && p.x <= inside.right && p.y >= inside.top && p.y <= inside.bottom,
     )
     expect(new Set(cells.map((p) => p.colour))).toEqual(new Set([FOREGROUND_WORN, FOREGROUND_DIM]))
+  })
+
+  it('draws the same plaque facing west again after a full turn', () => {
+    // Four right turns from west, added up as the view does: 3π/2 short by rounding error.
+    const turnedRound = [1, 2, 3, 4].reduce((yaw) => yaw - Math.PI / 2, WEST)
+    expect(plaquePixels(WIDTH, HEIGHT, { logo: HALF }, turnedRound, NOOK_EYE)).toEqual(fromNook({ logo: HALF }))
   })
 
   it('draws nothing from the nook facing east, with the plaque behind the camera', () => {

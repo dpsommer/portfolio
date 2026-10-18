@@ -120,13 +120,19 @@ export function pullPixels(canvasWidth: number, canvasHeight: number, drop = 0, 
     .filter(inCanvas)
 }
 
+// How far over a whole number of pixels a cell can come out and still be that
+// many. Yaw isn't wrapped, so after turning round it's off by rounding error,
+// which can put the nook's distance from the mirror a hair under 1 and double
+// every cell.
+const CELL_SIZE_TOLERANCE = 1e-9
+
 // Adds a cell at `world` to `pixels`, as a block sized by how close it is: one
 // pixel at distance 1, the nook's distance from the mirror.
 function cellPixels(pixels: Pixel[], world: Vec3, colour: string, { yaw, eye, width, height }: View) {
   const camera = toCamera(world, yaw, eye)
   if (camera.z < NEAR || !isVisible(world, eye)) return
   const centre = projectPoint(camera, width, height)
-  const size = Math.max(1, Math.ceil(1 / camera.z))
+  const size = Math.max(1, Math.ceil(1 / camera.z - CELL_SIZE_TOLERANCE))
   const left = Math.floor(centre.x - (size - 1) / 2)
   const top = Math.floor(centre.y - (size - 1) / 2)
   for (let y = top; y < top + size; y++) {
