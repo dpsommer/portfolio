@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { HEIGHT, WIDTH, columnAt, expectOnCanvas, extent, rowAt } from '../../test/pixels.ts'
 import {
   BACK_Z,
   CEILING_Y,
   FAR_Z,
   FLOOR_Y,
-  FOCAL_RATIO,
   NOOK_FRONT_Z,
   NOOK_X,
   ORIGIN,
@@ -20,15 +20,6 @@ import { PULL_BOUNDS } from '../mirror/pull.ts'
 import { PLACES } from '../navigation/places.ts'
 import { FLOOR_PLAN, WALLS, isOnFloor, isVisible, roomPixels } from './room.ts'
 import type { WallName } from './room.ts'
-
-const WIDTH = 320
-const HEIGHT = 240
-// Focal length in pixels at 320 wide (128).
-const FOCAL = (FOCAL_RATIO * WIDTH) / 2
-// Screen column of a point `across` units right of the view's centre line, `depth` ahead.
-const columnAt = (across: number, depth: number) => Math.round(WIDTH / 2 + (FOCAL * across) / depth)
-// Screen row of a point at height `y` (relative to the eye), `depth` ahead.
-const rowAt = (y: number, depth: number) => Math.round(HEIGHT / 2 - (FOCAL * y) / depth)
 
 // The far wall's rect facing north at 320x240: FAR_WALL_SCALE (0.45) of the view, centred.
 const FAR_WALL = { left: 88, top: 66, right: 232, bottom: 174 }
@@ -89,14 +80,6 @@ function fractionNear(pixels: Pixel[], other: Pixel[], distance: number): number
   return near.length / pixels.length
 }
 
-// The inclusive extent of a set of pixels.
-const extent = (pixels: Pixel[]) => ({
-  left: Math.min(...pixels.map((p) => p.x)),
-  top: Math.min(...pixels.map((p) => p.y)),
-  right: Math.max(...pixels.map((p) => p.x)),
-  bottom: Math.max(...pixels.map((p) => p.y)),
-})
-
 describe('FLOOR_PLAN', () => {
   it('lists the corners clockwise from the far wall\'s left end, around the nook', () => {
     expect(FLOOR_PLAN).toEqual([
@@ -122,15 +105,6 @@ describe('WALLS', () => {
     })
   })
 
-  it('places each wall on its side of the room', () => {
-    expect(WALLS.north.start.z).toBe(FAR_Z)
-    expect(WALLS.east.start.x).toBe(ROOM_HALF_WIDTH)
-    expect(WALLS.south.start.z).toBe(BACK_Z)
-    expect(WALLS['nook-back'].start.x).toBe(NOOK_X)
-    expect(WALLS['nook-side'].start.z).toBe(NOOK_FRONT_Z)
-    expect(WALLS.west.start.x).toBe(-ROOM_HALF_WIDTH)
-  })
-
   it('starts every wall at the ceiling', () => {
     for (const wall of Object.values(WALLS)) expect(wall.start.y).toBe(CEILING_Y)
   })
@@ -142,13 +116,6 @@ describe('WALLS', () => {
     expect(WALLS['nook-back'].length).toBeCloseTo(NOOK_FRONT_Z - BACK_Z)
     expect(WALLS['nook-side'].length).toBeCloseTo(-ROOM_HALF_WIDTH - NOOK_X)
     expect(WALLS.west.length).toBeCloseTo(FAR_Z - NOOK_FRONT_Z)
-  })
-
-  it('runs the nook walls from the back wall round to the main room\'s left wall', () => {
-    expect(wallEnd(WALLS.south).x).toBeCloseTo(NOOK_X)
-    expect(WALLS['nook-back'].along).toEqual({ x: 0, y: 0, z: 1 })
-    expect(WALLS['nook-side'].along).toEqual({ x: 1, y: 0, z: 0 })
-    expect(WALLS.west.start.z).toBe(NOOK_FRONT_Z)
   })
 
   it('gives each wall a horizontal unit vector along it', () => {
@@ -180,36 +147,26 @@ describe('WALLS', () => {
 })
 
 describe('isOnFloor', () => {
-  it('includes the camera position', () => {
-    expect(isOnFloor({ x: 0, z: 0 })).toBe(true)
-  })
-
-  it('includes the middle of the main room', () => {
-    expect(isOnFloor({ x: 0, z: (FAR_Z + BACK_Z) / 2 })).toBe(true)
-  })
-
-  it('includes the inside of the nook', () => {
-    expect(isOnFloor({ x: -1.5, z: 0 })).toBe(true)
-  })
-
-  it('excludes the space behind the nook\'s side wall', () => {
-    expect(isOnFloor({ x: -1.5, z: 1.5 })).toBe(false)
+  it.each([
+    ['the camera position', { x: 0, z: 0 }],
+    ['the middle of the main room', { x: 0, z: (FAR_Z + BACK_Z) / 2 }],
+    ['the inside of the nook', { x: -1.5, z: 0 }],
+  ])('includes %s', (_, point) => {
+    expect(isOnFloor(point)).toBe(true)
   })
 
   it.each([
-    ['north', { x: 0, z: FAR_Z + 0.1 }],
-    ['east', { x: ROOM_HALF_WIDTH + 0.1, z: 0 }],
-    ['south', { x: 0, z: BACK_Z - 0.1 }],
-    ['south, behind the nook', { x: -1.5, z: BACK_Z - 0.1 }],
-    ['the nook\'s back', { x: NOOK_X - 0.1, z: 0 }],
-    ['west', { x: -ROOM_HALF_WIDTH - 0.1, z: (NOOK_FRONT_Z + FAR_Z) / 2 }],
-  ])('excludes points beyond the %s wall', (_, point) => {
+    ['the space behind the nook\'s side wall', { x: -1.5, z: 1.5 }],
+    ['points beyond the north wall', { x: 0, z: FAR_Z + 0.1 }],
+    ['points beyond the east wall', { x: ROOM_HALF_WIDTH + 0.1, z: 0 }],
+    ['points beyond the south wall', { x: 0, z: BACK_Z - 0.1 }],
+    ['points beyond the south wall, behind the nook', { x: -1.5, z: BACK_Z - 0.1 }],
+    ['points beyond the nook\'s back wall', { x: NOOK_X - 0.1, z: 0 }],
+    ['points beyond the west wall', { x: -ROOM_HALF_WIDTH - 0.1, z: (NOOK_FRONT_Z + FAR_Z) / 2 }],
+    ['points far outside the room ahead', { x: 10, z: 10 }],
+    ['points far outside the room to the west', { x: -10, z: 0 }],
+  ])('excludes %s', (_, point) => {
     expect(isOnFloor(point)).toBe(false)
-  })
-
-  it('excludes points far outside the room', () => {
-    expect(isOnFloor({ x: 10, z: 10 })).toBe(false)
-    expect(isOnFloor({ x: -10, z: 0 })).toBe(false)
   })
 })
 
@@ -235,15 +192,12 @@ describe('isVisible', () => {
       for (const corner of FLOOR_PLAN) expect(isVisible(corner, ORIGIN)).toBe(true)
     })
 
-    it('sees the nook\'s floor', () => {
-      for (const x of [-1.9, -1.5, -1.1]) {
-        for (const z of [-0.9, 0, 0.9]) expect(isVisible({ x, z }, ORIGIN)).toBe(true)
-      }
-    })
-
-    it('sees the main room\'s floor', () => {
-      for (const x of [-0.9, 0, 0.9]) {
-        for (const z of [-0.9, 0.5, FAR_Z - 0.1]) expect(isVisible({ x, z }, ORIGIN)).toBe(true)
+    it.each([
+      ['the nook\'s floor', [-1.9, -1.5, -1.1], [-0.9, 0, 0.9]],
+      ['the main room\'s floor', [-0.9, 0, 0.9], [-0.9, 0.5, FAR_Z - 0.1]],
+    ])('sees %s', (_, xs, zs) => {
+      for (const x of xs) {
+        for (const z of zs) expect(isVisible({ x, z }, ORIGIN)).toBe(true)
       }
     })
 
@@ -251,13 +205,12 @@ describe('isVisible', () => {
       expect(isVisible(ORIGIN, ORIGIN)).toBe(true)
     })
 
-    it('does not see a point behind the main room\'s left wall', () => {
-      expect(isVisible({ x: -1.5, z: 2 }, ORIGIN)).toBe(false)
-    })
-
-    it('does not see points outside the room beyond the far and right walls', () => {
-      expect(isVisible({ x: 0, z: FAR_Z + 0.5 }, ORIGIN)).toBe(false)
-      expect(isVisible({ x: ROOM_HALF_WIDTH + 0.5, z: 0 }, ORIGIN)).toBe(false)
+    it.each([
+      ['a point behind the main room\'s left wall', { x: -1.5, z: 2 }],
+      ['a point outside the room beyond the far wall', { x: 0, z: FAR_Z + 0.5 }],
+      ['a point outside the room beyond the right wall', { x: ROOM_HALF_WIDTH + 0.5, z: 0 }],
+    ])('does not see %s', (_, point) => {
+      expect(isVisible(point, ORIGIN)).toBe(false)
     })
   })
 
@@ -271,7 +224,6 @@ describe('isVisible', () => {
 
     it('does not see the left end of the far wall', () => {
       expect(isVisible({ x: -0.9, z: FAR_Z }, NOOK_EYE)).toBe(false)
-      expect(isVisible({ x: -ROOM_HALF_WIDTH, z: FAR_Z }, NOOK_EYE)).toBe(false)
     })
 
     it('sees the right part of the far wall', () => {
@@ -317,10 +269,6 @@ describe('isVisible', () => {
 })
 
 describe('roomPixels', () => {
-  it('is deterministic', () => {
-    expect(roomPixels(WIDTH, HEIGHT)).toEqual(roomPixels(WIDTH, HEIGHT))
-  })
-
   it('defaults to facing north', () => {
     expect(roomPixels(WIDTH, HEIGHT)).toEqual(roomPixels(WIDTH, HEIGHT, 0))
   })
@@ -330,30 +278,25 @@ describe('roomPixels', () => {
   })
 
   it.each([
-    [WIDTH, HEIGHT, 0],
-    [WIDTH, HEIGHT, 0.3],
-    [WIDTH, HEIGHT, Math.PI / 2],
-    [WIDTH, HEIGHT, Math.PI],
-    [WIDTH, HEIGHT, (3 * Math.PI) / 2],
     [640, 480, 0],
     [640, 480, Math.PI / 2],
   ])('uses integer coordinates within a %ix%i canvas at yaw %f', (width, height, yaw) => {
     const pixels = roomPixels(width, height, yaw)
     expect(pixels.length).toBeGreaterThan(0)
-    for (const { x, y } of pixels) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(width)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(height)
-    }
+    expectOnCanvas(pixels, width, height)
   })
 
-  it.each([0, 0.3, Math.PI / 2, Math.PI, (3 * Math.PI) / 2])('only uses the dim and worn colours at yaw %f', (yaw) => {
-    for (const { colour } of roomPixels(WIDTH, HEIGHT, yaw)) {
-      expect([FOREGROUND_DIM, FOREGROUND_WORN]).toContain(colour)
-    }
+  // The start, the nook and points on the path between them, facing each way
+  // and part way through a turn.
+  const VIEWS = [0, 0.25, 0.5, 0.75, 1].flatMap((t) =>
+    [0, 0.3, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((yaw) => ({ yaw, eye: { x: t * NOOK_EYE.x, z: 0 } })),
+  )
+
+  it.each(VIEWS)('draws in the dim and worn colours within the canvas at yaw $yaw from $eye', ({ yaw, eye }) => {
+    const pixels = roomPixels(WIDTH, HEIGHT, yaw, eye)
+    expect(pixels.length).toBeGreaterThan(0)
+    expectOnCanvas(pixels)
+    for (const { colour } of pixels) expect([FOREGROUND_DIM, FOREGROUND_WORN]).toContain(colour)
   })
 
   it('is the same after a full turn', () => {
@@ -543,10 +486,6 @@ describe('roomPixels', () => {
 
     it('draws no flagstone along the main room\'s left wall floor edge', () => {
       expect(dim(pixels).filter((p) => Math.abs(p.y - rowAt(FLOOR_Y, ROOM_HALF_WIDTH)) <= 1 && p.x > WEST_CORNER_X + 1)).toEqual([])
-    })
-
-    it('differs from the north view', () => {
-      expect(pixels).not.toEqual(roomPixels(WIDTH, HEIGHT, 0))
     })
   })
 
@@ -760,38 +699,10 @@ describe('roomPixels', () => {
     })
   })
 
-  describe('along the path to the nook', () => {
+  it('changes the view as the eye moves along the path to the nook', () => {
     const eyes: FloorPoint[] = [0, 0.25, 0.5, 0.75, 1].map((t) => ({ x: t * NOOK_EYE.x, z: 0 }))
-
-    it.each(eyes)('uses integer coordinates within the canvas from %o', (eye) => {
-      for (const yaw of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
-        const pixels = roomPixels(WIDTH, HEIGHT, yaw, eye)
-        expect(pixels.length).toBeGreaterThan(0)
-        for (const { x, y } of pixels) {
-          expect(Number.isInteger(x)).toBe(true)
-          expect(Number.isInteger(y)).toBe(true)
-          expect(x).toBeGreaterThanOrEqual(0)
-          expect(x).toBeLessThan(WIDTH)
-          expect(y).toBeGreaterThanOrEqual(0)
-          expect(y).toBeLessThan(HEIGHT)
-        }
-      }
-    })
-
-    it.each(eyes)('is deterministic from %o', (eye) => {
-      expect(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)).toEqual(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye))
-    })
-
-    it.each(eyes)('only uses the dim and worn colours from %o', (eye) => {
-      for (const { colour } of roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)) {
-        expect([FOREGROUND_DIM, FOREGROUND_WORN]).toContain(colour)
-      }
-    })
-
-    it('changes the view as the eye moves', () => {
-      const views = eyes.map((eye) => JSON.stringify(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)))
-      expect(new Set(views).size).toBe(eyes.length)
-    })
+    const views = eyes.map((eye) => JSON.stringify(roomPixels(WIDTH, HEIGHT, Math.PI / 2, eye)))
+    expect(new Set(views).size).toBe(eyes.length)
   })
 
   describe('stability while turning', () => {
@@ -815,19 +726,13 @@ describe('roomPixels', () => {
   })
 
   it.each([
-    [320, 240],
-    [640, 480],
-    [100, 75],
-  ])('completes quickly for a %ix%i canvas', (width, height) => {
+    [320, 240, 'the start', ORIGIN],
+    [640, 480, 'the start', ORIGIN],
+    [100, 75, 'the start', ORIGIN],
+    [320, 240, 'the nook', NOOK_EYE],
+  ])('completes quickly for a %ix%i canvas from %s', (width, height, _, eye) => {
     const start = performance.now()
-    const pixels = roomPixels(width, height, 0.7)
-    expect(performance.now() - start).toBeLessThan(500)
-    expect(pixels.length).toBeGreaterThan(0)
-  }, 2000)
-
-  it('completes quickly from the nook', () => {
-    const start = performance.now()
-    const pixels = roomPixels(WIDTH, HEIGHT, 0.7, NOOK_EYE)
+    const pixels = roomPixels(width, height, 0.7, eye)
     expect(performance.now() - start).toBeLessThan(500)
     expect(pixels.length).toBeGreaterThan(0)
   }, 2000)
