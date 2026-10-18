@@ -120,6 +120,23 @@ function plaqueAt(elapsed: number, fromLogo: LogoMap, toLogo: LogoMap): Plaque {
   return { logo: toLogo, depth: 1 - easeInOut(out) }
 }
 
+// The arrow keys and the navigation buttons they work.
+const ARROW_KEYS: Record<string, NavButton> = {
+  ArrowUp: 'forward',
+  ArrowDown: 'back',
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+}
+
+// Whether a key event is aimed at something that takes typing, so arrow keys
+// should be left to it.
+function isTypingTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  )
+}
+
 // What the navigation panel shows while a turn or step plays: the buttons
 // usable once it's done, and the key for it, held down meanwhile.
 type PanelPress = { enabled: Record<NavButton, boolean>; pressed: NavButton }
@@ -439,10 +456,10 @@ function ViewPane() {
   }
 
   // The panel's buttons do what clicking the room does: turn left or right,
-  // or step forward, plus stepping back without turning.
-  function handlePanelClick(event: MouseEvent<HTMLCanvasElement>) {
-    const button = panelButtonAt(event)
-    if (!button || animating || !enabledButtons(place, heading)[button]) return
+  // or step forward, plus stepping back without turning. Clicks and the arrow
+  // keys both work them.
+  function pressNavButton(button: NavButton) {
+    if (animating || !enabledButtons(place, heading)[button]) return
     if (button === 'left' || button === 'right') {
       turnView(button)
       return
@@ -450,6 +467,27 @@ function ViewPane() {
     const next = button === 'forward' ? forwardFrom(place, heading) : backFrom(place, heading)
     if (next) moveTo(next, button)
   }
+
+  function handlePanelClick(event: MouseEvent<HTMLCanvasElement>) {
+    const button = panelButtonAt(event)
+    if (button) pressNavButton(button)
+  }
+
+  // The arrow keys work the navigation buttons anywhere on the page, unless
+  // they're for a text field or part of a shortcut. Held keys repeat, so a
+  // held key keeps turning or stepping as each animation ends. It subscribes
+  // again on every render so the handler sees the current place and heading.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const button = ARROW_KEYS[event.key]
+      if (!button || event.altKey || event.ctrlKey || event.metaKey || isTypingTarget(event.target)) return
+      // Arrow keys would otherwise scroll the page.
+      event.preventDefault()
+      pressNavButton(button)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  })
 
   // The sign, mirror and pull are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'

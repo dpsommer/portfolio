@@ -380,6 +380,12 @@ describe('ViewPane', () => {
 
     const useReducedMotion = () => vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }))
 
+    // Fires a keydown for `key` on `target` (the window by default), returning
+    // false if the pane prevented its default action.
+    function pressKey(key: string, init: KeyboardEventInit = {}, target: Window | Element = window): boolean {
+      return fireEvent.keyDown(target, { key, ...init })
+    }
+
     describe('lower panel drawing', () => {
       afterEach(() => {
         vi.unstubAllGlobals()
@@ -707,6 +713,84 @@ describe('ViewPane', () => {
         expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
       })
 
+      it.each([
+        ['ArrowLeft', 'left', START_WEST],
+        ['ArrowRight', 'right', START_EAST],
+      ] as const)('presses the %s key\'s %s button for a turn', (key, button, enabled) => {
+        const { container } = renderPane()
+        pressKey(key)
+
+        frames.flush(START + TURN_DURATION_MS / 2)
+
+        expectButtons(container, enabled, { button, depth: 1 })
+      })
+
+      it('presses the forward key for ArrowUp', () => {
+        const { container } = renderPane()
+        pressKey('ArrowLeft')
+        frames.flush(START + TURN_DURATION_MS)
+        pressKey('ArrowUp')
+
+        frames.flush(START + MOVE_DURATION_MS / 2)
+
+        expectButtons(container, NOOK_WEST_FORWARD_HELD, { button: 'forward', depth: 1 })
+      })
+
+      it('presses the back key for ArrowDown', () => {
+        const { container } = renderPane()
+        pressKey('ArrowRight')
+        frames.flush(START + TURN_DURATION_MS)
+        pressKey('ArrowDown')
+
+        frames.flush(START + MOVE_DURATION_MS / 2)
+
+        expectButtons(container, { forward: true, back: true, left: true, right: true }, { button: 'back', depth: 1 })
+      })
+
+      it('moves an arrow key\'s button down and up over a turn as a click does', () => {
+        const { container } = renderPane()
+        pressKey('ArrowLeft')
+
+        frames.flush(START + 20)
+        expectButtons(container, START_WEST, { button: 'left', depth: 1 / 3 })
+        frames.flush(START + TURN_DURATION_MS - 20)
+        expectButtons(container, START_WEST, { button: 'left', depth: 1 / 3 })
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, START_WEST))
+      })
+
+      it('draws the same panel frames for an arrow key as for a click on its button', () => {
+        const clicked = renderWithPanel()
+        clickButton(clicked.panel, 'left')
+        frames.flush(START + 20)
+        frames.flush(START + TURN_DURATION_MS / 2)
+        frames.flush(START + TURN_DURATION_MS)
+        const clickFills = [...fillsOn(lowerPanel(clicked.container))]
+        clicked.unmount()
+
+        const pressed = renderPane()
+        pressKey('ArrowLeft')
+        frames.flush(START + 20)
+        frames.flush(START + TURN_DURATION_MS / 2)
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(fillsOn(lowerPanel(pressed.container))).toEqual(clickFills)
+      })
+
+      it('presses no key for arrow keys with reduced motion', () => {
+        useReducedMotion()
+        const { canvas, container } = renderPane()
+
+        pressKey('ArrowLeft')
+        pressKey('ArrowUp')
+
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+        expect(lastPanelDraw(fillsOn(lowerPanel(container)))).toEqual(navPanelFills(Math.PI / 2, NOOK_WEST))
+      })
+
       it('does not draw the panel during a mirror ripple', () => {
         const { canvas, container } = renderPane()
         intoNook(canvas)
@@ -996,6 +1080,312 @@ describe('ViewPane', () => {
           expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
           expect(canvas).toHaveAttribute('data-place', 'nook')
           expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+      })
+    })
+
+    describe('arrow keys', () => {
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      it.each([
+        ['ArrowLeft', 'west'],
+        ['ArrowRight', 'east'],
+      ])('turns with %s to face %s', (key, heading) => {
+        const { canvas } = renderPane()
+
+        pressKey(key)
+
+        expect(canvas).toHaveAttribute('data-heading', heading)
+        expect(canvas).toHaveAttribute('data-place', 'start')
+      })
+
+      it('keeps turning with each press of a turn key', () => {
+        const { canvas } = renderPane()
+
+        pressKey('ArrowRight')
+        pressKey('ArrowRight')
+
+        expect(canvas).toHaveAttribute('data-heading', 'south')
+      })
+
+      it('steps forward into the nook with ArrowUp', () => {
+        const { canvas } = renderPane()
+        pressKey('ArrowLeft')
+
+        pressKey('ArrowUp')
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it('steps back from the start into the nook with ArrowDown', () => {
+        const { canvas } = renderPane()
+        pressKey('ArrowRight')
+
+        pressKey('ArrowDown')
+
+        expect(canvas).toHaveAttribute('data-place', 'nook')
+        expect(canvas).toHaveAttribute('data-heading', 'east')
+      })
+
+      it.each(['ArrowUp', 'ArrowDown'])('does nothing for %s with nowhere to go', (key) => {
+        const { canvas } = renderPane()
+
+        pressKey(key)
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('ends a mixed sequence of keys where the same panel clicks do', () => {
+        const { canvas } = renderPane()
+        const visited: string[] = []
+        const record = () => visited.push(`${canvas.dataset.place}/${canvas.dataset.heading}`)
+
+        for (const key of ['ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight']) {
+          pressKey(key)
+          record()
+        }
+
+        expect(visited).toEqual(['start/west', 'nook/west', 'start/west', 'start/north'])
+      })
+
+      it('mixes with panel clicks, both working the same buttons', () => {
+        const { canvas, panel } = renderWithPanel()
+
+        pressKey('ArrowLeft')
+        clickButton(panel, 'forward')
+        pressKey('ArrowDown')
+
+        expect(canvas).toHaveAttribute('data-place', 'start')
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it('works when the key is aimed at an element that does not take typing', () => {
+        const { canvas } = renderPane()
+
+        pressKey('ArrowLeft', {}, document.body)
+
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it.each(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])('prevents the default action of %s', (key) => {
+        renderPane()
+
+        expect(pressKey(key)).toBe(false)
+      })
+
+      it('prevents the default action even when the key\'s button is disabled', () => {
+        const { canvas } = renderPane()
+
+        expect(pressKey('ArrowUp')).toBe(false)
+        expect(canvas).toHaveAttribute('data-place', 'start')
+      })
+
+      it.each(['a', 'Enter', ' ', 'Escape', 'Tab', 'PageDown', 'Up', 'Left'])(
+        'ignores the %j key and leaves its default action',
+        (key) => {
+          const { canvas } = renderPane()
+
+          expect(pressKey(key)).toBe(true)
+          expect(canvas).toHaveAttribute('data-heading', 'north')
+        },
+      )
+
+      it.each(['altKey', 'ctrlKey', 'metaKey'] as const)('ignores arrow keys with %s held', (modifier) => {
+        const { canvas } = renderPane()
+
+        expect(pressKey('ArrowLeft', { [modifier]: true })).toBe(true)
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('still handles arrow keys with shift held', () => {
+        const { canvas } = renderPane()
+
+        expect(pressKey('ArrowLeft', { shiftKey: true })).toBe(false)
+        expect(canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it.each([
+        ['an input', 'input'],
+        ['a textarea', 'textarea'],
+        ['a select', 'select'],
+      ])('leaves arrow keys aimed at %s alone', (_, tag) => {
+        const { canvas } = renderPane()
+        const field = render(<div />).container.appendChild(document.createElement(tag))
+
+        expect(pressKey('ArrowLeft', {}, field)).toBe(true)
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('leaves arrow keys aimed at a contentEditable element alone', () => {
+        const { canvas } = renderPane()
+        render(<div aria-label="field" contentEditable />)
+        const field = screen.getByLabelText('field')
+        // jsdom doesn't implement isContentEditable, so give it what a browser would.
+        Object.defineProperty(field, 'isContentEditable', { value: true })
+
+        expect(pressKey('ArrowLeft', {}, field)).toBe(true)
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('stops listening for keys once unmounted', () => {
+        const { canvas, unmount } = renderPane()
+        unmount()
+
+        expect(pressKey('ArrowLeft')).toBe(true)
+        expect(canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('removes the keydown listener it added when unmounted', () => {
+        const add = vi.spyOn(window, 'addEventListener')
+        const remove = vi.spyOn(window, 'removeEventListener')
+        const { unmount } = renderPane()
+        const added = add.mock.calls.filter(([type]) => type === 'keydown').map(([, listener]) => listener)
+        const latest = added[added.length - 1]
+
+        unmount()
+
+        expect(remove).toHaveBeenCalledWith('keydown', latest)
+        add.mockRestore()
+        remove.mockRestore()
+      })
+
+      describe('with animation', () => {
+        const START = 1000
+        let frames: ReturnType<typeof stubAnimationFrames>
+        let now: MockInstance<() => number>
+
+        beforeEach(() => {
+          provideContext(createFakeContext())
+          frames = stubAnimationFrames()
+          now = vi.spyOn(performance, 'now').mockReturnValue(START)
+        })
+
+        afterEach(() => {
+          now.mockRestore()
+        })
+
+        it('animates a turn from an arrow key', () => {
+          const { canvas } = renderPane()
+
+          pressKey('ArrowLeft')
+
+          expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(1)
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('does not animate for disabled forward and back keys', () => {
+          renderPane()
+
+          pressKey('ArrowUp')
+          pressKey('ArrowDown')
+
+          expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        })
+
+        it('ignores arrow keys during a turn', () => {
+          const { canvas } = renderPane()
+          pressKey('ArrowLeft')
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          pressKey('ArrowLeft')
+          pressKey('ArrowUp')
+
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+          expect(canvas).toHaveAttribute('data-place', 'start')
+          expect(frames.requestAnimationFrame).toHaveBeenCalledTimes(2)
+        })
+
+        it('ignores arrow keys during a move started from the room', () => {
+          const { canvas } = renderPane()
+          clickAt(canvas, LEFT_X)
+          frames.flush(START + TURN_DURATION_MS)
+          clickAt(canvas, CENTRE_X)
+          frames.flush(START + MOVE_DURATION_MS / 2)
+
+          pressKey('ArrowDown')
+          pressKey('ArrowRight')
+
+          expect(canvas).toHaveAttribute('data-place', 'nook')
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('ignores room clicks during a turn started from an arrow key', () => {
+          const { canvas } = renderPane()
+          pressKey('ArrowLeft')
+          frames.flush(START + TURN_DURATION_MS / 2)
+
+          clickAt(canvas, LEFT_X)
+
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('prevents the default action of arrow keys pressed mid-animation', () => {
+          renderPane()
+          pressKey('ArrowLeft')
+
+          expect(pressKey('ArrowRight')).toBe(false)
+        })
+
+        it('ignores repeats of a held key until the animation ends', () => {
+          const { canvas } = renderPane()
+          pressKey('ArrowLeft')
+
+          pressKey('ArrowLeft', { repeat: true })
+          frames.flush(START + TURN_DURATION_MS / 2)
+          pressKey('ArrowLeft', { repeat: true })
+
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('turns again on a repeat of a held key once the animation ends', () => {
+          const { canvas } = renderPane()
+          pressKey('ArrowLeft')
+          frames.flush(START + TURN_DURATION_MS)
+
+          pressKey('ArrowLeft', { repeat: true })
+
+          expect(canvas).toHaveAttribute('data-heading', 'south')
+          expect(frames.pending()).toBe(1)
+        })
+
+        it('keeps turning as a held key repeats through several animations', () => {
+          const { canvas } = renderPane()
+          pressKey('ArrowRight')
+          for (let turn = 1; turn <= 3; turn++) {
+            const end = START + turn * TURN_DURATION_MS
+            frames.flush(end)
+            now.mockReturnValue(end)
+            pressKey('ArrowRight', { repeat: true })
+          }
+
+          // Four quarter turns bring it back round to north, the last still playing.
+          expect(canvas).toHaveAttribute('data-heading', 'north')
+          expect(frames.pending()).toBe(1)
+        })
+
+        it('jumps at once for arrow keys with reduced motion', () => {
+          useReducedMotion()
+          const { canvas } = renderPane()
+
+          pressKey('ArrowLeft')
+          pressKey('ArrowUp')
+
+          expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+          expect(canvas).toHaveAttribute('data-place', 'nook')
+          expect(canvas).toHaveAttribute('data-heading', 'west')
+        })
+
+        it('requests no frames for a key pressed after unmounting', () => {
+          const { unmount } = renderPane()
+          unmount()
+
+          pressKey('ArrowLeft')
+
+          expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
         })
       })
     })
