@@ -9,15 +9,7 @@ const LOGOS = [
 ] as const
 
 describe.each(LOGOS)('the %s logo', (_, logo) => {
-  it('has 16 rows of 16 cells', () => {
-    expect(logo).toHaveLength(LOGO_SIZE)
-    for (const row of logo) expect(row).toHaveLength(LOGO_SIZE)
-  })
-
-  it('uses only the logo map characters', () => {
-    for (const row of logo) expect(row).toMatch(/^[#+\-.]+$/)
-  })
-
+  // parseLogo throws for a map that isn't 16x16 or has an unknown character.
   it('parses without throwing', () => {
     expect(() => parseLogo(logo)).not.toThrow()
   })

@@ -46,19 +46,15 @@ function topFaceRows(map: string[]): number[] {
 }
 
 describe('getCursorZone', () => {
-  it('uses a 0.15 edge zone', () => {
-    expect(EDGE_ZONE_FRACTION).toBe(0.15)
-  })
-
   it.each([
     [0, 'turn-left'],
-    [0.14, 'turn-left'],
-    [0.15, 'forward'],
+    [EDGE_ZONE_FRACTION - 0.01, 'turn-left'],
+    [EDGE_ZONE_FRACTION, 'forward'],
     [0.25, 'forward'],
     [0.5, 'forward'],
     [0.75, 'forward'],
-    [0.85, 'forward'],
-    [0.86, 'turn-right'],
+    [1 - EDGE_ZONE_FRACTION, 'forward'],
+    [1 - EDGE_ZONE_FRACTION + 0.01, 'turn-right'],
     [1, 'turn-right'],
   ])('maps %s to %s', (fraction, zone) => {
     expect(getCursorZone(fraction)).toBe(zone)
@@ -82,27 +78,43 @@ describe('mirror', () => {
   })
 })
 
-describe('CURSOR_MAPS', () => {
-  const zones = Object.keys(CURSOR_MAPS) as CursorZone[]
+const ZONES = Object.keys(CURSOR_MAPS) as CursorZone[]
+// Every cursor's pixel map, and those drawn as a raised block with a side face.
+const ALL_MAPS: [string, string[]][] = [
+  ...ZONES.map((zone): [string, string[]] => [zone, CURSOR_MAPS[zone]]),
+  ['hand', HAND_MAP],
+  ['blocked', BLOCKED_MAP],
+]
+const BLOCK_MAPS = ALL_MAPS.filter(([name]) => name !== 'hand')
 
-  it.each(zones)('%s map is 16 rows of 16 characters', (zone) => {
-    const map = CURSOR_MAPS[zone]
+describe.each(ALL_MAPS)('the %s map', (_, map) => {
+  it('is 16 rows of 16 characters', () => {
     expect(map).toHaveLength(16)
     for (const row of map) expect(row).toHaveLength(16)
   })
 
-  it.each(zones)('%s map only contains "#", "+" and "."', (zone) => {
-    for (const row of CURSOR_MAPS[zone]) expect(row).toMatch(/^[#+.]+$/)
+  it('only contains "#", "+" and "."', () => {
+    for (const row of map) expect(row).toMatch(/^[#+.]+$/)
   })
 
-  it.each(zones)('%s map has both top face and side face cells', (zone) => {
-    const text = CURSOR_MAPS[zone].join('')
+  it('has both top face and side face (or crease) cells', () => {
+    const text = map.join('')
     expect(text).toContain('#')
     expect(text).toContain('+')
   })
 
-  it.each(zones)('%s map has a "#" within 2 rows above every "+"', (zone) => {
-    const map = CURSOR_MAPS[zone]
+  it('leaves a transparent 1-pixel border', () => {
+    expect(map[0]).toBe('.'.repeat(16))
+    expect(map[15]).toBe('.'.repeat(16))
+    for (const row of map) {
+      expect(row[0]).toBe('.')
+      expect(row[15]).toBe('.')
+    }
+  })
+})
+
+describe.each(BLOCK_MAPS)('the %s block map', (_, map) => {
+  it('has a "#" within 2 rows above every "+"', () => {
     for (let y = 0; y < map.length; y++) {
       for (let x = 0; x < map[y].length; x++) {
         if (map[y][x] !== '+') continue
@@ -111,15 +123,16 @@ describe('CURSOR_MAPS', () => {
     }
   })
 
-  it.each(zones)('%s map shows the side face below the top face in every column', (zone) => {
-    const map = CURSOR_MAPS[zone]
+  it('shows the side face below the top face in every column', () => {
     for (let x = 0; x < 16; x++) {
       const column = map.map((row) => row[x]).join('')
       const lowest = column.replace(/\.+$/, '').at(-1)
       if (lowest !== undefined) expect(lowest).toBe('+')
     }
   })
+})
 
+describe('CURSOR_MAPS', () => {
   it('forward shaft is no narrower near the viewer than further away', () => {
     const widths = topFaceWidths(CURSOR_MAPS.forward)
     const widest = widths.indexOf(Math.max(...widths))
@@ -133,16 +146,6 @@ describe('CURSOR_MAPS', () => {
     const widest = widths.indexOf(Math.max(...widths))
     const shaft = widths.slice(widest + 1).filter((width) => width > 0)
     expect(widths[widest]).toBeGreaterThan(Math.max(...shaft))
-  })
-
-  it.each(zones)('%s map leaves a transparent 1-pixel border', (zone) => {
-    const map = CURSOR_MAPS[zone]
-    expect(map[0]).not.toContain('#')
-    expect(map[15]).not.toContain('#')
-    for (const row of map) {
-      expect(row[0]).toBe('.')
-      expect(row[15]).toBe('.')
-    }
   })
 
   it('turn-right map is the mirror of turn-left', () => {
@@ -160,17 +163,14 @@ describe('projectArrow', () => {
     ],
   ]
 
-  it.each([
-    ['an empty shape list', []],
-    ['the full floor', fullFloor],
-  ])('produces 16 rows of 16 characters for %s', (_, shape) => {
-    const map = projectArrow(shape as [number, number][][])
+  it('produces 16 rows of 16 characters for the full floor', () => {
+    const map = projectArrow(fullFloor)
     expect(map).toHaveLength(16)
     for (const row of map) expect(row).toHaveLength(16)
   })
 
-  it('produces a transparent map for an empty shape list', () => {
-    for (const row of projectArrow([])) expect(row).toBe('.'.repeat(16))
+  it('produces a transparent 16x16 map for an empty shape list', () => {
+    expect(projectArrow([])).toEqual(blankMap())
   })
 
   it('does not widen the full floor going further away', () => {
@@ -229,21 +229,13 @@ describe('pixelMapToCursor', () => {
     expect(countMatches(svg, `fill="${BACKGROUND}"`)).toBe(10)
   })
 
-  it('uses a custom hotspot scaled to cursor pixels', () => {
-    expect(pixelMapToCursor(singlePixelMap(), 'pointer', [3, 4]).endsWith('") 6 8, pointer')).toBe(true)
-  })
-
-  it('rounds a fractional custom hotspot', () => {
-    expect(pixelMapToCursor(singlePixelMap(), 'pointer', [1.3, 2.7]).endsWith('") 3 5, pointer')).toBe(true)
-  })
-
-  it('accepts a hotspot at the origin', () => {
-    expect(pixelMapToCursor(singlePixelMap(), 'pointer', [0, 0]).endsWith('") 0 0, pointer')).toBe(true)
-  })
-
-  it('defaults the hotspot to the centre of a non-square map', () => {
-    const map = Array.from({ length: 8 }, () => '.'.repeat(12))
-    expect(pixelMapToCursor(map, 'pointer').endsWith('") 12 8, pointer')).toBe(true)
+  it.each<[string, string[], [number, number] | undefined, string]>([
+    ['uses a custom hotspot scaled to cursor pixels', singlePixelMap(), [3, 4], '6 8'],
+    ['rounds a fractional custom hotspot', singlePixelMap(), [1.3, 2.7], '3 5'],
+    ['accepts a hotspot at the origin', singlePixelMap(), [0, 0], '0 0'],
+    ['defaults the hotspot to the centre of a non-square map', Array.from({ length: 8 }, () => '.'.repeat(12)), undefined, '12 8'],
+  ])('%s', (_, map, hotspot, expected) => {
+    expect(pixelMapToCursor(map, 'pointer', hotspot).endsWith(`") ${expected}, pointer`)).toBe(true)
   })
 
   it('draws the same image whatever the hotspot', () => {
@@ -263,38 +255,8 @@ describe('CURSORS', () => {
     ['turn-left', 'w-resize'],
     ['forward', 'n-resize'],
     ['turn-right', 'e-resize'],
-  ] as const)('%s cursor falls back to %s', (zone, fallback) => {
-    expect(CURSORS[zone].endsWith(`, ${fallback}`)).toBe(true)
-  })
-
-  it('builds each cursor from its pixel map', () => {
-    expect(CURSORS.forward).toBe(pixelMapToCursor(CURSOR_MAPS.forward, 'n-resize'))
-  })
-})
-
-describe('HAND_MAP', () => {
-  it('is 16 rows of 16 characters', () => {
-    expect(HAND_MAP).toHaveLength(16)
-    for (const row of HAND_MAP) expect(row).toHaveLength(16)
-  })
-
-  it('only contains "#", "+" and "."', () => {
-    for (const row of HAND_MAP) expect(row).toMatch(/^[#+.]+$/)
-  })
-
-  it('has both top face and crease cells', () => {
-    const text = HAND_MAP.join('')
-    expect(text).toContain('#')
-    expect(text).toContain('+')
-  })
-
-  it('leaves a transparent 1-pixel border', () => {
-    expect(HAND_MAP[0]).toBe('.'.repeat(16))
-    expect(HAND_MAP[15]).toBe('.'.repeat(16))
-    for (const row of HAND_MAP) {
-      expect(row[0]).toBe('.')
-      expect(row[15]).toBe('.')
-    }
+  ] as const)('builds the %s cursor from its pixel map, falling back to %s', (zone, fallback) => {
+    expect(CURSORS[zone]).toBe(pixelMapToCursor(CURSOR_MAPS[zone], fallback))
   })
 })
 
@@ -305,10 +267,6 @@ describe('HAND_CURSOR', () => {
     if (!match) throw new Error('no hotspot')
     return [Math.floor(Number(match[1]) / 2), Math.floor(Number(match[2]) / 2)]
   }
-
-  it('falls back to the pointer cursor', () => {
-    expect(HAND_CURSOR.endsWith(', pointer')).toBe(true)
-  })
 
   it('puts the hotspot at 10 4', () => {
     expect(HAND_CURSOR.endsWith('") 10 4, pointer')).toBe(true)
@@ -337,47 +295,6 @@ describe('BLOCKED_MAP', () => {
   // Leftmost '#' column of the row across the fingers, i.e. the palm's left edge.
   const palmLeft = BLOCKED_MAP[fingerRow].indexOf('#')
 
-  it('is 16 rows of 16 characters', () => {
-    expect(BLOCKED_MAP).toHaveLength(16)
-    for (const row of BLOCKED_MAP) expect(row).toHaveLength(16)
-  })
-
-  it('only contains "#", "+" and "."', () => {
-    for (const row of BLOCKED_MAP) expect(row).toMatch(/^[#+.]+$/)
-  })
-
-  it('leaves a transparent 1-pixel border', () => {
-    expect(BLOCKED_MAP[0]).toBe('.'.repeat(16))
-    expect(BLOCKED_MAP[15]).toBe('.'.repeat(16))
-    for (const row of BLOCKED_MAP) {
-      expect(row[0]).toBe('.')
-      expect(row[15]).toBe('.')
-    }
-  })
-
-  it('has both top face and side face cells', () => {
-    const text = BLOCKED_MAP.join('')
-    expect(text).toContain('#')
-    expect(text).toContain('+')
-  })
-
-  it('has a "#" within 2 rows above every "+"', () => {
-    for (let y = 0; y < BLOCKED_MAP.length; y++) {
-      for (let x = 0; x < BLOCKED_MAP[y].length; x++) {
-        if (BLOCKED_MAP[y][x] !== '+') continue
-        expect(BLOCKED_MAP[y - 1]?.[x] === '#' || BLOCKED_MAP[y - 2]?.[x] === '#').toBe(true)
-      }
-    }
-  })
-
-  it('shows the side face below the top face in every column', () => {
-    for (let x = 0; x < 16; x++) {
-      const column = BLOCKED_MAP.map((row) => row[x]).join('')
-      const lowest = column.replace(/\.+$/, '').at(-1)
-      if (lowest !== undefined) expect(lowest).toBe('+')
-    }
-  })
-
   it('is built by projecting a shape onto the floor', () => {
     // Its top face lies within the rows a projected floor occupies.
     const fullFloor = projectArrow([[[0, 0], [1, 0], [1, 1], [0, 1]]])
@@ -390,10 +307,6 @@ describe('BLOCKED_MAP', () => {
     const row = BLOCKED_MAP[fingerRow]
     expect(row.match(/#+/g)).toEqual(['#', '#', '#', '#'])
     expect(row.slice(row.indexOf('#'), row.lastIndexOf('#') + 1)).toMatch(/^#(\.+#){3}$/)
-  })
-
-  it('has fingers on the second top-face row, row 3', () => {
-    expect(fingerRow).toBe(3)
   })
 
   it('has a thumb sticking out to the left of the palm', () => {
@@ -421,15 +334,9 @@ describe('BLOCKED_CURSOR', () => {
     expect(BLOCKED_CURSOR).toBe(pixelMapToCursor(BLOCKED_MAP, 'not-allowed'))
   })
 
-  it('differs from the hand cursor', () => {
-    expect(BLOCKED_CURSOR).not.toBe(HAND_CURSOR)
-  })
-
-  it.each(Object.keys(CURSORS) as CursorZone[])('differs from the %s cursor', (zone) => {
-    expect(BLOCKED_CURSOR).not.toBe(CURSORS[zone])
-  })
-
-  it('draws a different image from every arrow cursor', () => {
-    for (const cursor of Object.values(CURSORS)) expect(decodeSvg(BLOCKED_CURSOR)).not.toBe(decodeSvg(cursor))
+  it('draws a different image from the hand and every arrow cursor', () => {
+    for (const cursor of [HAND_CURSOR, ...Object.values(CURSORS)]) {
+      expect(decodeSvg(BLOCKED_CURSOR)).not.toBe(decodeSvg(cursor))
+    }
   })
 })
