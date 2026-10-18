@@ -501,12 +501,9 @@ function ViewPane() {
     : pointer.zone === 'forward' && !canMoveForward
       ? BLOCKED_CURSOR
       : CURSORS[pointer.zone]
+  // Every panel shows the blocked hand unless something under it can be used.
   const panelCursor =
-    panelButton === null || animating
-      ? undefined
-      : enabledButtons(place, heading)[panelButton]
-        ? HAND_CURSOR
-        : BLOCKED_CURSOR
+    panelButton !== null && !animating && enabledButtons(place, heading)[panelButton] ? HAND_CURSOR : BLOCKED_CURSOR
   return (
     <div className="view-pane-frame">
       <canvas
@@ -542,6 +539,7 @@ function ViewPane() {
         width={SIDE_PANEL_WIDTH}
         height={SIDE_PANEL_HEIGHT}
         aria-hidden="true"
+        style={{ cursor: BLOCKED_CURSOR }}
       />
     </div>
   )

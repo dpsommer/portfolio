@@ -302,6 +302,21 @@ describe('ViewPane', () => {
       ])
     })
 
+    it('shows the blocked cursor over the side panel', () => {
+      const { container } = render(<ViewPane />)
+
+      expect(sidePanel(container).style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it('keeps the blocked cursor over the side panel when the mouse moves over it', () => {
+      const { container } = render(<ViewPane />)
+      const panel = sidePanel(container)
+
+      fireEvent.mouseMove(panel, { clientX: CENTRE_X, clientY: MIDDLE_Y })
+
+      expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
     it('leaves the room cursor unchanged when the mouse moves over a panel', () => {
       const { canvas, container } = renderPane()
       fireEvent.mouseMove(canvas, { clientX: LEFT_X, clientY: MIDDLE_Y })
@@ -1395,10 +1410,10 @@ describe('ViewPane', () => {
         vi.unstubAllGlobals()
       })
 
-      it('shows no cursor of its own before the mouse moves over it', () => {
+      it('shows the blocked cursor before the mouse moves over it', () => {
         const { panel } = renderWithPanel()
 
-        expect(panel.style.cursor).toBe('')
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
       })
 
       it.each(['left', 'right'] as const)('shows the hand over the %s button', (button) => {
@@ -1417,22 +1432,22 @@ describe('ViewPane', () => {
         expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
       })
 
-      it('shows no cursor away from the buttons', () => {
+      it('shows the blocked cursor away from the buttons', () => {
         const { panel } = renderWithPanel()
         hoverButton(panel, 'left')
 
         fireEvent.mouseMove(panel, { clientX: 78, clientY: 80 })
 
-        expect(panel.style.cursor).toBe('')
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
       })
 
-      it('clears the cursor when the mouse leaves the panel', () => {
+      it('returns to the blocked cursor when the mouse leaves the panel', () => {
         const { panel } = renderWithPanel()
         hoverButton(panel, 'left')
 
         fireEvent.mouseLeave(panel)
 
-        expect(panel.style.cursor).toBe('')
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
       })
 
       it('shows the hand over forward once there\'s a way forward', () => {
@@ -1467,13 +1482,13 @@ describe('ViewPane', () => {
         expect(panel.style.cursor).toBe(HAND_CURSOR)
       })
 
-      it('shows no cursor when the panel has no size on screen', () => {
+      it('shows the blocked cursor when the panel has no size on screen', () => {
         const { panel, getPanelRect } = renderWithPanel()
         getPanelRect.mockReturnValue(new DOMRect(0, 0, 0, 0))
 
         hoverButton(panel, 'left')
 
-        expect(panel.style.cursor).toBe('')
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
       })
 
       it('leaves the room cursor unchanged when hovering a button', () => {
@@ -1500,23 +1515,23 @@ describe('ViewPane', () => {
           now.mockRestore()
         })
 
-        it('shows no cursor over a button during a turn', () => {
+        it('shows the blocked cursor over a button during a turn', () => {
           const { panel } = renderWithPanel()
           hoverButton(panel, 'left')
 
           clickButton(panel, 'left')
 
-          expect(panel.style.cursor).toBe('')
+          expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
         })
 
-        it('shows no cursor over a button hovered during a turn', () => {
+        it('shows the blocked cursor over a button hovered during a turn', () => {
           const { panel } = renderWithPanel()
           clickButton(panel, 'left')
           frames.flush(START + TURN_DURATION_MS / 2)
 
           hoverButton(panel, 'right')
 
-          expect(panel.style.cursor).toBe('')
+          expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
         })
 
         it('shows the cursor again once the turn has finished', () => {
