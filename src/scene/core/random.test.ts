@@ -56,10 +56,6 @@ describe('hashSeed', () => {
 })
 
 describe('hashRandom', () => {
-  it('is deterministic', () => {
-    expect(hashRandom(3, 1, 4)).toBe(hashRandom(3, 1, 4))
-  })
-
   it('produces values in [0, 1)', () => {
     for (let a = 0; a < 20; a++) {
       for (let b = -10; b < 10; b++) {

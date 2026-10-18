@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { GLYPH_HEIGHT, GLYPH_WIDTH, textPixels, textWidth } from './pixelFont.ts'
 
+const GLYPHS = ['C', 'E', 'L', 'M', 'N', 'O', 'S', 'W']
+
 describe('textWidth', () => {
   it('is 0 for an empty string', () => {
     expect(textWidth('')).toBe(0)
   })
 
   it('is the glyph width for a single character', () => {
-    expect(textWidth('W')).toBe(5)
+    expect(textWidth('W')).toBe(GLYPH_WIDTH)
   })
 
   it('includes spacing between glyphs and applies the scale', () => {
@@ -24,7 +26,7 @@ describe('textPixels', () => {
     expect(textPixels('WELCOME', scale)).toHaveLength(textPixels('WELCOME').length * scale * scale)
   })
 
-  it.each(['C', 'E', 'L', 'M', 'N', 'O', 'S', 'W'])('draws pixels for glyph %s', (char) => {
+  it.each(GLYPHS)('draws pixels for glyph %s', (char) => {
     expect(textPixels(char).length).toBeGreaterThan(0)
   })
 
@@ -95,7 +97,7 @@ describe('compass glyphs', () => {
   })
 
   it.each(['N', 'S'])('makes %s different from every other glyph', (char) => {
-    for (const other of ['C', 'E', 'L', 'M', 'N', 'O', 'S', 'W'].filter((c) => c !== char)) {
+    for (const other of GLYPHS.filter((c) => c !== char)) {
       expect(rowsOf(char)).not.toEqual(rowsOf(other))
     }
   })
