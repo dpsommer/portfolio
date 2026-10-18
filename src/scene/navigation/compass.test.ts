@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
 import { GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
-import { COMPASS_CENTRE, COMPASS_LETTERS, COMPASS_RADIUS, compassPixels, facedLetter } from './compass.ts'
+import {
+  COMPASS_CENTRE,
+  COMPASS_LETTERS,
+  COMPASS_RADIUS,
+  COMPASS_WINDOW,
+  compassPixels,
+  facedLetter,
+} from './compass.ts'
 
 const LETTER_SCALE = 2
+// The lower panel's drawing size, which the compass must fit in.
+const PANEL_WIDTH = 320
+const PANEL_HEIGHT = 132
 // The camera yaw facing each letter's way.
 const YAW: Record<string, number> = Object.fromEntries(COMPASS_LETTERS.map(({ letter, yaw }) => [letter, yaw]))
 const LETTERS = COMPASS_LETTERS.map(({ letter }) => letter)
@@ -20,9 +30,17 @@ const RING_TOP = COMPASS_CENTRE.y - COMPASS_RADIUS
 
 // The marker: pixels above the ring's top.
 const markerOf = (pixels: Pixel[]) => pixels.filter((p) => p.y < RING_TOP)
-// Letter pixels lie well inside the ring and outside the ticks' colour.
-const letterPixelsOf = (pixels: Pixel[]) =>
-  pixels.filter((p) => p.y >= RING_TOP && p.colour !== FOREGROUND_DIM && distance(p) < COMPASS_RADIUS - 4)
+// The arc: the pixels near the ring's radius, below the marker.
+const arcOf = (pixels: Pixel[]) => pixels.filter((p) => p.y >= RING_TOP && distance(p) > COMPASS_RADIUS - 2)
+// Letter pixels lie well inside the ring.
+const letterPixelsOf = (pixels: Pixel[]) => pixels.filter((p) => p.y >= RING_TOP && distance(p) < COMPASS_RADIUS - 4)
+// `angle` wrapped to −π…π.
+const wrap = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle))
+// The letters that should show at `yaw`, with their angle from the top.
+const visibleLetters = (yaw: number) =>
+  COMPASS_LETTERS.map(({ letter, yaw: letterYaw }) => ({ letter, angle: wrap(letterYaw - yaw) })).filter(
+    ({ angle }) => Math.abs(angle) < COMPASS_WINDOW,
+  )
 
 // The letter pixels on the side of the centre at screen angle `angle`: letters
 // sit well out from the centre, so those 90 degrees round are excluded.
@@ -95,6 +113,12 @@ describe('facedLetter', () => {
   })
 })
 
+describe('COMPASS_WINDOW', () => {
+  it('is a sixth of a turn either side of the top', () => {
+    expect(COMPASS_WINDOW).toBeCloseTo(Math.PI / 3)
+  })
+})
+
 describe('compassPixels', () => {
   it('keeps every pixel inside the ring or the marker above it', () => {
     for (const yaw of SAMPLE_YAWS) {
@@ -105,58 +129,102 @@ describe('compassPixels', () => {
     }
   })
 
-  it('uses only the three foreground colours', () => {
-    const colours = new Set(compassPixels(0.3).map((p) => p.colour))
-
-    expect([...colours].sort()).toEqual([FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN].sort())
+  it('fits inside the lower panel', () => {
+    for (const yaw of SAMPLE_YAWS) {
+      for (const p of compassPixels(yaw)) {
+        expect(p.x).toBeGreaterThanOrEqual(0)
+        expect(p.x).toBeLessThan(PANEL_WIDTH)
+        expect(p.y).toBeGreaterThanOrEqual(0)
+        expect(p.y).toBeLessThan(PANEL_HEIGHT)
+      }
+    }
   })
 
-  describe('ring', () => {
-    // The worn pixels near the ring's radius.
-    const ringOf = (pixels: Pixel[]) =>
-      pixels.filter((p) => p.colour === FOREGROUND_WORN && distance(p) > COMPASS_RADIUS - 2)
+  it.each(SAMPLE_YAWS)('uses only the full and worn foreground colours (yaw %s)', (yaw) => {
+    const colours = new Set(compassPixels(yaw).map((p) => p.colour))
 
-    it('is a circle of COMPASS_RADIUS round COMPASS_CENTRE', () => {
-      for (const p of ringOf(compassPixels(0))) {
+    expect([...colours].sort()).toEqual([FOREGROUND, FOREGROUND_WORN].sort())
+  })
+
+  describe('arc', () => {
+    it('lies on a circle of COMPASS_RADIUS round COMPASS_CENTRE', () => {
+      const arc = arcOf(compassPixels(0))
+
+      expect(arc.length).toBeGreaterThan(0)
+      for (const p of arc) {
         expect(distance(p)).toBeGreaterThan(COMPASS_RADIUS - 1)
         expect(distance(p)).toBeLessThan(COMPASS_RADIUS + 1)
       }
     })
 
-    it('reaches the top, bottom, left and right of the circle', () => {
-      const ring = new Set(ringOf(compassPixels(0)).map(key))
-      const { x, y } = COMPASS_CENTRE
-
-      expect(ring.has(key({ x, y: y - COMPASS_RADIUS }))).toBe(true)
-      expect(ring.has(key({ x, y: y + COMPASS_RADIUS }))).toBe(true)
-      expect(ring.has(key({ x: x - COMPASS_RADIUS, y }))).toBe(true)
-      expect(ring.has(key({ x: x + COMPASS_RADIUS, y }))).toBe(true)
+    it('is drawn in the worn foreground colour', () => {
+      expect(arcOf(compassPixels(0)).every((p) => p.colour === FOREGROUND_WORN)).toBe(true)
     })
 
-    it('has no gaps: every ring pixel touches two others', () => {
-      const ring = ringOf(compassPixels(0))
-      const keys = new Set(ring.map(key))
-      for (const { x, y } of ring) {
-        let neighbours = 0
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            if ((dx || dy) && keys.has(key({ x: x + dx, y: y + dy }))) neighbours++
-          }
-        }
-        expect(neighbours).toBeGreaterThanOrEqual(2)
+    it('stays within COMPASS_WINDOW of the top', () => {
+      for (const p of arcOf(compassPixels(0))) {
+        expect(Math.abs(angleOf(p))).toBeLessThanOrEqual(COMPASS_WINDOW + 0.03)
       }
     })
 
-    it('does not repeat pixels', () => {
-      const ring = ringOf(compassPixels(0))
+    it('runs from one end of the window, through the top, to the other', () => {
+      const arc = new Set(arcOf(compassPixels(0)).map(key))
+      const at = (angle: number) =>
+        key({
+          x: Math.round(COMPASS_CENTRE.x - Math.sin(angle) * COMPASS_RADIUS),
+          y: Math.round(COMPASS_CENTRE.y - Math.cos(angle) * COMPASS_RADIUS),
+        })
 
-      expect(new Set(ring.map(key)).size).toBe(ring.length)
+      expect(arc.has(at(0))).toBe(true)
+      expect(arc.has(at(COMPASS_WINDOW))).toBe(true)
+      expect(arc.has(at(-COMPASS_WINDOW))).toBe(true)
+    })
+
+    it('is symmetric about the top', () => {
+      const arc = arcOf(compassPixels(0))
+      const mirrored = arc.map((p) => key({ x: 2 * COMPASS_CENTRE.x - p.x, y: p.y })).sort()
+
+      expect(mirrored).toEqual(arc.map(key).sort())
+    })
+
+    it('has no gaps: every pixel touches another and the arc is all one piece', () => {
+      const arc = arcOf(compassPixels(0))
+      const keys = new Set(arc.map(key))
+      const neighbours = ({ x, y }: { x: number; y: number }) => {
+        const found: string[] = []
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const k = key({ x: x + dx, y: y + dy })
+            if ((dx || dy) && keys.has(k)) found.push(k)
+          }
+        }
+        return found
+      }
+      for (const p of arc) expect(neighbours(p).length).toBeGreaterThanOrEqual(1)
+
+      const reached = new Set([key(arc[0])])
+      const queue: { x: number; y: number }[] = [arc[0]]
+      while (queue.length) {
+        for (const k of neighbours(queue.pop()!)) {
+          if (reached.has(k)) continue
+          reached.add(k)
+          const [x, y] = k.split(',').map(Number)
+          queue.push({ x, y })
+        }
+      }
+      expect(reached.size).toBe(keys.size)
+    })
+
+    it('does not repeat pixels', () => {
+      const arc = arcOf(compassPixels(0))
+
+      expect(new Set(arc.map(key)).size).toBe(arc.length)
     })
 
     it('is the same whichever way the camera faces', () => {
-      const ring = ringOf(compassPixels(0)).map(key).sort()
+      const arc = arcOf(compassPixels(0)).map(key).sort()
 
-      for (const yaw of SAMPLE_YAWS) expect(ringOf(compassPixels(yaw)).map(key).sort()).toEqual(ring)
+      for (const yaw of SAMPLE_YAWS) expect(arcOf(compassPixels(yaw)).map(key).sort()).toEqual(arc)
     })
   })
 
@@ -203,10 +271,17 @@ describe('compassPixels', () => {
   })
 
   describe('letters', () => {
-    it.each(SAMPLE_YAWS)('draws each letter at its yaw less the camera\'s, from the top (yaw %s)', (yaw) => {
+    it.each(SAMPLE_YAWS)('draws only the letters within COMPASS_WINDOW of the top (yaw %s)', (yaw) => {
+      const visible = visibleLetters(yaw)
+      const expected = visible.reduce((sum, { letter }) => sum + textPixels(letter, LETTER_SCALE).length, 0)
+
+      expect(visible.length).toBeGreaterThan(0)
+      expect(letterPixelsOf(compassPixels(yaw))).toHaveLength(expected)
+    })
+
+    it.each(SAMPLE_YAWS)('draws each shown letter at its yaw less the camera\'s, from the top (yaw %s)', (yaw) => {
       const pixels = compassPixels(yaw)
-      for (const { letter, yaw: letterYaw } of COMPASS_LETTERS) {
-        const angle = letterYaw - yaw
+      for (const { letter, angle } of visibleLetters(yaw)) {
         const drawn = letterPixelsToward(pixels, angle)
 
         expect(normalised(drawn)).toEqual(normalised(textPixels(letter, LETTER_SCALE)))
@@ -214,39 +289,64 @@ describe('compassPixels', () => {
       }
     })
 
-    it('puts N at the top, W on the left, S at the bottom and E on the right facing north', () => {
-      const pixels = compassPixels(0)
-      const middle = (letter: string) => centroid(letterPixelsToward(pixels, YAW[letter]))
-
-      expect(middle('N').y).toBeLessThan(COMPASS_CENTRE.y)
-      expect(middle('S').y).toBeGreaterThan(COMPASS_CENTRE.y)
-      expect(middle('W').x).toBeLessThan(COMPASS_CENTRE.x)
-      expect(middle('E').x).toBeGreaterThan(COMPASS_CENTRE.x)
-    })
-
-    it('turns N to the right and S to the left facing west', () => {
-      const pixels = compassPixels(Math.PI / 2)
-      const n = centroid(letterPixelsToward(pixels, -Math.PI / 2))
-      const s = centroid(letterPixelsToward(pixels, Math.PI / 2))
-
-      expect(normalised(letterPixelsToward(pixels, -Math.PI / 2))).toEqual(normalised(textPixels('N', LETTER_SCALE)))
-      expect(normalised(letterPixelsToward(pixels, Math.PI / 2))).toEqual(normalised(textPixels('S', LETTER_SCALE)))
-      expect(n.x).toBeGreaterThan(COMPASS_CENTRE.x)
-      expect(s.x).toBeLessThan(COMPASS_CENTRE.x)
-    })
-
-    it.each(LETTERS)('puts %s straight above the centre when facing its way', (letter) => {
-      const drawn = letterPixelsToward(compassPixels(YAW[letter]), 0)
+    it.each(LETTERS)('draws only %s, straight above the centre, when facing its way', (letter) => {
+      const pixels = compassPixels(YAW[letter])
+      const drawn = letterPixelsOf(pixels)
       const xs = drawn.map((p) => p.x)
 
       expect(normalised(drawn)).toEqual(normalised(textPixels(letter, LETTER_SCALE)))
+      expect(centroid(drawn).y).toBeLessThan(COMPASS_CENTRE.y)
       expect(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2 - COMPASS_CENTRE.x)).toBeLessThanOrEqual(0.5)
+      expect(drawn.every((p) => p.colour === FOREGROUND)).toBe(true)
+    })
+
+    it('shows N and W either side of the top half-way through a left turn from north', () => {
+      const pixels = compassPixels(Math.PI / 4)
+      const n = letterPixelsToward(pixels, -Math.PI / 4)
+      const w = letterPixelsToward(pixels, Math.PI / 4)
+
+      expect(normalised(n)).toEqual(normalised(textPixels('N', LETTER_SCALE)))
+      expect(normalised(w)).toEqual(normalised(textPixels('W', LETTER_SCALE)))
+      expect(centroid(n).x).toBeGreaterThan(COMPASS_CENTRE.x)
+      expect(centroid(w).x).toBeLessThan(COMPASS_CENTRE.x)
+      expect(Math.min(...n.map((p) => p.y))).toBe(Math.min(...w.map((p) => p.y)))
+      expect(letterPixelsOf(pixels)).toHaveLength(n.length + w.length)
+    })
+
+    it('draws one of the two mid-turn letters bright and the other worn', () => {
+      const pixels = compassPixels(Math.PI / 4)
+      const colourOf = (angle: number) => [...new Set(letterPixelsToward(pixels, angle).map((p) => p.colour))]
+      const faced = facedLetter(Math.PI / 4)
+
+      expect(['N', 'W']).toContain(faced)
+      expect(colourOf(-Math.PI / 4)).toEqual([faced === 'N' ? FOREGROUND : FOREGROUND_WORN])
+      expect(colourOf(Math.PI / 4)).toEqual([faced === 'W' ? FOREGROUND : FOREGROUND_WORN])
+    })
+
+    it('has dropped the outgoing letter near the end of a turn', () => {
+      const yaw = Math.PI / 2 - 0.1
+      const drawn = letterPixelsOf(compassPixels(yaw))
+
+      expect(normalised(drawn)).toEqual(normalised(textPixels('W', LETTER_SCALE)))
+      expect(drawn.every((p) => p.colour === FOREGROUND)).toBe(true)
+    })
+
+    it('has not yet brought in the incoming letter just after a turn starts', () => {
+      const drawn = letterPixelsOf(compassPixels(-0.1))
+
+      expect(normalised(drawn)).toEqual(normalised(textPixels('N', LETTER_SCALE)))
+    })
+
+    it('hides a letter exactly COMPASS_WINDOW from the top', () => {
+      const drawn = letterPixelsOf(compassPixels(Math.PI / 2 - COMPASS_WINDOW))
+
+      expect(normalised(drawn)).toEqual(normalised(textPixels('N', LETTER_SCALE)))
     })
 
     it('keeps the letters upright and full size as the rose turns', () => {
       const pixels = compassPixels(0.6)
-      for (const { letter, yaw } of COMPASS_LETTERS) {
-        const drawn = letterPixelsToward(pixels, yaw - 0.6)
+      for (const { letter, angle } of visibleLetters(0.6)) {
+        const drawn = letterPixelsToward(pixels, angle)
         const ys = drawn.map((p) => p.y)
         expect(Math.max(...ys) - Math.min(...ys) + 1).toBe(GLYPH_HEIGHT * LETTER_SCALE)
         expect(normalised(drawn)).toEqual(normalised(textPixels(letter, LETTER_SCALE)))
@@ -256,8 +356,8 @@ describe('compassPixels', () => {
     it.each(SAMPLE_YAWS)('draws only the faced letter in the full foreground colour (yaw %s)', (yaw) => {
       const pixels = compassPixels(yaw)
       const faced = facedLetter(yaw)
-      for (const { letter, yaw: letterYaw } of COMPASS_LETTERS) {
-        const colours = new Set(letterPixelsToward(pixels, letterYaw - yaw).map((p) => p.colour))
+      for (const { letter, angle } of visibleLetters(yaw)) {
+        const colours = new Set(letterPixelsToward(pixels, angle).map((p) => p.colour))
         expect([...colours]).toEqual([letter === faced ? FOREGROUND : FOREGROUND_WORN])
       }
     })
@@ -277,30 +377,6 @@ describe('compassPixels', () => {
 
       expect(brightLetter(before)).toEqual(normalised(textPixels('N', LETTER_SCALE)))
       expect(brightLetter(after)).toEqual(normalised(textPixels('W', LETTER_SCALE)))
-    })
-  })
-
-  describe('ticks', () => {
-    const ticksOf = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND_DIM)
-
-    it.each(SAMPLE_YAWS)('sit inside the ring half-way between the letters (yaw %s)', (yaw) => {
-      const ticks = ticksOf(compassPixels(yaw))
-      const between = COMPASS_LETTERS.map(({ yaw: letterYaw }) => letterYaw + Math.PI / 4 - yaw)
-
-      expect(ticks.length).toBeGreaterThan(0)
-      for (const p of ticks) {
-        expect(distance(p)).toBeLessThan(COMPASS_RADIUS)
-        expect(distance(p)).toBeGreaterThan(COMPASS_RADIUS - 12)
-        expect(Math.min(...between.map((angle) => angleBetween(angleOf(p), angle)))).toBeLessThan(0.15)
-      }
-    })
-
-    it('draws one tick in each gap between letters', () => {
-      const ticks = ticksOf(compassPixels(0))
-      for (const { yaw } of COMPASS_LETTERS) {
-        const angle = yaw + Math.PI / 4
-        expect(ticks.some((p) => angleBetween(angleOf(p), angle) < 0.15)).toBe(true)
-      }
     })
   })
 })

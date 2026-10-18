@@ -1,18 +1,20 @@
-import { linePoints } from '../core/line.ts'
-import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
 import { GLYPH_HEIGHT, textPixels, textWidth } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
 
-// A compass rose in the navigation panel. The rose turns with the camera so the
-// letter for the way the visitor faces sits at the top, under a fixed marker.
-// Coordinates are panel canvas pixels.
-export const COMPASS_CENTRE = { x: 78, y: 80 }
+// A compass in the navigation panel. It's a rose that turns with the camera so
+// the letter for the way the visitor faces sits at the top, under a fixed
+// marker, but only the top of it shows: an arc of the ring and the letters
+// within COMPASS_WINDOW of the top. At rest that's just the faced letter;
+// during a turn it slides away round the arc as the next one slides in.
+// Coordinates are panel canvas pixels. The rose's centre is below what's drawn.
+export const COMPASS_CENTRE = { x: 78, y: 104 }
 export const COMPASS_RADIUS = 56
+// How far either side of the top (radians) the arc runs and letters show.
+export const COMPASS_WINDOW = Math.PI / 3
 // How far in from the ring the letters' centres sit.
 const LETTER_RADIUS = 40
 const LETTER_SCALE = 2
-// Ticks between the letters run inward from the ring this far.
-const TICK_LENGTH = 6
 // The marker is a downward-pointing triangle just above the ring's top.
 const MARKER_GAP = 2
 const MARKER_HALF_WIDTH = 4
@@ -34,12 +36,18 @@ function onRose(angle: number, radius: number): { x: number; y: number } {
   }
 }
 
-function ringPixels(): Pixel[] {
+// `angle` wrapped to −π…π.
+function wrapAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle))
+}
+
+// The ring's arc across the window at the top.
+function arcPixels(): Pixel[] {
   const seen = new Set<string>()
   const pixels: Pixel[] = []
-  const steps = Math.ceil(2 * Math.PI * COMPASS_RADIUS * 2)
-  for (let i = 0; i < steps; i++) {
-    const { x, y } = onRose((i / steps) * 2 * Math.PI, COMPASS_RADIUS)
+  const steps = Math.ceil(2 * COMPASS_WINDOW * COMPASS_RADIUS * 2)
+  for (let i = 0; i <= steps; i++) {
+    const { x, y } = onRose(-COMPASS_WINDOW + (i / steps) * 2 * COMPASS_WINDOW, COMPASS_RADIUS)
     const point = { x: Math.round(x), y: Math.round(y) }
     const key = `${point.x},${point.y}`
     if (seen.has(key)) continue
@@ -62,27 +70,24 @@ function markerPixels(): Pixel[] {
 
 // The letter whose direction is nearest the way the camera faces.
 export function facedLetter(yaw: number): string {
-  const offset = (letterYaw: number) => Math.abs(Math.atan2(Math.sin(letterYaw - yaw), Math.cos(letterYaw - yaw)))
+  const offset = (letterYaw: number) => Math.abs(wrapAngle(letterYaw - yaw))
   return COMPASS_LETTERS.reduce((best, entry) => (offset(entry.yaw) < offset(best.yaw) ? entry : best)).letter
 }
 
 // Pixels for the compass with the camera turned `yaw` radians left of north.
-// Each letter is drawn at `letterYaw − yaw` from the top, so the faced one is
-// on top. Letters move round the rose but stay upright, so they stay crisp.
+// Each letter is at `letterYaw − yaw` from the top, so the faced one is on
+// top, and is drawn only inside the window. Letters move round the rose but
+// stay upright, so they stay crisp.
 export function compassPixels(yaw: number): Pixel[] {
   const faced = facedLetter(yaw)
   const letters = COMPASS_LETTERS.flatMap(({ letter, yaw: letterYaw }) => {
-    const centre = onRose(letterYaw - yaw, LETTER_RADIUS)
+    const angle = wrapAngle(letterYaw - yaw)
+    if (Math.abs(angle) >= COMPASS_WINDOW) return []
+    const centre = onRose(angle, LETTER_RADIUS)
     const left = Math.round(centre.x - textWidth(letter, LETTER_SCALE) / 2)
     const top = Math.round(centre.y - (GLYPH_HEIGHT * LETTER_SCALE) / 2)
     const colour = letter === faced ? FOREGROUND : FOREGROUND_WORN
     return textPixels(letter, LETTER_SCALE).map((p) => ({ x: left + p.x, y: top + p.y, colour }))
   })
-  const ticks = COMPASS_LETTERS.flatMap(({ yaw: letterYaw }) => {
-    const angle = letterYaw + Math.PI / 4 - yaw
-    const outer = onRose(angle, COMPASS_RADIUS - 2)
-    const inner = onRose(angle, COMPASS_RADIUS - 2 - TICK_LENGTH)
-    return linePoints(outer.x, outer.y, inner.x, inner.y).map((p) => ({ ...p, colour: FOREGROUND_DIM }))
-  })
-  return [...ringPixels(), ...ticks, ...letters, ...markerPixels()]
+  return [...arcPixels(), ...letters, ...markerPixels()]
 }

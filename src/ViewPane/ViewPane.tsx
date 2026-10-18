@@ -26,16 +26,16 @@ import './ViewPane.scss'
 // Drawing resolution of the canvas; CSS scales it up to fit the screen.
 export const VIEW_WIDTH = 320
 export const VIEW_HEIGHT = 240
-// The pane is split into the room in the upper left (70% of its width, 60% of
-// its height), a panel below the room and a panel down the right. Panels are
-// drawn at the same pixel scale as the room, and the 5-pixel bands dividing
-// the areas come out of the panels.
+// The pane is split into the room in the upper left (70% of the pane's width),
+// a panel below the room and a panel down the right. The lower panel is as
+// tall as the side panel is wide. Panels are drawn at the same pixel scale as
+// the room, and the 5-pixel bands dividing the areas come out of the panels.
 const PANE_WIDTH = 457
-const PANE_HEIGHT = 400
 const DIVIDER_THICKNESS = 5
-export const LOWER_PANEL_WIDTH = VIEW_WIDTH
-export const LOWER_PANEL_HEIGHT = PANE_HEIGHT - VIEW_HEIGHT - DIVIDER_THICKNESS
 export const SIDE_PANEL_WIDTH = PANE_WIDTH - VIEW_WIDTH - DIVIDER_THICKNESS
+export const LOWER_PANEL_WIDTH = VIEW_WIDTH
+export const LOWER_PANEL_HEIGHT = SIDE_PANEL_WIDTH
+const PANE_HEIGHT = VIEW_HEIGHT + DIVIDER_THICKNESS + LOWER_PANEL_HEIGHT
 export const SIDE_PANEL_HEIGHT = PANE_HEIGHT
 
 // How long a quarter turn and a step forward take to animate.

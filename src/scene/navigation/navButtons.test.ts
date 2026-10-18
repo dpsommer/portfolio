@@ -8,7 +8,7 @@ import type { NavButton } from './navButtons.ts'
 
 // The lower panel's drawing size, which the buttons must fit in.
 const PANEL_WIDTH = 320
-const PANEL_HEIGHT = 155
+const PANEL_HEIGHT = 132
 const BUTTONS: NavButton[] = ['forward', 'back', 'left', 'right']
 const ALL_ENABLED: Record<NavButton, boolean> = { forward: true, back: true, left: true, right: true }
 const ARROW_CELLS = ARROW_MAP.join('').split('').filter((cell) => cell === '#').length
@@ -58,42 +58,56 @@ describe('NAV_BUTTON_BOUNDS', () => {
     expect(bottom).toBeLessThan(PANEL_HEIGHT)
   })
 
-  it('puts forward above back in one column', () => {
+  it('puts forward directly above back', () => {
     const { forward, back } = NAV_BUTTON_BOUNDS
 
     expect(forward.left).toBe(back.left)
+    expect(forward.right).toBe(back.right)
     expect(forward.bottom).toBeLessThan(back.top)
   })
 
-  it('puts left and right either side in one row', () => {
-    const { left, right } = NAV_BUTTON_BOUNDS
+  it('puts left, back and right flush in one row', () => {
+    const { back, left, right } = NAV_BUTTON_BOUNDS
 
-    expect(left.top).toBe(right.top)
-    expect(left.right).toBeLessThan(right.left)
+    for (const button of [left, right]) {
+      expect(button.top).toBe(back.top)
+      expect(button.bottom).toBe(back.bottom)
+    }
+    expect(left.right).toBeLessThan(back.left)
+    expect(back.right).toBeLessThan(right.left)
   })
 
-  it('arranges them in a cross, the turns level between forward and back', () => {
+  it('lays them out like arrow keys: forward alone on the top row', () => {
     const { forward, back, left, right } = NAV_BUTTON_BOUNDS
 
+    expect(forward.bottom).toBeLessThan(left.top)
+    expect(forward.bottom).toBeLessThan(right.top)
     expect(left.right).toBeLessThan(forward.left)
     expect(right.left).toBeGreaterThan(forward.right)
-    expect(left.top).toBeGreaterThan(forward.bottom)
-    expect(left.bottom).toBeLessThan(back.top)
-    expect(centreOf(left).y).toBe((centreOf(forward).y + centreOf(back).y) / 2)
-    expect(centreOf(forward).x).toBe((centreOf(left).x + centreOf(right).x) / 2)
+    expect(centreOf(back).x).toBe((centreOf(left).x + centreOf(right).x) / 2)
   })
 
-  it('leaves a gap between neighbouring buttons', () => {
+  it('leaves a 2-pixel gap between neighbouring buttons', () => {
     const { forward, back, left, right } = NAV_BUTTON_BOUNDS
 
-    expect(left.top - forward.bottom).toBeGreaterThan(1)
-    expect(back.top - left.bottom).toBeGreaterThan(1)
-    expect(forward.left - left.right).toBeGreaterThan(1)
-    expect(right.left - forward.right).toBeGreaterThan(1)
+    expect(back.top - forward.bottom - 1).toBe(2)
+    expect(back.left - left.right - 1).toBe(2)
+    expect(right.left - back.right - 1).toBe(2)
   })
 
-  it('centres the pad on the compass\'s height', () => {
-    expect(Math.abs(centreOf(NAV_BUTTON_BOUNDS.left).y - COMPASS_CENTRE.y)).toBeLessThanOrEqual(1)
+  it('puts the top row at y 35 to 64 and the bottom row at 67 to 96', () => {
+    const { forward, back, left, right } = NAV_BUTTON_BOUNDS
+
+    expect([forward.top, forward.bottom]).toEqual([35, 64])
+    for (const button of [back, left, right]) expect([button.top, button.bottom]).toEqual([67, 96])
+  })
+
+  it('centres the two rows on y 66 and the columns on x 230', () => {
+    const { forward, back, left, right } = NAV_BUTTON_BOUNDS
+
+    // Pixel n covers n to n + 1, so the pad spans top to bottom + 1.
+    expect((forward.top + back.bottom + 1) / 2).toBe(66)
+    expect((left.left + right.right + 1) / 2).toBe(230)
   })
 })
 
@@ -129,21 +143,23 @@ describe('navButtonAt', () => {
     expect(navButtonAt(x, bottom + 1)).toBeNull()
   })
 
-  it('finds nothing in the middle of the cross', () => {
-    const middle = { x: centreOf(NAV_BUTTON_BOUNDS.forward).x, y: centreOf(NAV_BUTTON_BOUNDS.left).y }
+  it('finds nothing above the left and right buttons, either side of forward', () => {
+    const { forward, left, right } = NAV_BUTTON_BOUNDS
 
-    expect(navButtonAt(middle.x, middle.y)).toBeNull()
+    expect(navButtonAt(centreOf(left).x, centreOf(forward).y)).toBeNull()
+    expect(navButtonAt(centreOf(right).x, centreOf(forward).y)).toBeNull()
   })
 
   it('finds nothing over the compass', () => {
     expect(navButtonAt(COMPASS_CENTRE.x, COMPASS_CENTRE.y)).toBeNull()
   })
 
-  it('finds nothing in the gap between forward and left', () => {
-    const { forward, left } = NAV_BUTTON_BOUNDS
+  it('finds nothing in the gaps between the buttons', () => {
+    const { forward, back, left } = NAV_BUTTON_BOUNDS
 
-    expect(navButtonAt(forward.left - 1, centreOf(left).y)).toBeNull()
     expect(navButtonAt(centreOf(forward).x, forward.bottom + 1.5)).toBeNull()
+    expect(navButtonAt(left.right + 1.5, centreOf(back).y)).toBeNull()
+    expect(navButtonAt(back.right + 1.5, centreOf(back).y)).toBeNull()
   })
 
   it.each([

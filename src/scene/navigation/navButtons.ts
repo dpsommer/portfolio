@@ -2,28 +2,32 @@ import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
 import type { Bounds } from '../signpost/signpost.ts'
 
-// Four direction buttons in a cross to the right of the compass, in panel
-// canvas pixels: forward on top, back below, turns either side.
+// Four direction buttons to the right of the compass, laid out like a
+// keyboard's arrow keys, in panel canvas pixels: forward on top, and back in
+// a row with the turns either side of it.
 export type NavButton = 'forward' | 'back' | 'left' | 'right'
 
-const PAD_CENTRE = { x: 230, y: 80 }
+// The centre of the two rows of buttons.
+const PAD_CENTRE = { x: 230, y: 66 }
 export const BUTTON_SIZE = 30
 const BUTTON_GAP = 2
 const INNER_INSET = 2
 
+// Bounds of the button in `column` (−1 to 1, from the left) and `row` (0 on
+// top, 1 below).
 function buttonAt(column: number, row: number): Bounds {
   const step = BUTTON_SIZE + BUTTON_GAP
   const left = Math.round(PAD_CENTRE.x - BUTTON_SIZE / 2) + column * step
-  const top = Math.round(PAD_CENTRE.y - BUTTON_SIZE / 2) + row * step
+  const top = Math.round(PAD_CENTRE.y - step + BUTTON_GAP / 2) + row * step
   return { left, top, right: left + BUTTON_SIZE - 1, bottom: top + BUTTON_SIZE - 1 }
 }
 
 // Inclusive bounds of each button.
 export const NAV_BUTTON_BOUNDS: Record<NavButton, Bounds> = {
-  forward: buttonAt(0, -1),
+  forward: buttonAt(0, 0),
+  left: buttonAt(-1, 1),
   back: buttonAt(0, 1),
-  left: buttonAt(-1, 0),
-  right: buttonAt(1, 0),
+  right: buttonAt(1, 1),
 }
 
 const NAV_BUTTONS = Object.keys(NAV_BUTTON_BOUNDS) as NavButton[]
