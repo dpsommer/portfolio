@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
-import { FOREGROUND } from '../scene/core/palette.ts'
+import { BACKGROUND, FOREGROUND } from '../scene/core/palette.ts'
 import { drawScene } from '../scene/draw.ts'
 import type { MirrorExtras } from '../scene/draw.ts'
 import { mirrorPixels, plaquePixels, previewPixels, pullPixels, screenToMirror } from '../scene/mirror/pixels.ts'
@@ -13,7 +13,11 @@ import { PLACES } from '../scene/navigation/places.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import ViewPane, {
+  LOWER_PANEL_HEIGHT,
+  LOWER_PANEL_WIDTH,
   MOVE_DURATION_MS,
+  SIDE_PANEL_HEIGHT,
+  SIDE_PANEL_WIDTH,
   SWITCH_DURATION_MS,
   TURN_DURATION_MS,
   VIEW_HEIGHT,
@@ -216,6 +220,90 @@ describe('ViewPane', () => {
     it('renders without throwing when no canvas context is available', () => {
       expect(() => render(<ViewPane />)).not.toThrow()
       expect(screen.getByRole('img')).toBeInTheDocument()
+    })
+  })
+
+  describe('panels', () => {
+    function lowerPanel(container: HTMLElement): HTMLCanvasElement {
+      return container.querySelector<HTMLCanvasElement>('canvas.view-pane-lower')!
+    }
+
+    function sidePanel(container: HTMLElement): HTMLCanvasElement {
+      return container.querySelector<HTMLCanvasElement>('canvas.view-pane-side')!
+    }
+
+    // Gives each canvas its own fake context, recording the fill style of each
+    // fillRect, so the panels' fills can be told apart from the room's.
+    function contextPerCanvas() {
+      const contexts = new Map<HTMLCanvasElement, ReturnType<typeof createFakeContext>>()
+      const fills = new Map<HTMLCanvasElement, { args: number[]; fillStyle: string }[]>()
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (
+        this: HTMLCanvasElement,
+      ) {
+        let ctx = contexts.get(this)
+        if (!ctx) {
+          const created = createFakeContext()
+          const recorded: { args: number[]; fillStyle: string }[] = []
+          created.fillRect.mockImplementation((...args: number[]) => {
+            recorded.push({ args, fillStyle: created.fillStyle })
+          })
+          contexts.set(this, created)
+          fills.set(this, recorded)
+          ctx = created
+        }
+        return ctx as unknown as CanvasRenderingContext2D
+      } as unknown as HTMLCanvasElement['getContext'])
+      return (canvas: HTMLCanvasElement) => fills.get(canvas) ?? []
+    }
+
+    afterEach(() => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    })
+
+    it('keeps the room canvas as the only image', () => {
+      render(<ViewPane />)
+
+      expect(screen.getAllByRole('img')).toHaveLength(1)
+      expect(screen.getByRole('img')).toHaveClass('view-pane')
+    })
+
+    it('renders the lower panel at its drawing size, hidden from assistive technology', () => {
+      const { container } = render(<ViewPane />)
+
+      const panel = lowerPanel(container)
+      expect(panel).toHaveAttribute('width', String(LOWER_PANEL_WIDTH))
+      expect(panel).toHaveAttribute('height', String(LOWER_PANEL_HEIGHT))
+      expect(panel).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('renders the side panel at its drawing size, hidden from assistive technology', () => {
+      const { container } = render(<ViewPane />)
+
+      const panel = sidePanel(container)
+      expect(panel).toHaveAttribute('width', String(SIDE_PANEL_WIDTH))
+      expect(panel).toHaveAttribute('height', String(SIDE_PANEL_HEIGHT))
+      expect(panel).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it.each([
+      ['lower', lowerPanel, LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT],
+      ['side', sidePanel, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT],
+    ] as const)('fills the %s panel with the background on mount', (_, find, width, height) => {
+      const fillsOn = contextPerCanvas()
+
+      const { container } = render(<ViewPane />)
+
+      expect(fillsOn(find(container))).toEqual([{ args: [0, 0, width, height], fillStyle: BACKGROUND }])
+    })
+
+    it('leaves the room cursor unchanged when the mouse moves over a panel', () => {
+      const { canvas, container } = renderPane()
+      fireEvent.mouseMove(canvas, { clientX: LEFT_X, clientY: MIDDLE_Y })
+
+      fireEvent.mouseMove(lowerPanel(container), { clientX: RIGHT_X, clientY: MIDDLE_Y })
+      fireEvent.mouseMove(sidePanel(container), { clientX: CENTRE_X, clientY: MIDDLE_Y })
+
+      expect(canvas.style.cursor).toBe(CURSORS['turn-left'])
     })
   })
 

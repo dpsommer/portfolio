@@ -1,21 +1,81 @@
-// Size of one canvas pixel on screen. The frame is drawn in the same units so its
-// pixels line up with the scene's.
-$pane-width: min(80vw, calc(80vh * 4 / 3));
-$canvas-pixel: calc(#{$pane-width} / 320);
+// Sizes in canvas pixels; must match the constants in ViewPane.tsx. The room
+// takes the upper-left 70% × 60% of the pane, a panel sits below it and another
+// runs down the right, with dividing bands taken out of the panels.
+$room-width: 320;
+$room-height: 240;
+$pane-width: 457;
+$pane-height: 400;
 // Must match the frame thickness in frame.svg (5 of its 12 pixels on each side).
 $frame-thickness: 5;
+$divider: $frame-thickness;
+$side-width: $pane-width - $room-width - $divider;
+$lower-height: $pane-height - $room-height - $divider;
+// Size of one canvas pixel on screen: the largest that fits the pane inside
+// 80vw × 80vh. The frame and dividers are drawn in the same units so their
+// pixels line up with the scene's.
+$canvas-pixel: min(calc(80vw / #{$pane-width}), calc(80vh / #{$pane-height}));
+
+@function px($count) {
+  @return calc(#{$canvas-pixel} * #{$count});
+}
+
+$frame-black: #000000;
+$frame-worn: #9a968c;
+$frame-light: #f2efe6;
 
 .view-pane-frame {
+  display: grid;
+  grid-template-columns: px($room-width) px($divider) px($side-width);
+  grid-template-rows: px($room-height) px($divider) px($lower-height);
   // frame.svg is a 12×12 pixel-art frame: the 5px corners stay fixed and the
   // middle pixels stretch along each edge. It's an SVG of crisp-edged rects, so
   // it stays sharp at any scale.
-  border: calc(#{$canvas-pixel} * #{$frame-thickness}) solid transparent;
+  border: px($frame-thickness) solid transparent;
   border-image: url('./frame.svg') $frame-thickness;
 }
 
-.view-pane {
+%panel {
   display: block;
-  width: $pane-width;
-  aspect-ratio: 4 / 3;
+  width: 100%;
+  height: 100%;
   image-rendering: pixelated;
+}
+
+.view-pane {
+  @extend %panel;
+  grid-area: 1 / 1;
+}
+
+.view-pane-lower {
+  @extend %panel;
+  grid-area: 3 / 1;
+}
+
+.view-pane-side {
+  @extend %panel;
+  grid-area: 1 / 3 / -1 / 4;
+}
+
+// A band like the frame's, with its bevel on both sides: black, worn, light,
+// worn, black, one canvas pixel each.
+@mixin divider-band($direction) {
+  background: linear-gradient(
+    $direction,
+    $frame-black 0 px(1),
+    $frame-worn px(1) px(2),
+    $frame-light px(2) px(3),
+    $frame-worn px(3) px(4),
+    $frame-black px(4)
+  );
+}
+
+.view-pane-divider--horizontal {
+  grid-area: 2 / 1;
+  @include divider-band(to bottom);
+}
+
+// Later in the DOM than the horizontal band, so it runs unbroken where they meet.
+.view-pane-divider--vertical {
+  grid-area: 1 / 2 / -1 / 3;
+  @include divider-band(to right);
 }

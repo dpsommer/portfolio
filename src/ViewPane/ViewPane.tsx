@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
+import { BACKGROUND } from '../scene/core/palette.ts'
 import { drawScene } from '../scene/draw.ts'
 import { screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
@@ -22,6 +23,17 @@ import './ViewPane.scss'
 // Drawing resolution of the canvas; CSS scales it up to fit the screen.
 export const VIEW_WIDTH = 320
 export const VIEW_HEIGHT = 240
+// The pane is split into the room in the upper left (70% of its width, 60% of
+// its height), a panel below the room and a panel down the right. Panels are
+// drawn at the same pixel scale as the room, and the 5-pixel bands dividing
+// the areas come out of the panels.
+const PANE_WIDTH = 457
+const PANE_HEIGHT = 400
+const DIVIDER_THICKNESS = 5
+export const LOWER_PANEL_WIDTH = VIEW_WIDTH
+export const LOWER_PANEL_HEIGHT = PANE_HEIGHT - VIEW_HEIGHT - DIVIDER_THICKNESS
+export const SIDE_PANEL_WIDTH = PANE_WIDTH - VIEW_WIDTH - DIVIDER_THICKNESS
+export const SIDE_PANEL_HEIGHT = PANE_HEIGHT
 
 // How long a quarter turn and a step forward take to animate.
 export const TURN_DURATION_MS = 250
@@ -136,6 +148,8 @@ function loadPreview(src: string): Promise<Preview | null> {
 
 function ViewPane() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const lowerPanelRef = useRef<HTMLCanvasElement>(null)
+  const sidePanelRef = useRef<HTMLCanvasElement>(null)
   const [pointer, setPointer] = useState<Pointer>({
     zone: 'forward',
     overSign: false,
@@ -161,6 +175,12 @@ function ViewPane() {
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) drawView(ctx, viewRef.current, currentLook())
+    for (const panel of [lowerPanelRef.current, sidePanelRef.current]) {
+      const panelCtx = panel?.getContext('2d')
+      if (!panel || !panelCtx) continue
+      panelCtx.fillStyle = BACKGROUND
+      panelCtx.fillRect(0, 0, panel.width, panel.height)
+    }
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
@@ -368,6 +388,22 @@ function ViewPane() {
         style={{ cursor }}
         onMouseMove={handleMouseMove}
         onClick={handleClick}
+      />
+      <div className="view-pane-divider view-pane-divider--horizontal" />
+      <canvas
+        ref={lowerPanelRef}
+        className="view-pane-lower"
+        width={LOWER_PANEL_WIDTH}
+        height={LOWER_PANEL_HEIGHT}
+        aria-hidden="true"
+      />
+      <div className="view-pane-divider view-pane-divider--vertical" />
+      <canvas
+        ref={sidePanelRef}
+        className="view-pane-side"
+        width={SIDE_PANEL_WIDTH}
+        height={SIDE_PANEL_HEIGHT}
+        aria-hidden="true"
       />
     </div>
   )
