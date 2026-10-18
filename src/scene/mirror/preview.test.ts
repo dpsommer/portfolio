@@ -30,18 +30,7 @@ function patterned(): Uint8Array {
   return Uint8Array.from({ length: PREVIEW_WIDTH * PREVIEW_HEIGHT }, (_, i) => i % 4)
 }
 
-describe('preview constants', () => {
-  it('uses 128 cells per mirror unit', () => {
-    expect(PIXELS_PER_UNIT).toBe(128)
-  })
-
-  it('covers the glass at about 84x123 cells', () => {
-    expect(PREVIEW_WIDTH).toBeGreaterThanOrEqual(83)
-    expect(PREVIEW_WIDTH).toBeLessThanOrEqual(85)
-    expect(PREVIEW_HEIGHT).toBeGreaterThanOrEqual(122)
-    expect(PREVIEW_HEIGHT).toBeLessThanOrEqual(124)
-  })
-
+describe('PREVIEW_COLOURS', () => {
   it('maps tones 0-3 to the background, dim, worn and full foreground', () => {
     expect(PREVIEW_COLOURS).toEqual([BACKGROUND, FOREGROUND_DIM, FOREGROUND_WORN, FOREGROUND])
   })
@@ -52,34 +41,21 @@ describe('quantisePreview', () => {
     expect(quantisePreview(uniform(5, 3, 128), 5, 3)).toHaveLength(15)
   })
 
-  it('turns black into tone 0', () => {
-    expect([...quantisePreview(uniform(8, 8, 0), 8, 8)].every((tone) => tone === 0)).toBe(true)
-  })
-
-  it('turns white into tone 3 wherever the dither threshold is above 0', () => {
-    const tones = quantisePreview(uniform(8, 8, 255), 8, 8)
-    const offZero = [...tones].filter((_, i) => i % 4 !== 0 || Math.floor(i / 8) % 4 !== 0)
-    expect(offZero.every((tone) => tone === 3)).toBe(true)
-  })
-
   it('turns white into tone 3 everywhere', () => {
     expect([...quantisePreview(uniform(8, 8, 255), 8, 8)].every((tone) => tone === 3)).toBe(true)
   })
 
-  it.each([10, 20, Math.floor(0.1 * 255)])('turns near-black grey %i, at or below the black point, into tone 0', (level) => {
+  it.each([0, 10, 20, Math.floor(0.1 * 255)])('turns black or near-black grey %i, at or below the black point, into tone 0', (level) => {
     expect([...quantisePreview(uniform(8, 8, level), 8, 8)].every((tone) => tone === 0)).toBe(true)
   })
 
-  it('dithers a mid-grey into a mix of two adjacent tones', () => {
-    // Half-way between tones 1 and 2 after the black point.
-    const level = Math.round((0.1 + 0.9 * 0.5) * 255)
-    const tones = new Set(quantisePreview(uniform(8, 8, level), 8, 8))
-    expect(tones).toEqual(new Set([1, 2]))
-  })
-
-  it('dithers a grey just above the black point into a mix of tones 0 and 1', () => {
-    const level = Math.round((0.1 + 0.9 * 0.15) * 255)
-    expect(new Set(quantisePreview(uniform(8, 8, level), 8, 8))).toEqual(new Set([0, 1]))
+  // Levels as a fraction of the way from the black point (0.1) to white.
+  it.each([
+    ['a mid-grey, half-way between tones 1 and 2,', 0.5, [1, 2]],
+    ['a grey just above the black point', 0.15, [0, 1]],
+  ])('dithers %s into a mix of two adjacent tones', (_, fraction, tones) => {
+    const level = Math.round((0.1 + 0.9 * fraction) * 255)
+    expect(new Set(quantisePreview(uniform(8, 8, level), 8, 8))).toEqual(new Set(tones))
   })
 
   it('weights the green channel most', () => {
@@ -230,9 +206,5 @@ describe('shimmerTone', () => {
     const topLeft = GLASS_CELLS.filter(({ s, t }) => s < middle.s && t > middle.t)
     const bottomRight = GLASS_CELLS.filter(({ s, t }) => s > middle.s && t < middle.t)
     expect(mean(topLeft.map(switchAt)) + 0.1).toBeLessThan(mean(bottomRight.map(switchAt)))
-  })
-
-  it('is deterministic', () => {
-    for (const cell of CELLS) expect(shimmerTone(cell, 0, 3, 0.5)).toBe(shimmerTone(cell, 0, 3, 0.5))
   })
 })

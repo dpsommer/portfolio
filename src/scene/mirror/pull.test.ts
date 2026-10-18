@@ -15,12 +15,6 @@ const highest = (lines: MirrorLine[]) => Math.max(...allPoints(lines).map(({ t }
 const HANDLE_TOP = 0.12
 const HANDLE_HEIGHT = 0.14
 
-describe('PULL_S', () => {
-  it('hangs the pull at s 0.68', () => {
-    expect(PULL_S).toBe(0.68)
-  })
-})
-
 describe('pullLayers', () => {
   it('has a worn cord layer and a bright handle layer', () => {
     expect(pullLayers().map(({ colour }) => colour)).toEqual([FOREGROUND_WORN, FOREGROUND])
@@ -75,8 +69,6 @@ describe('pullLayers', () => {
 
   it('lowers the handle by exactly the drop', () => {
     const dropped = pullLayers(0.1)[1]
-    expect(highest(dropped.lines)).toBeCloseTo(HANDLE_TOP - 0.1)
-    expect(lowest(dropped.lines)).toBeCloseTo(lowest(HANDLE.lines) - 0.1)
     allPoints(dropped.lines).forEach((p, i) => {
       const rest = allPoints(HANDLE.lines)[i]
       expect(p.s).toBeCloseTo(rest.s)

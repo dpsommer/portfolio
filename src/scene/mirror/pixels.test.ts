@@ -1,13 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  BACK_Z,
-  CEILING_Y,
-  FLOOR_Y,
-  FOCAL_RATIO,
-  NOOK_FRONT_Z,
-  NOOK_X,
-  ORIGIN,
-} from '../core/camera.ts'
+import { FOCAL, HEIGHT, WIDTH, columnAt, expectOnCanvas, extent, rowAt } from '../../test/pixels.ts'
+import { BACK_Z, CEILING_Y, FLOOR_Y, NOOK_FRONT_Z, NOOK_X, ORIGIN } from '../core/camera.ts'
 import type { FloorPoint } from '../core/camera.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
@@ -38,15 +31,6 @@ vi.mock('./ripple.ts', async (importOriginal) => {
   return { ...actual, rippleRings: vi.fn(actual.rippleRings) }
 })
 
-const WIDTH = 320
-const HEIGHT = 240
-// Focal length in pixels at 320 wide (128).
-const FOCAL = (FOCAL_RATIO * WIDTH) / 2
-// Screen column of a point `across` units right of the view's centre line, `depth` ahead.
-const columnAt = (across: number, depth: number) => Math.round(WIDTH / 2 + (FOCAL * across) / depth)
-// Screen row of a point at height `y` (relative to the eye), `depth` ahead.
-const rowAt = (y: number, depth: number) => Math.round(HEIGHT / 2 - (FOCAL * y) / depth)
-
 const key = (p: { x: number; y: number }) => `${p.x},${p.y}`
 // The distinct pixels drawn, ignoring order and duplicates.
 const pixelSet = (pixels: Pixel[]) => new Set(pixels.map((p) => `${key(p)},${p.colour}`))
@@ -57,31 +41,46 @@ const wallEnd = ({ start, along, length }: (typeof WALLS)[WallName]) => ({
 const worn = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND_WORN)
 const dim = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND_DIM)
 
-// The inclusive extent of a set of pixels.
-const extent = (pixels: Pixel[]) => ({
-  left: Math.min(...pixels.map((p) => p.x)),
-  top: Math.min(...pixels.map((p) => p.y)),
-  right: Math.max(...pixels.map((p) => p.x)),
-  bottom: Math.max(...pixels.map((p) => p.y)),
-})
-
 // The nook's place: WALL_VIEW_DISTANCE in front of the nook's back wall, level with the start.
 const NOOK_EYE: FloorPoint = { x: PLACES.nook.x, z: PLACES.nook.z }
+const WEST = Math.PI / 2
+const EAST = (3 * Math.PI) / 2
+const CELLS = PREVIEW_WIDTH * PREVIEW_HEIGHT
+const filled = (tone: number) => new Uint8Array(CELLS).fill(tone)
+// Stripes of every tone, a few cells wide, so a ripple's shift shows.
+const striped = Uint8Array.from({ length: CELLS }, (_, i) => Math.floor((i % PREVIEW_WIDTH) / 3) % 4)
+// A full logo, every cell at the full foreground.
+const FULL_LOGO: LogoMap = Array.from({ length: LOGO_SIZE }, () => '#'.repeat(LOGO_SIZE))
+
+// Everything drawn on the mirror's wall, each as a function of the view.
+describe.each<[string, (yaw?: number, eye?: FloorPoint) => Pixel[]]>([
+  ['mirrorPixels', (yaw, eye) => mirrorPixels(WIDTH, HEIGHT, yaw, eye)],
+  ['ripplePixels', (yaw, eye) => ripplePixels(WIDTH, HEIGHT, { origin: { s: 0, t: 0 }, elapsedMs: 900 }, yaw, eye)],
+  ['previewPixels', (yaw, eye) => previewPixels(WIDTH, HEIGHT, filled(3), yaw, eye)],
+  ['pullPixels', (yaw, eye) => pullPixels(WIDTH, HEIGHT, 0, yaw, eye)],
+  ['plaquePixels', (yaw, eye) => plaquePixels(WIDTH, HEIGHT, { logo: FULL_LOGO }, yaw, eye)],
+])('%s', (_, draw) => {
+  it('draws at integer coordinates within the canvas from the nook facing west', () => {
+    const pixels = draw(WEST, NOOK_EYE)
+    expect(pixels.length).toBeGreaterThan(0)
+    expectOnCanvas(pixels)
+  })
+
+  it('draws nothing from the nook facing east, with the mirror\'s wall behind the camera', () => {
+    expect(draw(EAST, NOOK_EYE)).toEqual([])
+  })
+
+  it('defaults to the start facing north', () => {
+    expect(draw()).toEqual(draw(0, ORIGIN))
+  })
+})
 
 describe('mirrorPixels', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
   // The mirror's wall is straight ahead of the nook's place facing west.
   const depth = PLACES.nook.x - NOOK_X
   const wallTop = rowAt(CEILING_Y, depth)
   const wallBottom = rowAt(FLOOR_Y, depth)
   const fromNook = mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)
-  const extent = (pixels: Pixel[]) => ({
-    left: Math.min(...pixels.map((p) => p.x)),
-    right: Math.max(...pixels.map((p) => p.x)),
-    top: Math.min(...pixels.map((p) => p.y)),
-    bottom: Math.max(...pixels.map((p) => p.y)),
-  })
 
   it('hangs on the nook\'s back wall, which faces the nook\'s place', () => {
     const wall = WALLS[MIRROR_WALL]
@@ -93,25 +92,6 @@ describe('mirrorPixels', () => {
 
   it('fits within its wall', () => {
     expect(MIRROR_BOUNDS.right - MIRROR_BOUNDS.left).toBeLessThan(WALLS[MIRROR_WALL].length)
-  })
-
-  it('draws the mirror from the nook facing west', () => {
-    expect(fromNook.length).toBeGreaterThan(0)
-  })
-
-  it('is deterministic', () => {
-    expect(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE)).toEqual(fromNook)
-  })
-
-  it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of fromNook) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
-    }
   })
 
   it('uses the dim, worn and full foreground colours', () => {
@@ -139,14 +119,6 @@ describe('mirrorPixels', () => {
   it('is centred vertically near the middle of the view', () => {
     const { top, bottom } = extent(fromNook)
     expect(Math.abs((top + bottom) / 2 - HEIGHT / 2)).toBeLessThan(HEIGHT * 0.05)
-  })
-
-  it('draws nothing from the nook facing east, with the mirror behind the camera', () => {
-    expect(mirrorPixels(WIDTH, HEIGHT, EAST, NOOK_EYE)).toEqual([])
-  })
-
-  it('defaults to the start facing north', () => {
-    expect(mirrorPixels(WIDTH, HEIGHT)).toEqual(mirrorPixels(WIDTH, HEIGHT, 0, ORIGIN))
   })
 
   it('draws a smaller mirror from the start facing west', () => {
@@ -177,18 +149,12 @@ describe('mirrorPixels', () => {
 })
 
 describe('ripplePixels', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
   const CENTRE: MirrorPoint = { s: 0, t: 0 }
   const duration = rippleDuration(CENTRE)
   // Every ring has started and the first is part-way out.
   const MID_MS = 900
   const fromNook = (origin: MirrorPoint, elapsedMs: number) =>
     ripplePixels(WIDTH, HEIGHT, { origin, elapsedMs }, WEST, NOOK_EYE)
-
-  it('draws pixels mid-ripple from the nook facing west', () => {
-    expect(fromNook(CENTRE, MID_MS).length).toBeGreaterThan(0)
-  })
 
   it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
     const { left, top, right, bottom } = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
@@ -197,17 +163,6 @@ describe('ripplePixels', () => {
         const outside = fromNook(origin, ms).filter(({ x, y }) => x < left || x > right || y < top || y > bottom)
         expect(outside).toEqual([])
       }
-    }
-  })
-
-  it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of fromNook(CENTRE, MID_MS)) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
     }
   })
 
@@ -225,14 +180,6 @@ describe('ripplePixels', () => {
 
   it('draws nothing past the duration', () => {
     expect(fromNook(CENTRE, duration + 1)).toEqual([])
-  })
-
-  it('draws nothing from the nook facing east, with the mirror behind the camera', () => {
-    expect(ripplePixels(WIDTH, HEIGHT, { origin: CENTRE, elapsedMs: MID_MS }, EAST, NOOK_EYE)).toEqual([])
-  })
-
-  it('is deterministic', () => {
-    expect(fromNook(CENTRE, duration - 100)).toEqual(fromNook(CENTRE, duration - 100))
   })
 
   it('draws strong rings in the worn colour', () => {
@@ -285,16 +232,10 @@ describe('ripplePixels', () => {
       const counts = [0.3, 0.2, 0.1, 0.02].map((strength) => ringWith(strength).length)
       for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThan(counts[i - 1])
     })
-
-    it('drops the same pixels each time', () => {
-      expect(ringWith(0.15)).toEqual(ringWith(0.15))
-    })
   })
 })
 
 describe('screenToMirror', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
   // One canvas pixel on the mirror's wall from the nook, in mirror units.
   const PIXEL = 1 / FOCAL
   const fromNook = (x: number, y: number) => screenToMirror(x, y, WIDTH, HEIGHT, WEST, NOOK_EYE)
@@ -305,18 +246,10 @@ describe('screenToMirror', () => {
     expect(point.t).toBeCloseTo(0)
   })
 
-  it('maps one pixel to about 1/128 of a mirror unit', () => {
+  it('maps one pixel right to about 1/128 of a mirror unit of +s, and one up to as much +t', () => {
     expect(PIXEL).toBeCloseTo(1 / 128)
     expect(fromNook(WIDTH / 2 + 10, HEIGHT / 2)!.s).toBeCloseTo(10 * PIXEL)
     expect(fromNook(WIDTH / 2, HEIGHT / 2 - 10)!.t).toBeCloseTo(10 * PIXEL)
-  })
-
-  it('maps right on screen to +s', () => {
-    expect(fromNook(WIDTH / 2 + 20, HEIGHT / 2)!.s).toBeGreaterThan(0)
-  })
-
-  it('maps up on screen to +t', () => {
-    expect(fromNook(WIDTH / 2, HEIGHT / 2 - 20)!.t).toBeGreaterThan(0)
   })
 
   it('returns points on the glass', () => {
@@ -375,25 +308,16 @@ describe('screenToMirror', () => {
 })
 
 describe('previewPixels', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
-  const CELLS = PREVIEW_WIDTH * PREVIEW_HEIGHT
-  const filled = (tone: number) => new Uint8Array(CELLS).fill(tone)
-  // Stripes of every tone, a few cells wide, so a ripple's shift shows.
-  const striped = Uint8Array.from({ length: CELLS }, (_, i) => Math.floor((i % PREVIEW_WIDTH) / 3) % 4)
   const fromNook = (preview: Uint8Array, ripple?: { origin: MirrorPoint; elapsedMs: number }) =>
     previewPixels(WIDTH, HEIGHT, preview, WEST, NOOK_EYE, ripple)
   const within = (bounds: { left: number; top: number; right: number; bottom: number }, p: Pixel) =>
     p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom
 
-  it('draws one pixel per glass cell in the full foreground from the nook facing west', () => {
+  it('draws each glass cell at its own pixel in the full foreground from the nook facing west', () => {
     const pixels = fromNook(filled(3))
     expect(pixels).toHaveLength(GLASS_CELLS.length)
+    expect(new Set(pixels.map(key)).size).toBe(GLASS_CELLS.length)
     expect(new Set(pixels.map((p) => p.colour))).toEqual(new Set([FOREGROUND]))
-  })
-
-  it('draws each cell at its own pixel from the nook facing west', () => {
-    expect(new Set(fromNook(filled(3)).map(key)).size).toBe(GLASS_CELLS.length)
   })
 
   it('draws one pixel per glass cell facing west again after a full turn', () => {
@@ -405,17 +329,6 @@ describe('previewPixels', () => {
   it('keeps every pixel within the mirror\'s bounds from the nook facing west', () => {
     const bounds = extent(mirrorPixels(WIDTH, HEIGHT, WEST, NOOK_EYE))
     expect(fromNook(filled(3)).every((p) => within(bounds, p))).toBe(true)
-  })
-
-  it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of fromNook(filled(3))) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
-    }
   })
 
   it.each([1, 2, 3])('colours tone %i with its preview colour', (tone) => {
@@ -431,20 +344,12 @@ describe('previewPixels', () => {
     expect(fromNook(striped).every((p) => p.colour !== PREVIEW_COLOURS[0])).toBe(true)
   })
 
-  it('draws nothing from the nook facing east, with the mirror behind the camera', () => {
-    expect(previewPixels(WIDTH, HEIGHT, filled(3), EAST, NOOK_EYE)).toEqual([])
-  })
-
   it('draws fewer pixels from the start facing west, all within that view\'s mirror bounds', () => {
     const pixels = previewPixels(WIDTH, HEIGHT, filled(3), WEST, ORIGIN)
     const bounds = extent(mirrorPixels(WIDTH, HEIGHT, WEST, ORIGIN))
     expect(pixels.length).toBeGreaterThan(0)
     expect(new Set(pixels.map(key)).size).toBeLessThan(GLASS_CELLS.length)
     expect(pixels.every((p) => within(bounds, p))).toBe(true)
-  })
-
-  it('defaults to the start facing north, where the mirror is out of view', () => {
-    expect(previewPixels(WIDTH, HEIGHT, filled(3))).toEqual(previewPixels(WIDTH, HEIGHT, filled(3), 0, ORIGIN))
   })
 
   it('changes some pixels of a patterned preview mid-ripple', () => {
@@ -454,26 +359,62 @@ describe('previewPixels', () => {
     expect(rippled).not.toEqual(still)
   })
 
-  it('draws the plain preview once the ripple is over', () => {
-    const centre = { s: 0, t: 0 }
-    const after = fromNook(striped, { origin: centre, elapsedMs: rippleDuration(centre) + 1 })
-    expect(after).toEqual(fromNook(striped))
+  it.each([
+    ['at the moment of the click, before any ring has set off', 0],
+    ['once the ripple is over', rippleDuration({ s: 0, t: 0 }) + 1],
+  ])('draws the plain preview %s', (_, elapsedMs) => {
+    expect(fromNook(striped, { origin: { s: 0, t: 0 }, elapsedMs })).toEqual(fromNook(striped))
   })
 
-  it('draws the plain preview at the moment of the click, before any ring has set off', () => {
-    const centre = { s: 0, t: 0 }
-    expect(fromNook(striped, { origin: centre, elapsedMs: 0 })).toEqual(fromNook(striped))
-  })
+  describe('with a shimmer', () => {
+    const shimmering = (preview: Uint8Array | null, shimmer?: Shimmer, ripple?: { origin: MirrorPoint; elapsedMs: number }) =>
+      previewPixels(WIDTH, HEIGHT, preview, WEST, NOOK_EYE, ripple, shimmer)
+    const colours = (pixels: Pixel[]) => new Set(pixels.map((p) => p.colour))
 
-  it('is deterministic', () => {
-    const ripple = { origin: { s: 0.1, t: -0.2 }, elapsedMs: 900 }
-    expect(fromNook(striped, ripple)).toEqual(fromNook(striped, ripple))
+    it('draws nothing for a null preview without a shimmer', () => {
+      expect(shimmering(null)).toEqual([])
+    })
+
+    it.each([
+      ['the old preview alone at progress 0', filled(2), striped, 0],
+      ['the new preview alone at progress 1', striped, filled(2), 1],
+    ])('draws %s', (_, preview, from, progress) => {
+      expect(shimmering(preview, { from, progress })).toEqual(fromNook(striped))
+    })
+
+    it('mixes both previews mid-shimmer, with some cells flashing brighter', () => {
+      const pixels = shimmering(filled(2), { from: filled(1), progress: 0.5 })
+      expect(pixels).toHaveLength(GLASS_CELLS.length)
+      // Dim cells are still the old preview, worn cells the new one (or the old
+      // one flashing); full foreground only comes from the new one flashing.
+      expect(colours(pixels)).toEqual(new Set([FOREGROUND_DIM, FOREGROUND_WORN, FOREGROUND]))
+    })
+
+    it('fades in from empty glass when there was no old preview', () => {
+      expect(shimmering(filled(3), { from: null, progress: 0 })).toEqual([])
+      const middle = shimmering(filled(3), { from: null, progress: 0.5 })
+      expect(middle.length).toBeGreaterThan(0)
+      expect(middle.length).toBeLessThan(GLASS_CELLS.length)
+      expect(shimmering(filled(3), { from: null, progress: 1 })).toEqual(fromNook(filled(3)))
+    })
+
+    it('fades out to empty glass for a null preview', () => {
+      expect(shimmering(null, { from: filled(3), progress: 0 })).toEqual(fromNook(filled(3)))
+      const middle = shimmering(null, { from: filled(3), progress: 0.5 })
+      expect(middle.length).toBeGreaterThan(0)
+      expect(middle.length).toBeLessThan(GLASS_CELLS.length)
+      expect(shimmering(null, { from: filled(3), progress: 1 })).toEqual([])
+    })
+
+    it('ignores a ripple while shimmering', () => {
+      const centre = { s: 0, t: 0 }
+      const ripple = { origin: centre, elapsedMs: rippleDuration(centre) / 2 }
+      expect(shimmering(striped, { from: null, progress: 1 }, ripple)).toEqual(fromNook(striped))
+    })
   })
 })
 
 describe('screenToWall', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
   const PIXEL = 1 / FOCAL
   const fromNook = (x: number, y: number) => screenToWall(x, y, WIDTH, HEIGHT, WEST, NOOK_EYE)
 
@@ -553,32 +494,11 @@ describe('screenToWall', () => {
 })
 
 describe('pullPixels', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
   const fromNook = (drop = 0) => pullPixels(WIDTH, HEIGHT, drop, WEST, NOOK_EYE)
   const handle = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND)
 
-  it('draws the pull from the nook facing west', () => {
-    expect(fromNook().length).toBeGreaterThan(0)
-  })
-
-  it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of fromNook()) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
-    }
-  })
-
   it('uses the worn and full foreground colours', () => {
     expect(new Set(fromNook().map((p) => p.colour))).toEqual(new Set([FOREGROUND_WORN, FOREGROUND]))
-  })
-
-  it('is deterministic', () => {
-    expect(fromNook(0.05)).toEqual(fromNook(0.05))
   })
 
   it('defaults to no drop', () => {
@@ -616,10 +536,6 @@ describe('pullPixels', () => {
     expect(cord(fromNook(0.1)).length).toBeGreaterThan(cord(fromNook()).length)
   })
 
-  it('draws nothing from the nook facing east, with the pull behind the camera', () => {
-    expect(pullPixels(WIDTH, HEIGHT, 0, EAST, NOOK_EYE)).toEqual([])
-  })
-
   it('draws a smaller pull from the start facing west', () => {
     const fromStart = pullPixels(WIDTH, HEIGHT, 0, WEST)
     expect(fromStart.length).toBeGreaterThan(0)
@@ -630,37 +546,15 @@ describe('pullPixels', () => {
 })
 
 describe('plaquePixels', () => {
-  const WEST = Math.PI / 2
-  const EAST = (3 * Math.PI) / 2
-  // A full logo, and one with only its left half filled.
-  const FULL: LogoMap = Array.from({ length: LOGO_SIZE }, () => '#'.repeat(LOGO_SIZE))
+  // A logo with only its left half filled.
   const HALF: LogoMap = Array.from({ length: LOGO_SIZE }, () => '#'.repeat(LOGO_SIZE / 2) + '.'.repeat(LOGO_SIZE / 2))
   const fromNook = (plaque: Plaque) => plaquePixels(WIDTH, HEIGHT, plaque, WEST, NOOK_EYE)
-  const resting = fromNook({ logo: FULL })
+  const resting = fromNook({ logo: FULL_LOGO })
   const logo = (pixels: Pixel[]) => pixels.filter((p) => p.colour === FOREGROUND)
   const width = (pixels: Pixel[]) => extent(pixels).right - extent(pixels).left
 
-  it('draws the plaque from the nook facing west', () => {
-    expect(resting.length).toBeGreaterThan(0)
-  })
-
-  it('uses integer coordinates within the canvas', () => {
-    for (const { x, y } of resting) {
-      expect(Number.isInteger(x)).toBe(true)
-      expect(Number.isInteger(y)).toBe(true)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(x).toBeLessThan(WIDTH)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(y).toBeLessThan(HEIGHT)
-    }
-  })
-
-  it('is deterministic', () => {
-    expect(fromNook({ logo: FULL, depth: 0.5, turn: 0.3 })).toEqual(fromNook({ logo: FULL, depth: 0.5, turn: 0.3 }))
-  })
-
   it('defaults to flush and facing out', () => {
-    expect(resting).toEqual(fromNook({ logo: FULL, depth: 0, turn: 0 }))
+    expect(resting).toEqual(fromNook({ logo: FULL_LOGO, depth: 0, turn: 0 }))
   })
 
   it('draws the niche dim, the face worn and a full logo in the full foreground', () => {
@@ -694,24 +588,24 @@ describe('plaquePixels', () => {
   })
 
   it('draws a narrower face and logo when sunk', () => {
-    const sunk = fromNook({ logo: FULL, depth: 1 })
+    const sunk = fromNook({ logo: FULL_LOGO, depth: 1 })
     expect(width(worn(sunk))).toBeLessThan(width(worn(resting)))
     // Sunk, the full logo is in shadow, a step down to worn.
     expect(logo(sunk)).toEqual([])
   })
 
   it('keeps the niche the same when sunk', () => {
-    expect(extent(fromNook({ logo: FULL, depth: 1 }))).toEqual(extent(resting))
+    expect(extent(fromNook({ logo: FULL_LOGO, depth: 1 }))).toEqual(extent(resting))
   })
 
   it('draws a narrower face and logo while turning', () => {
-    const turning = fromNook({ logo: FULL, turn: 0.3 })
+    const turning = fromNook({ logo: FULL_LOGO, turn: 0.3 })
     expect(width(worn(turning))).toBeLessThan(width(worn(resting)))
     expect(width(logo(turning))).toBeLessThan(width(logo(resting)))
   })
 
   it('draws the face and logo as one column edge-on', () => {
-    const edgeOn = fromNook({ logo: FULL, turn: 0.5 })
+    const edgeOn = fromNook({ logo: FULL_LOGO, turn: 0.5 })
     expect(width(worn(edgeOn))).toBeLessThanOrEqual(1)
     expect(width(logo(edgeOn))).toBe(0)
   })
@@ -741,74 +635,9 @@ describe('plaquePixels', () => {
     expect(plaquePixels(WIDTH, HEIGHT, { logo: HALF }, turnedRound, NOOK_EYE)).toEqual(fromNook({ logo: HALF }))
   })
 
-  it('draws nothing from the nook facing east, with the plaque behind the camera', () => {
-    expect(plaquePixels(WIDTH, HEIGHT, { logo: FULL }, EAST, NOOK_EYE)).toEqual([])
-  })
-
   it('draws a smaller plaque from the start facing west', () => {
-    const fromStart = plaquePixels(WIDTH, HEIGHT, { logo: FULL }, WEST)
+    const fromStart = plaquePixels(WIDTH, HEIGHT, { logo: FULL_LOGO }, WEST)
     expect(fromStart.length).toBeGreaterThan(0)
     expect(width(fromStart)).toBeLessThan(width(resting))
-  })
-
-  it('defaults to facing north from the start', () => {
-    expect(plaquePixels(WIDTH, HEIGHT, { logo: FULL })).toEqual(plaquePixels(WIDTH, HEIGHT, { logo: FULL }, 0, ORIGIN))
-  })
-})
-
-describe('previewPixels with a shimmer', () => {
-  const WEST = Math.PI / 2
-  const CELLS = PREVIEW_WIDTH * PREVIEW_HEIGHT
-  const filled = (tone: number) => new Uint8Array(CELLS).fill(tone)
-  const striped = Uint8Array.from({ length: CELLS }, (_, i) => Math.floor((i % PREVIEW_WIDTH) / 3) % 4)
-  const fromNook = (preview: Uint8Array | null, shimmer?: Shimmer, ripple?: { origin: MirrorPoint; elapsedMs: number }) =>
-    previewPixels(WIDTH, HEIGHT, preview, WEST, NOOK_EYE, ripple, shimmer)
-  const colours = (pixels: Pixel[]) => new Set(pixels.map((p) => p.colour))
-
-  it('draws nothing for a null preview without a shimmer', () => {
-    expect(fromNook(null)).toEqual([])
-  })
-
-  it('draws the old preview alone at progress 0', () => {
-    expect(fromNook(filled(2), { from: striped, progress: 0 })).toEqual(fromNook(striped))
-  })
-
-  it('draws the new preview alone at progress 1', () => {
-    expect(fromNook(striped, { from: filled(2), progress: 1 })).toEqual(fromNook(striped))
-  })
-
-  it('mixes both previews mid-shimmer, with some cells flashing brighter', () => {
-    const pixels = fromNook(filled(2), { from: filled(1), progress: 0.5 })
-    expect(pixels).toHaveLength(GLASS_CELLS.length)
-    // Dim cells are still the old preview, worn cells the new one (or the old
-    // one flashing); full foreground only comes from the new one flashing.
-    expect(colours(pixels)).toEqual(new Set([FOREGROUND_DIM, FOREGROUND_WORN, FOREGROUND]))
-  })
-
-  it('fades in from empty glass when there was no old preview', () => {
-    expect(fromNook(filled(3), { from: null, progress: 0 })).toEqual([])
-    const middle = fromNook(filled(3), { from: null, progress: 0.5 })
-    expect(middle.length).toBeGreaterThan(0)
-    expect(middle.length).toBeLessThan(GLASS_CELLS.length)
-    expect(fromNook(filled(3), { from: null, progress: 1 })).toEqual(fromNook(filled(3)))
-  })
-
-  it('fades out to empty glass for a null preview', () => {
-    expect(fromNook(null, { from: filled(3), progress: 0 })).toEqual(fromNook(filled(3)))
-    const middle = fromNook(null, { from: filled(3), progress: 0.5 })
-    expect(middle.length).toBeGreaterThan(0)
-    expect(middle.length).toBeLessThan(GLASS_CELLS.length)
-    expect(fromNook(null, { from: filled(3), progress: 1 })).toEqual([])
-  })
-
-  it('ignores a ripple while shimmering', () => {
-    const centre = { s: 0, t: 0 }
-    const ripple = { origin: centre, elapsedMs: rippleDuration(centre) / 2 }
-    expect(fromNook(striped, { from: null, progress: 1 }, ripple)).toEqual(fromNook(striped))
-  })
-
-  it('is deterministic', () => {
-    const shimmer = { from: striped, progress: 0.4 }
-    expect(fromNook(filled(2), shimmer)).toEqual(fromNook(filled(2), shimmer))
   })
 })

@@ -74,14 +74,12 @@ describe('MIRROR_LAYERS', () => {
     }
   })
 
-  it('makes the frame and its ornaments left/right symmetric', () => {
-    const keys = new Set(FRAME.lines.map(lineKey))
-    for (const line of FRAME.lines) expect(keys.has(lineKey(reflect(line)))).toBe(true)
-  })
-
-  it('makes the glass edge left/right symmetric', () => {
-    const keys = new Set(GLASS.lines.map(lineKey))
-    for (const line of GLASS.lines) expect(keys.has(lineKey(reflect(line)))).toBe(true)
+  it.each([
+    ['the frame and its ornaments', FRAME],
+    ['the glass edge', GLASS],
+  ])('makes %s left/right symmetric', (_, { lines }) => {
+    const keys = new Set(lines.map(lineKey))
+    for (const line of lines) expect(keys.has(lineKey(reflect(line)))).toBe(true)
   })
 
   it('puts the glints on the glass, inside its edge', () => {
@@ -150,11 +148,8 @@ describe('GLASS_OUTLINE', () => {
 })
 
 describe('isOnGlass', () => {
-  it('is true at the centre', () => {
-    expect(isOnGlass({ s: 0, t: 0 })).toBe(true)
-  })
-
   it.each([
+    ['at the centre', 0, 0],
     ['near the top of the arch', 0, 0.45],
     ['inside the arch, off the centre line', 0.2, 0.35],
     ['near a straight side', -0.32, -0.2],
@@ -164,28 +159,20 @@ describe('isOnGlass', () => {
   })
 
   it.each([
-    ['the top right shoulder corner', 0.3, 0.45],
-    ['the top left shoulder corner', -0.3, 0.45],
-  ])('is false at %s, outside the arch', (_, s, t) => {
-    expect(isOnGlass({ s, t })).toBe(false)
-  })
-
-  it.each([
-    ['right side', 0.36, 0],
-    ['left side', -0.36, 0],
-    ['arch', 0, 0.52],
-    ['bottom', 0, -0.52],
-  ])('is false on the frame band at the %s', (_, s, t) => {
+    ['at the top right shoulder corner, outside the arch', 0.3, 0.45],
+    ['at the top left shoulder corner, outside the arch', -0.3, 0.45],
+    ['on the frame band at the right side', 0.36, 0],
+    ['on the frame band at the left side', -0.36, 0],
+    ['on the frame band at the arch', 0, 0.52],
+    ['on the frame band at the bottom', 0, -0.52],
+    ['outside the mirror altogether', 1, 0],
+  ])('is false %s', (_, s, t) => {
     expect(isOnGlass({ s, t })).toBe(false)
   })
 
   it('is true on the bottom edge and false just below it', () => {
     expect(isOnGlass({ s: 0, t: -0.48 })).toBe(true)
     expect(isOnGlass({ s: 0, t: -0.481 })).toBe(false)
-  })
-
-  it('is false outside the mirror altogether', () => {
-    expect(isOnGlass({ s: 1, t: 0 })).toBe(false)
   })
 
   // The outline is the boundary, so test points a hair inside it, clear of rounding.
