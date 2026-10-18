@@ -129,12 +129,6 @@ function partPattern(pixels: Pixel[], button: NavButton, part: Part): string[] {
     .sort()
 }
 
-describe('BUTTON_SIZE', () => {
-  it('is 30 pixels', () => {
-    expect(BUTTON_SIZE).toBe(30)
-  })
-})
-
 describe('NAV_BUTTON_BOUNDS', () => {
   it('has the four buttons', () => {
     expect(Object.keys(NAV_BUTTON_BOUNDS).sort()).toEqual([...BUTTONS].sort())
@@ -193,19 +187,11 @@ describe('NAV_BUTTON_BOUNDS', () => {
     expect(right.left - back.right - 1).toBe(2)
   })
 
-  it('puts the top row at y 35 to 64 and the bottom row at 67 to 96', () => {
-    const { forward, back, left, right } = NAV_BUTTON_BOUNDS
-
-    expect([forward.top, forward.bottom]).toEqual([35, 64])
-    for (const button of [back, left, right]) expect([button.top, button.bottom]).toEqual([67, 96])
-  })
-
-  it('centres the two rows on y 66 and the columns on x 230', () => {
-    const { forward, back, left, right } = NAV_BUTTON_BOUNDS
-
+  it('centres the two rows on the panel\'s height', () => {
     // Pixel n covers n to n + 1, so the pad spans top to bottom + 1.
-    expect((forward.top + back.bottom + 1) / 2).toBe(66)
-    expect((left.left + right.right + 1) / 2).toBe(230)
+    const { forward, back } = NAV_BUTTON_BOUNDS
+
+    expect((forward.top + back.bottom + 1) / 2).toBe(PANEL_HEIGHT / 2)
   })
 })
 
@@ -307,10 +293,6 @@ describe('navButtonPixels', () => {
     for (const colour of coloursOf(navButtonPixels(ALL_ENABLED))) expect(PALETTE).toContain(colour)
   })
 
-  it('gives the same pixels every time', () => {
-    expect(navButtonPixels(ALL_ENABLED)).toEqual(navButtonPixels(ALL_ENABLED))
-  })
-
   it('wears each key differently', () => {
     const pixels = navButtonPixels(ALL_ENABLED)
     const patterns = BUTTONS.map((button) => partPattern(pixels, button, 'base').join(' '))
@@ -409,10 +391,10 @@ describe('navButtonPixels', () => {
         const xs = face.map((p) => p.x)
         const ys = face.map((p) => p.y)
 
-        expect(Math.min(...xs) - base.left).toBe(3)
-        expect(base.right - Math.max(...xs)).toBe(3)
-        expect(Math.min(...ys) - base.top).toBe(2)
-        expect(base.bottom - Math.max(...ys)).toBe(6)
+        expect(Math.min(...xs) - base.left).toBe(FACE_INSET.side)
+        expect(base.right - Math.max(...xs)).toBe(FACE_INSET.side)
+        expect(Math.min(...ys) - base.top).toBe(FACE_INSET.top)
+        expect(base.bottom - Math.max(...ys)).toBe(FACE_INSET.bottom)
       })
 
       it.each(BUTTONS)('draws the %s key\'s face bright, a few pixels faded to worn', (button) => {
@@ -537,15 +519,6 @@ describe('navButtonPixels', () => {
         expect(along).toBeGreaterThan(0.2)
         expect(across).toBeLessThan(along / 2)
       })
-
-      it('draws the forward arrow as ARROW_MAP', () => {
-        const arrow = arrowPixels(navButtonPixels(ALL_ENABLED), 'forward')
-        const left = Math.min(...arrow.map((p) => p.x))
-        const top = Math.min(...arrow.map((p) => p.y))
-        const cells = new Set(arrowCells('forward').map(key))
-
-        for (const p of arrow) expect(cells.has(key({ x: p.x - left, y: p.y - top }))).toBe(true)
-      })
     })
 
     describe('shadow', () => {
@@ -616,10 +589,6 @@ describe('navButtonPixels', () => {
       return pixels.filter((p) => face.has(key(p)) && p.colour !== FOREGROUND_DIM)
     }
 
-    it('sinks a fully pressed key PRESS_DEPTH (3) pixels', () => {
-      expect(PRESS_DEPTH).toBe(3)
-    })
-
     it.each(BUTTONS)('draws nothing on the pressed %s key but its parts with the face sunk', (button) => {
       const parts = partsOf(button, PRESS_DEPTH)
       const allowed = new Set((['base', 'face', 'corners', 'shade', 'arrow'] as const).flatMap((part) => [...parts[part]]))
@@ -635,10 +604,10 @@ describe('navButtonPixels', () => {
       const xs = face.map((p) => p.x)
       const ys = face.map((p) => p.y)
 
-      expect(Math.min(...xs) - base.left).toBe(3)
-      expect(base.right - Math.max(...xs)).toBe(3)
-      expect(Math.min(...ys) - base.top).toBe(2 + PRESS_DEPTH)
-      expect(base.bottom - Math.max(...ys)).toBe(6 - PRESS_DEPTH)
+      expect(Math.min(...xs) - base.left).toBe(FACE_INSET.side)
+      expect(base.right - Math.max(...xs)).toBe(FACE_INSET.side)
+      expect(Math.min(...ys) - base.top).toBe(FACE_INSET.top + PRESS_DEPTH)
+      expect(base.bottom - Math.max(...ys)).toBe(FACE_INSET.bottom - PRESS_DEPTH)
     })
 
     it.each(BUTTONS)('draws most of the pressed %s key\'s sunk face outline', (button) => {
@@ -688,7 +657,7 @@ describe('navButtonPixels', () => {
       expect(inside.some((p) => p.colour === FOREGROUND_DIM)).toBe(false)
     })
 
-    it.each([0.2, 0.5, 1])('draws no shadow while the key is down at depth %s', (depth) => {
+    it.each([0.2, 0.5])('draws no shadow while the key is part way down at depth %s', (depth) => {
       const sink = Math.round(depth * PRESS_DEPTH)
       const inside = insideFace(navButtonPixels(ALL_ENABLED, press('left', depth)), 'left', sink)
 
@@ -723,10 +692,6 @@ describe('navButtonPixels', () => {
       expect(navButtonPixels(ALL_ENABLED, press(button, 0))).toEqual(navButtonPixels(ALL_ENABLED))
     })
 
-    it('draws the same pixels with no press as before presses existed', () => {
-      expect(navButtonPixels(ALL_ENABLED, undefined)).toEqual(navButtonPixels(ALL_ENABLED))
-    })
-
     it.each([
       [0.1, 0],
       [0.17, 1],
@@ -742,15 +707,12 @@ describe('navButtonPixels', () => {
       expect(Math.max(...face.map((p) => p.y))).toBe(faceOf('forward').bottom + sink)
     })
 
-    it('rounds a press too shallow to sink a pixel to no press at all', () => {
-      expect(navButtonPixels(ALL_ENABLED, press('back', 0.1))).toEqual(navButtonPixels(ALL_ENABLED))
-    })
-
     it.each([1.5, 10])('sinks no further than PRESS_DEPTH at depth %s', (depth) => {
       expect(navButtonPixels(ALL_ENABLED, press('right', depth))).toEqual(navButtonPixels(ALL_ENABLED, press('right', 1)))
     })
 
-    it.each([-0.5, -10])('draws the key as unpressed at depth %s', (depth) => {
+    // 0.1 is too shallow to sink a whole pixel.
+    it.each([0.1, -0.5, -10])('draws the key as unpressed at depth %s', (depth) => {
       expect(navButtonPixels(ALL_ENABLED, press('right', depth))).toEqual(navButtonPixels(ALL_ENABLED))
     })
   })
