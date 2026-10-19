@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { linePoints } from '../core/line.ts'
+import { describe, expect, it, vi } from 'vitest'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
-import { GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
+import { GLYPH_HEIGHT, textPixels, textWidth } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
+import { extent } from '../../test/pixels.ts'
 import {
   COMPASS_CENTRE,
   COMPASS_LETTERS,
@@ -15,13 +15,13 @@ import {
 type Point = { x: number; y: number }
 
 const LETTER_SCALE = 2
+const LETTER_RADIUS = 38
 // The bezel's inner arc is this far in from COMPASS_RADIUS.
-const BEZEL_WIDTH = 4
-const INNER_RADIUS = COMPASS_RADIUS - BEZEL_WIDTH
+const INNER_RADIUS = COMPASS_RADIUS - 4
+const HUB_RADIUS = 22
+const BEAD_RADIUS = 48.5
 const NOTCH_STEP = Math.PI / 8
 const NOTCH_COUNT = 16
-// Letters lie well inside this; the bezel and its notches well outside it.
-const LETTER_LIMIT = 50
 // The lower panel's drawing size, which the compass must fit in.
 const PANEL_WIDTH = 320
 const PANEL_HEIGHT = 132
@@ -31,157 +31,107 @@ const LETTERS = COMPASS_LETTERS.map(({ letter }) => letter)
 // The four headings and a few yaws part way through a turn.
 const SAMPLE_YAWS = [0, Math.PI / 2, Math.PI, -Math.PI / 2, 0.3, Math.PI / 4 - 0.1, 2.5, -2]
 const PALETTE = [FOREGROUND, FOREGROUND_WORN, FOREGROUND_DIM]
+const RING_TOP = COMPASS_CENTRE.y - COMPASS_RADIUS
+// How far round from the window's ends the end scrolls may reach.
+const SCROLL_REACH = 0.15
 
 const key = ({ x, y }: Point) => `${x},${y}`
 const distance = (p: Point) => Math.hypot(p.x - COMPASS_CENTRE.x, p.y - COMPASS_CENTRE.y)
 // Radians anticlockwise from straight up of `p` around the centre.
 const angleOf = (p: Point) => Math.atan2(-(p.x - COMPASS_CENTRE.x), -(p.y - COMPASS_CENTRE.y))
 const angleBetween = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
-const RING_TOP = COMPASS_CENTRE.y - COMPASS_RADIUS
 // `angle` wrapped to −π…π.
 const wrap = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle))
-// Where a direction `angle` from the top lands at `radius` from the centre.
-const onRose = (angle: number, radius: number): Point => ({
-  x: COMPASS_CENTRE.x - Math.sin(angle) * radius,
-  y: COMPASS_CENTRE.y - Math.cos(angle) * radius,
+// The pixel a direction `angle` from the top lands on at `radius` from the centre.
+const roseAt = (angle: number, radius: number): Point => ({
+  x: Math.round(COMPASS_CENTRE.x - Math.sin(angle) * radius),
+  y: Math.round(COMPASS_CENTRE.y - Math.cos(angle) * radius),
 })
-const roseLine = (angle: number, from: number, to: number) => {
-  const a = onRose(angle, from)
-  const b = onRose(angle, to)
-  return linePoints(a.x, a.y, b.x, b.y)
+// `p` reflected across the compass's vertical centre line.
+const mirror = ({ x, y }: Point): Point => ({ x: 2 * COMPASS_CENTRE.x - x, y })
+
+// What shows on the canvas: where a pixel is drawn more than once, the last one.
+function shown(pixels: Pixel[]): Map<string, Pixel> {
+  const last = new Map<string, Pixel>()
+  for (const p of pixels) last.set(key(p), p)
+  return last
 }
-
-// The marker: pixels above the ring's top.
-const markerOf = (pixels: Pixel[]) => pixels.filter((p) => p.y < RING_TOP)
-// The bezel and its notches: pixels out near the ring, below the marker.
-const ringOf = (pixels: Pixel[]) => pixels.filter((p) => p.y >= RING_TOP && distance(p) > LETTER_LIMIT)
-// Letter pixels lie well inside the ring.
-const letterPixelsOf = (pixels: Pixel[]) => pixels.filter((p) => p.y >= RING_TOP && distance(p) < LETTER_LIMIT)
-// The letters that should show at `yaw`, with their angle from the top.
-const visibleLetters = (yaw: number) =>
-  COMPASS_LETTERS.map(({ letter, yaw: letterYaw }) => ({ letter, angle: wrap(letterYaw - yaw) })).filter(
-    ({ angle }) => Math.abs(angle) < COMPASS_WINDOW,
-  )
-
-// Every pixel an arc of `radius` across the window could cover.
-function arcKeys(radius: number): Set<string> {
-  const keys = new Set<string>()
-  const steps = 4000
-  for (let i = 0; i <= steps; i++) {
-    const p = onRose(-COMPASS_WINDOW + (i / steps) * 2 * COMPASS_WINDOW, radius)
-    keys.add(key({ x: Math.round(p.x), y: Math.round(p.y) }))
-  }
-  return keys
-}
-
-// The lines closing the bezel at either end of the window.
-const END_KEYS = new Set(
-  [-COMPASS_WINDOW, COMPASS_WINDOW].flatMap((angle) => roseLine(angle, COMPASS_RADIUS, INNER_RADIUS)).map(key),
-)
-const OUTER_KEYS = arcKeys(COMPASS_RADIUS)
-const INNER_KEYS = arcKeys(INNER_RADIUS)
-
-type NotchKind = 'long' | 'half' | 'pip'
-type Notch = { index: number; angle: number; kind: NotchKind; length: number; points: Point[] }
-const kindOf = (index: number): NotchKind => (index % 4 === 0 ? 'long' : index % 2 === 0 ? 'half' : 'pip')
-const LENGTH: Record<NotchKind, number> = { long: 3, half: 2, pip: 1 }
-
-// The notches inside the window at `yaw`, and where each should be drawn: in
-// from just inside the outer arc.
-function visibleNotches(yaw: number): Notch[] {
-  const notches: Notch[] = []
-  for (let index = 0; index < NOTCH_COUNT; index++) {
-    const angle = wrap(index * NOTCH_STEP - yaw)
-    if (Math.abs(angle) >= COMPASS_WINDOW) continue
-    const kind = kindOf(index)
-    const length = LENGTH[kind]
-    notches.push({ index, angle, kind, length, points: roseLine(angle, COMPASS_RADIUS - 1, COMPASS_RADIUS - length) })
-  }
-  return notches
-}
-
-type Part = 'outer' | 'inner' | 'ends' | NotchKind
-// Where each part of the bezel should be at `yaw`, keeping only the pixels
-// that belong to that part alone, so a drawn pixel's part is certain.
-function partsAt(yaw: number): Record<Part, Set<string>> {
-  const all: Record<Part, Set<string>> = {
-    outer: OUTER_KEYS,
-    inner: INNER_KEYS,
-    ends: END_KEYS,
-    long: new Set(),
-    half: new Set(),
-    pip: new Set(),
-  }
-  for (const notch of visibleNotches(yaw)) for (const p of notch.points) all[notch.kind].add(key(p))
-  const counts = new Map<string, number>()
-  for (const keys of Object.values(all)) for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1)
-  const only = (keys: Set<string>) => new Set([...keys].filter((k) => counts.get(k) === 1))
-  return {
-    outer: only(all.outer),
-    inner: only(all.inner),
-    ends: only(all.ends),
-    long: only(all.long),
-    half: only(all.half),
-    pip: only(all.pip),
-  }
-}
-
-// Everywhere the bezel and its notches may be drawn at `yaw`.
-function bezelKeysAt(yaw: number): Set<string> {
-  const keys = new Set([...OUTER_KEYS, ...INNER_KEYS, ...END_KEYS])
-  for (const notch of visibleNotches(yaw)) for (const p of notch.points) keys.add(key(p))
-  return keys
-}
-
-// The share of 101 evenly spread points across the window on an arc of
-// `radius` that are drawn.
-function arcCoverage(pixels: Pixel[], radius: number): number {
-  const drawn = new Set(pixels.map(key))
-  let hit = 0
-  for (let i = 0; i <= 100; i++) {
-    const p = onRose(-COMPASS_WINDOW + (i / 100) * 2 * COMPASS_WINDOW, radius)
-    if (drawn.has(key({ x: Math.round(p.x), y: Math.round(p.y) }))) hit++
-  }
-  return hit / 101
-}
-
-// The drawn pixels whose keys are in `keys`.
-const drawnIn = (pixels: Pixel[], keys: Set<string>) => pixels.filter((p) => keys.has(key(p)))
+const keysOf = (points: Point[]) => new Set(points.map(key))
 const coloursOf = (pixels: Pixel[]) => new Set(pixels.map((p) => p.colour))
-const share = (pixels: Pixel[], colour: string) => pixels.filter((p) => p.colour === colour).length / pixels.length
+const ofColour = (pixels: Pixel[], colour: string) => pixels.filter((p) => p.colour === colour)
+const sortedKeys = (points: Point[]) => [...keysOf(points)].sort()
 
-// The letter pixels on the side of the centre at screen angle `angle`: letters
-// sit well out from the centre, so those 90 degrees round are excluded.
-function letterPixelsToward(pixels: Pixel[], angle: number): Pixel[] {
-  const dx = -Math.sin(angle)
-  const dy = -Math.cos(angle)
-  return letterPixelsOf(pixels).filter((p) => (p.x - COMPASS_CENTRE.x) * dx + (p.y - COMPASS_CENTRE.y) * dy > 20)
-}
-
-// Pixels moved so the top-left of their bounding box is at (0, 0), as keys
-// with colours, so two drawings of a letter can be compared.
-function normalisedWithColour(pixels: Pixel[]): string[] {
-  const left = Math.min(...pixels.map((p) => p.x))
-  const top = Math.min(...pixels.map((p) => p.y))
-  return pixels.map((p) => `${key({ x: p.x - left, y: p.y - top })}:${p.colour}`).sort()
-}
-
-// Whether `drawn` is `letter`'s glyph with at most a few pixels worn away: it
-// fits the glyph at some small offset (in case a whole edge row or column
-// dropped out) and keeps most of its pixels.
-function isWornGlyph(drawn: Point[], letter: string): boolean {
-  const glyph = textPixels(letter, LETTER_SCALE)
-  const glyphKeys = new Set(glyph.map(key))
-  if (drawn.length < 0.85 * glyph.length || drawn.length > glyph.length) return false
-  const left = Math.min(...drawn.map((p) => p.x))
-  const top = Math.min(...drawn.map((p) => p.y))
-  for (let ox = 0; ox <= 2; ox++) {
-    for (let oy = 0; oy <= 2; oy++) {
-      if (drawn.every((p) => glyphKeys.has(key({ x: p.x - left + ox, y: p.y - top + oy })))) return true
+// The pixels 8-connected to `start` within `points`.
+function connectedTo(points: Point[], start: Point): Point[] {
+  const remaining = new Map(points.map((p) => [key(p), p]))
+  const found: Point[] = []
+  const queue = remaining.has(key(start)) ? [start] : []
+  remaining.delete(key(start))
+  while (queue.length > 0) {
+    const p = queue.pop()!
+    found.push(p)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const k = key({ x: p.x + dx, y: p.y + dy })
+        const next = remaining.get(k)
+        if (!next) continue
+        remaining.delete(k)
+        queue.push(next)
+      }
     }
   }
-  return false
+  return found
 }
+
+// The pixels of an arc of `radius` in `colour`: those that colour within a
+// pixel of the radius.
+const arcOf = (pixels: Pixel[], radius: number, colour: string) =>
+  ofColour(pixels, colour).filter((p) => Math.abs(distance(p) - radius) < 0.8)
+
+// The marker's diamond (bright, above the ring) and its curls (worn, resting on it).
+const diamondOf = (pixels: Pixel[]) => ofColour(pixels, FOREGROUND).filter((p) => p.y < RING_TOP)
+const curlsOf = (pixels: Pixel[]) => ofColour(pixels, FOREGROUND_WORN).filter((p) => p.y <= RING_TOP)
+const markerOf = (pixels: Pixel[]) => [...diamondOf(pixels), ...curlsOf(pixels)]
+
+// Bright pixels by the ends of the bezel: its outer arc's ends and the scrolls.
+const endsOf = (pixels: Pixel[]) =>
+  ofColour(pixels, FOREGROUND).filter((p) => p.y >= RING_TOP && Math.abs(angleOf(p)) > COMPASS_WINDOW - 0.25)
+
+// Where `letter` is drawn when `angle` from the top: its glyph centred
+// LETTER_RADIUS from the centre.
+function letterGlyph(letter: string, angle: number): Point[] {
+  const centreX = COMPASS_CENTRE.x - Math.sin(angle) * LETTER_RADIUS
+  const centreY = COMPASS_CENTRE.y - Math.cos(angle) * LETTER_RADIUS
+  const left = Math.round(centreX - textWidth(letter, LETTER_SCALE) / 2)
+  const top = Math.round(centreY - (GLYPH_HEIGHT * LETTER_SCALE) / 2)
+  return textPixels(letter, LETTER_SCALE).map((p) => ({ x: left + p.x, y: top + p.y }))
+}
+// Each letter's angle from the top at `yaw`, and whether it's in the window.
+const lettersAt = (yaw: number) =>
+  COMPASS_LETTERS.map(({ letter, yaw: letterYaw }) => {
+    const angle = wrap(letterYaw - yaw)
+    return { letter, angle, visible: Math.abs(angle) < COMPASS_WINDOW }
+  })
+// Where the shown letters are at `yaw`.
+const letterKeysAt = (yaw: number) =>
+  keysOf(lettersAt(yaw).flatMap(({ letter, angle, visible }) => (visible ? letterGlyph(letter, angle) : [])))
+
+// The rose's turning parts at `yaw`: what's drawn between the hub and the
+// bezel's inner arc, less the letters and the bright end scrolls curling in.
+function roseOf(pixels: Pixel[], yaw: number): Pixel[] {
+  const letters = letterKeysAt(yaw)
+  return pixels.filter(
+    (p) =>
+      distance(p) > HUB_RADIUS + 1 &&
+      distance(p) < INNER_RADIUS - 1 &&
+      !letters.has(key(p)) &&
+      p.colour !== FOREGROUND,
+  )
+}
+// The middle lines of the rose's points (the dim parts of the rose).
+const pointLinesOf = (pixels: Pixel[], yaw: number) => ofColour(roseOf(pixels, yaw), FOREGROUND_DIM)
+// The angles from the top of the points (half-way between letters) at `yaw`.
+const pointAnglesAt = (yaw: number) => COMPASS_LETTERS.map(({ yaw: letterYaw }) => wrap(letterYaw - yaw - Math.PI / 4))
 
 function centroid(points: Point[]): Point {
   return {
@@ -241,7 +191,7 @@ describe('compassPixels', () => {
   it('keeps every pixel inside the ring or the marker above it', () => {
     for (const yaw of SAMPLE_YAWS) {
       for (const p of compassPixels(yaw)) {
-        if (p.y < RING_TOP) continue
+        if (p.y <= RING_TOP) continue
         expect(distance(p)).toBeLessThanOrEqual(COMPASS_RADIUS + 1)
       }
     }
@@ -250,6 +200,7 @@ describe('compassPixels', () => {
   it('fits inside the lower panel', () => {
     for (const yaw of SAMPLE_YAWS) {
       for (const p of compassPixels(yaw)) {
+        expect(Number.isInteger(p.x) && Number.isInteger(p.y)).toBe(true)
         expect(p.x).toBeGreaterThanOrEqual(0)
         expect(p.x).toBeLessThan(PANEL_WIDTH)
         expect(p.y).toBeGreaterThanOrEqual(0)
@@ -262,260 +213,313 @@ describe('compassPixels', () => {
     for (const colour of coloursOf(compassPixels(yaw))) expect(PALETTE).toContain(colour)
   })
 
+  it('draws nothing beyond the window but the end scrolls\' curl', () => {
+    for (const yaw of SAMPLE_YAWS) {
+      for (const p of compassPixels(yaw)) expect(Math.abs(angleOf(p))).toBeLessThan(COMPASS_WINDOW + SCROLL_REACH)
+    }
+  })
+
+  it.each(SAMPLE_YAWS)('draws the same pixels each time for the same yaw (yaw %s)', (yaw) => {
+    expect(compassPixels(yaw)).toEqual(compassPixels(yaw))
+  })
+
+  it('uses no randomness', () => {
+    const random = vi.spyOn(Math, 'random')
+
+    for (const yaw of SAMPLE_YAWS) compassPixels(yaw)
+
+    expect(random).not.toHaveBeenCalled()
+    random.mockRestore()
+  })
+
   describe('bezel', () => {
-    it.each(SAMPLE_YAWS)('draws nothing near the ring but its arcs, end lines and notches (yaw %s)', (yaw) => {
-      const allowed = bezelKeysAt(yaw)
+    it.each([
+      ['outer arc', COMPASS_RADIUS, FOREGROUND],
+      ['inner arc', INNER_RADIUS, FOREGROUND_WORN],
+    ])('draws the %s unbroken from one end of the window to the other', (_, radius, colour) => {
+      const arc = arcOf(compassPixels(0), radius, colour)
+      const chain = connectedTo(arc, roseAt(0, radius))
+      const angles = chain.map(angleOf)
 
-      for (const p of ringOf(compassPixels(yaw))) expect(allowed.has(key(p))).toBe(true)
-    })
-
-    it('stays within COMPASS_WINDOW of the top', () => {
-      for (const yaw of SAMPLE_YAWS) {
-        for (const p of ringOf(compassPixels(yaw))) {
-          expect(Math.abs(angleOf(p))).toBeLessThanOrEqual(COMPASS_WINDOW + 0.05)
-        }
-      }
+      expect(Math.max(...angles)).toBeGreaterThan(COMPASS_WINDOW - 0.03)
+      expect(Math.min(...angles)).toBeLessThan(-COMPASS_WINDOW + 0.03)
     })
 
     it.each([
-      ['outer arc at COMPASS_RADIUS', COMPASS_RADIUS, OUTER_KEYS],
-      ['inner arc BEZEL_WIDTH inside it', INNER_RADIUS, INNER_KEYS],
-    ])('draws most of the %s, through the top, from one end of the window to the other', (_, radius, keys) => {
-      const arc = drawnIn(compassPixels(0), keys)
-      const angles = arc.map(angleOf)
+      ['outer arc', COMPASS_RADIUS, FOREGROUND],
+      ['inner arc', INNER_RADIUS, FOREGROUND_WORN],
+    ])('draws every pixel of the %s in one solid tone', (_, radius, colour) => {
+      const pixels = compassPixels(0)
+      for (let i = 0; i <= 200; i++) {
+        const angle = -COMPASS_WINDOW + 0.02 + (i / 200) * (2 * COMPASS_WINDOW - 0.04)
+        const p = roseAt(angle, radius)
+        // The pixel on the arc at this angle, or a neighbour where the arc cuts a corner.
+        const near = pixels.filter((q) => Math.abs(q.x - p.x) <= 1 && Math.abs(q.y - p.y) <= 1)
 
-      expect(arcCoverage(compassPixels(0), radius)).toBeGreaterThan(0.85)
-      expect(Math.max(...angles)).toBeGreaterThan(COMPASS_WINDOW - 0.05)
-      expect(Math.min(...angles)).toBeLessThan(-COMPASS_WINDOW + 0.05)
-      expect(arc.some((p) => Math.abs(angleOf(p)) < 0.05)).toBe(true)
+        expect(near.some((q) => q.colour === colour && Math.abs(distance(q) - radius) < 0.8)).toBe(true)
+      }
     })
 
-    it('closes both ends of the bezel with lines from the outer arc to the inner', () => {
-      const ends = drawnIn(compassPixels(0), partsAt(0).ends)
+    it('draws nothing worn or dim on the outer arc, nor bright on the inner arc', () => {
+      for (const yaw of SAMPLE_YAWS) {
+        const pixels = compassPixels(yaw)
+        const outer = pixels.filter((p) => Math.abs(distance(p) - COMPASS_RADIUS) < 0.3 && p.y > RING_TOP)
+        // Away from the ends, where the scrolls roll under it.
+        const inner = pixels.filter(
+          (p) => Math.abs(distance(p) - INNER_RADIUS) < 0.3 && Math.abs(angleOf(p)) < COMPASS_WINDOW - 0.2,
+        )
+
+        expect([...coloursOf(outer)]).toEqual([FOREGROUND])
+        expect([...coloursOf(inner)]).toEqual([FOREGROUND_WORN])
+      }
+    })
+
+    it('ends in a bright scroll at each end, curling in under the band', () => {
+      const ends = endsOf(compassPixels(0))
+      for (const side of [-1, 1]) {
+        const end = roseAt(-side * COMPASS_WINDOW, COMPASS_RADIUS)
+        const scroll = connectedTo(ends, end)
+
+        // It rolls from the outer arc's end round in past the inner arc.
+        expect(scroll.some((p) => distance(p) < INNER_RADIUS - 2)).toBe(true)
+        expect(scroll.every((p) => Math.sign(p.x - COMPASS_CENTRE.x) === side)).toBe(true)
+      }
+    })
+
+    it('mirrors the scroll at one end in the other', () => {
+      const ends = endsOf(compassPixels(0))
       const left = ends.filter((p) => p.x < COMPASS_CENTRE.x)
       const right = ends.filter((p) => p.x > COMPASS_CENTRE.x)
 
-      expect(left.length).toBeGreaterThan(0)
-      expect(right.length).toBeGreaterThan(0)
-      expect(ends.length).toBeGreaterThanOrEqual(0.75 * partsAt(0).ends.size)
+      expect(right.length).toBeGreaterThan(10)
+      expect(sortedKeys(left.map(mirror))).toEqual(sortedKeys(right))
     })
 
-    it('draws the outer arc bright, a few pixels faded to worn', () => {
-      const outer = drawnIn(compassPixels(0), partsAt(0).outer)
-
-      expect([...coloursOf(outer)].sort()).toEqual([FOREGROUND, FOREGROUND_WORN].sort())
-      expect(share(outer, FOREGROUND)).toBeGreaterThan(0.65)
-    })
-
-    it('draws the inner arc worn, a few pixels faded to dim', () => {
-      const inner = drawnIn(compassPixels(0), partsAt(0).inner)
-
-      expect([...coloursOf(inner)].sort()).toEqual([FOREGROUND_WORN, FOREGROUND_DIM].sort())
-      expect(share(inner, FOREGROUND_WORN)).toBeGreaterThan(0.65)
-    })
-
-    it('draws the end lines worn or dim', () => {
-      const ends = drawnIn(compassPixels(0), partsAt(0).ends)
-
-      for (const colour of coloursOf(ends)) expect([FOREGROUND_WORN, FOREGROUND_DIM]).toContain(colour)
-      expect(share(ends, FOREGROUND_WORN)).toBeGreaterThan(0.5)
-    })
-
-    it('leaves some of the arcs\' pixels out', () => {
-      const pixels = compassPixels(0)
-      const { outer, inner } = partsAt(0)
-
-      expect(drawnIn(pixels, outer).length + drawnIn(pixels, inner).length).toBeLessThan(outer.size + inner.size)
-    })
-
-    it('is worn the same whichever way the camera faces', () => {
-      const bezelAt = (yaw: number) => {
-        const { outer, inner, ends } = partsAt(yaw)
-        return new Set([...outer, ...inner, ...ends])
-      }
-      const reference = compassPixels(0)
+    it('stays put as the rose turns', () => {
+      const bezel = [
+        ...endsOf(compassPixels(0)),
+        ...arcOf(compassPixels(0), COMPASS_RADIUS, FOREGROUND),
+        ...arcOf(compassPixels(0), INNER_RADIUS, FOREGROUND_WORN),
+      ]
       for (const yaw of SAMPLE_YAWS) {
-        const shared = new Set([...bezelAt(0)].filter((k) => bezelAt(yaw).has(k)))
-        const describe = (pixels: Pixel[]) => drawnIn(pixels, shared).map((p) => `${key(p)}:${p.colour}`).sort()
+        const drawn = new Set(compassPixels(yaw).map((p) => `${key(p)}:${p.colour}`))
 
-        expect(describe(compassPixels(yaw))).toEqual(describe(reference))
+        for (const p of bezel) expect(drawn.has(`${key(p)}:${p.colour}`)).toBe(true)
       }
     })
   })
 
   describe('notches', () => {
-    it.each(SAMPLE_YAWS)('draws only the notches within COMPASS_WINDOW of the top (yaw %s)', (yaw) => {
-      const ring = new Set(ringOf(compassPixels(yaw)).map(key))
-      const { long, half, pip } = partsAt(yaw)
-      const hidden = Array.from({ length: NOTCH_COUNT }, (_, index) => wrap(index * NOTCH_STEP - yaw))
-        .filter((angle) => Math.abs(angle) >= COMPASS_WINDOW + 0.1)
-        .flatMap((angle) => roseLine(angle, COMPASS_RADIUS - 1, COMPASS_RADIUS - 3))
-        .map(key)
-        .filter((k) => !long.has(k) && !half.has(k) && !pip.has(k))
+    // Each notch's length and colour by kind: long at the letters, half-way
+    // ones between those, and pips between those.
+    const notchOf = (index: number) =>
+      index % 4 === 0
+        ? { length: 3, colour: FOREGROUND }
+        : index % 2 === 0
+          ? { length: 2, colour: FOREGROUND_WORN }
+          : { length: 1, colour: FOREGROUND_DIM }
+    // The column between the arcs straight above the centre.
+    const BETWEEN_ARCS = [RING_TOP + 1, RING_TOP + 2, RING_TOP + 3]
 
-      for (const k of hidden) expect(ring.has(k)).toBe(false)
-    })
+    it.each(Array.from({ length: NOTCH_COUNT }, (_, index) => [index, notchOf(index).length] as const))(
+      'runs notch %s, when at the top, %s pixels in from the outer arc, solid in its tone',
+      (index, length) => {
+        const drawn = shown(compassPixels(index * NOTCH_STEP))
+        const column = BETWEEN_ARCS.map((y) => drawn.get(key({ x: COMPASS_CENTRE.x, y }))?.colour)
 
-    it('draws most of the visible notches, one every π/8 of the rose', () => {
-      let shown = 0
-      let total = 0
-      for (const yaw of SAMPLE_YAWS) {
-        const pixels = compassPixels(yaw)
-        const parts = partsAt(yaw)
-        for (const notch of visibleNotches(yaw)) {
-          const own = notch.points.map(key).filter((k) => parts[notch.kind].has(k))
-          if (own.length === 0) continue
-          total++
-          if (drawnIn(pixels, new Set(own)).length > 0) shown++
-        }
-      }
-
-      expect(total).toBeGreaterThan(30)
-      expect(shown / total).toBeGreaterThan(0.8)
-    })
-
-    it('shows 5 notches at rest, at 0, ±π/8 and ±π/4 from the top', () => {
-      const angles = visibleNotches(0).map((notch) => notch.angle).sort((a, b) => a - b)
-
-      expect(angles.map((a) => a / NOTCH_STEP)).toEqual([-2, -1, 0, 1, 2].map((n) => expect.closeTo(n)))
-    })
-
-    // At yaw index × π/8, notch `index` is straight up, running down the
-    // column through the centre from just under the outer arc (y 48) towards
-    // the inner arc (y 52).
-    const topColumn = (pixels: Pixel[]) =>
-      pixels.filter((p) => p.x === COMPASS_CENTRE.x && p.y > RING_TOP && p.y < COMPASS_CENTRE.y - INNER_RADIUS)
-
-    it.each(Array.from({ length: NOTCH_COUNT }, (_, index) => [index, kindOf(index)] as const))(
-      'runs notch %s (%s) in from just inside the outer arc for its length, in its colours',
-      (index, kind) => {
-        const column = topColumn(compassPixels(index * NOTCH_STEP))
-        const deepest = RING_TOP + LENGTH[kind]
-        const allowed = {
-          long: [FOREGROUND, FOREGROUND_WORN],
-          half: [FOREGROUND_WORN, FOREGROUND_DIM],
-          pip: [FOREGROUND_DIM],
-        }[kind]
-
-        expect(column.length).toBeGreaterThanOrEqual(LENGTH[kind] - 1)
-        for (const p of column) {
-          expect(p.y).toBeLessThanOrEqual(deepest)
-          expect(allowed).toContain(p.colour)
-        }
+        expect(column).toEqual(BETWEEN_ARCS.map((_, i) => (i < length ? notchOf(index).colour : undefined)))
       },
     )
 
-    it('draws the long notches mostly bright and the half-way ones mostly worn', () => {
-      const long: Pixel[] = []
-      const half: Pixel[] = []
-      for (const yaw of SAMPLE_YAWS) {
-        const pixels = compassPixels(yaw)
-        long.push(...drawnIn(pixels, partsAt(yaw).long))
-        half.push(...drawnIn(pixels, partsAt(yaw).half))
-      }
-
-      expect(share(long, FOREGROUND)).toBeGreaterThan(0.6)
-      expect(share(half, FOREGROUND_WORN)).toBeGreaterThan(0.6)
-    })
-
-    it('draws the pips dim', () => {
-      for (const yaw of SAMPLE_YAWS) {
-        for (const p of drawnIn(compassPixels(yaw), partsAt(yaw).pip)) expect(p.colour).toBe(FOREGROUND_DIM)
-      }
-    })
-
-    it('keeps each notch\'s wear as it turns', () => {
-      // Each step along a notch: its colour, null if dropped, or undefined if
-      // the pixel is shared with another part.
-      const stepsOf = (yaw: number, index: number) => {
-        const notch = visibleNotches(yaw).find((n) => n.index === index)!
-        const own = partsAt(yaw)[notch.kind]
-        const pixels = compassPixels(yaw)
-        return notch.points.map((p) =>
-          own.has(key(p)) ? (pixels.find((q) => q.x === p.x && q.y === p.y)?.colour ?? null) : undefined,
-        )
-      }
-      let compared = 0
+    it.each(SAMPLE_YAWS)('draws each notch in the window from just inside the outer arc (yaw %s)', (yaw) => {
+      const drawn = shown(compassPixels(yaw))
+      let count = 0
       for (let index = 0; index < NOTCH_COUNT; index++) {
-        const atTop = index * NOTCH_STEP
-        const a = stepsOf(atTop, index)
-        for (const turn of [0.2, -0.35, 0.5]) {
-          const b = stepsOf(atTop + turn, index)
-          if (b.length !== a.length) continue
-          a.forEach((colour, step) => {
-            if (colour === undefined || b[step] === undefined) return
-            expect(b[step]).toBe(colour)
-            compared++
-          })
-        }
+        const angle = wrap(index * NOTCH_STEP - yaw)
+        // Leave out notches under the end scrolls.
+        if (Math.abs(angle) >= COMPASS_WINDOW - SCROLL_REACH) continue
+        const { length, colour } = notchOf(index)
+        count++
+
+        expect(drawn.get(key(roseAt(angle, COMPASS_RADIUS - 1)))?.colour).toBe(colour)
+        expect(drawn.get(key(roseAt(angle, COMPASS_RADIUS - length)))?.colour).toBe(colour)
+      }
+      expect(count).toBeGreaterThanOrEqual(4)
+    })
+
+    it.each(SAMPLE_YAWS)('draws no notch outside the window (yaw %s)', (yaw) => {
+      const drawn = keysOf(compassPixels(yaw))
+      for (let index = 0; index < NOTCH_COUNT; index++) {
+        const angle = wrap(index * NOTCH_STEP - yaw)
+        if (Math.abs(angle) < COMPASS_WINDOW + SCROLL_REACH) continue
+
+        expect(drawn.has(key(roseAt(angle, COMPASS_RADIUS - 1)))).toBe(false)
+      }
+    })
+  })
+
+  describe('rose', () => {
+    it.each(SAMPLE_YAWS)('draws a dim hub arc across the window (yaw %s)', (yaw) => {
+      const hub = arcOf(compassPixels(yaw), HUB_RADIUS, FOREGROUND_DIM)
+      const angles = connectedTo(hub, roseAt(0, HUB_RADIUS)).map(angleOf)
+
+      expect(Math.max(...angles)).toBeGreaterThan(COMPASS_WINDOW - 0.1)
+      expect(Math.min(...angles)).toBeLessThan(-COMPASS_WINDOW + 0.1)
+      expect(Math.max(...angles.map(Math.abs))).toBeLessThan(COMPASS_WINDOW + 0.05)
+    })
+
+    it.each(SAMPLE_YAWS)('keeps the rose\'s points and beads inside the window (yaw %s)', (yaw) => {
+      for (const p of roseOf(compassPixels(yaw), yaw)) expect(Math.abs(angleOf(p))).toBeLessThan(COMPASS_WINDOW)
+    })
+
+    it('draws a point half-way between the letters either side of the top at rest', () => {
+      const lines = pointLinesOf(compassPixels(0), 0)
+      for (const angle of [-Math.PI / 4, Math.PI / 4]) {
+        const line = lines.filter((p) => angleBetween(angleOf(p), angle) < 0.2)
+
+        expect(line.length).toBeGreaterThan(10)
+        expect(angleBetween(angleOf(centroid(line)), angle)).toBeLessThan(0.03)
+      }
+    })
+
+    it.each([0.3, -0.2, Math.PI / 4 - 0.1, 2.5, -2])('turns the points with the rose (yaw %s)', (yaw) => {
+      const lines = pointLinesOf(compassPixels(yaw), yaw)
+      // Points well inside the window, so none of the line is cut off.
+      const inside = pointAnglesAt(yaw).filter((angle) => Math.abs(angle) < COMPASS_WINDOW - 0.15)
+
+      expect(inside.length).toBeGreaterThan(0)
+      for (const angle of inside) {
+        const line = lines.filter((p) => angleBetween(angleOf(p), angle) < 0.2)
+        expect(angleBetween(angleOf(centroid(line)), angle)).toBeLessThan(0.03)
+      }
+      for (const p of lines) {
+        expect(Math.min(...pointAnglesAt(yaw).map((angle) => angleBetween(angleOf(p), angle)))).toBeLessThan(0.05)
+      }
+    })
+
+    it('draws each point as a worn kite outline round its dim middle line', () => {
+      const rose = roseOf(compassPixels(0), 0)
+      const angle = Math.PI / 4
+      const point = rose.filter((p) => angleBetween(angleOf(p), angle) < 0.3)
+      const kite = ofColour(point, FOREGROUND_WORN)
+      const line = ofColour(point, FOREGROUND_DIM)
+      const across = (p: Point) => {
+        // Distance from the point's middle line.
+        const dx = p.x - COMPASS_CENTRE.x
+        const dy = p.y - COMPASS_CENTRE.y
+        return Math.abs(dx * Math.cos(angle) - dy * Math.sin(angle))
       }
 
-      expect(compared).toBeGreaterThan(40)
+      expect(coloursOf(point)).toEqual(new Set([FOREGROUND_WORN, FOREGROUND_DIM]))
+      expect(coloursOf(compassPixels(0).filter((p) => keysOf(point).has(key(p))))).not.toContain(FOREGROUND)
+      // Out from just past the hub nearly to the bezel, at most 4 pixels wide either side.
+      expect(Math.min(...kite.map(distance))).toBeLessThan(25)
+      expect(Math.max(...kite.map(distance))).toBeGreaterThan(48)
+      expect(Math.max(...kite.map(across))).toBeGreaterThan(3)
+      expect(Math.max(...kite.map(across))).toBeLessThan(4.8)
+      // The middle line runs inside the kite, not filled round it.
+      expect(line.length).toBeGreaterThan(10)
+      expect(line.every((p) => across(p) < 1)).toBe(true)
+      expect(point.filter((p) => across(p) > 1.2 && across(p) < 2 && distance(p) > 30 && distance(p) < 34)).toHaveLength(0)
+    })
+
+    // Line rasterising isn't exactly symmetric, so a few pixels may sit one off.
+  it('mirrors the points either side of the top at rest, near enough', () => {
+      const rose = roseOf(compassPixels(0), 0).filter((p) => Math.abs(angleOf(p)) > 0.3)
+      const left = rose.filter((p) => p.x < COMPASS_CENTRE.x)
+      const right = rose.filter((p) => p.x > COMPASS_CENTRE.x)
+
+      expect(right.length).toBeGreaterThan(20)
+      const rightKeys = keysOf(right)
+      const matched = left.map(mirror).filter((p) => rightKeys.has(key(p)))
+
+      expect(left).toHaveLength(right.length)
+      expect(matched.length / left.length).toBeGreaterThan(0.9)
+    })
+
+    it.each(LETTERS)('draws a worn diamond bead above %s when facing its way', (letter) => {
+      const bead = roseOf(compassPixels(YAW[letter]), YAW[letter]).filter(
+        (p) => Math.hypot(p.x - COMPASS_CENTRE.x, p.y - (COMPASS_CENTRE.y - BEAD_RADIUS)) <= 2.6,
+      )
+      const box = extent(bead)
+      const middle = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 }
+
+      expect(coloursOf(bead)).toEqual(new Set([FOREGROUND_WORN]))
+      expect(box.right - box.left).toBe(4)
+      expect(box.bottom - box.top).toBe(4)
+      expect(middle.x).toBe(COMPASS_CENTRE.x)
+      // An outline: corners and middle left empty.
+      expect(keysOf(bead).has(key(middle))).toBe(false)
+      expect(keysOf(bead).has(key({ x: box.left, y: box.top }))).toBe(false)
+      expect(bead.filter((p) => p.y === box.top).map((p) => p.x)).toEqual([COMPASS_CENTRE.x])
+    })
+
+    it('moves the beads round with their letters', () => {
+      const yaw = 0.4
+      const rose = roseOf(compassPixels(yaw), yaw)
+      const beadAngle = -yaw
+      const bead = rose.filter((p) => {
+        const centre = roseAt(beadAngle, BEAD_RADIUS)
+        return Math.abs(p.x - centre.x) <= 2 && Math.abs(p.y - centre.y) <= 2
+      })
+
+      expect(bead.length).toBeGreaterThanOrEqual(6)
+      expect(angleBetween(angleOf(centroid(bead)), beadAngle)).toBeLessThan(0.05)
     })
   })
 
   describe('marker', () => {
-    it('is a downward-pointing triangle centred above the ring', () => {
-      const marker = markerOf(compassPixels(0))
-      const rows = new Map<number, number[]>()
-      for (const p of marker) rows.set(p.y, [...(rows.get(p.y) ?? []), p.x])
-      const ys = [...rows.keys()].sort((a, b) => a - b)
+    it('is a bright diamond outline whose bottom point is 2 pixels above the ring\'s top', () => {
+      const diamond = diamondOf(compassPixels(0))
+      const box = extent(diamond)
+      const rowXs = (y: number) => diamond.filter((p) => p.y === y).map((p) => p.x).sort((a, b) => a - b)
 
-      // Widest at the top, narrowing by one pixel each side to a single-pixel tip.
-      const widths = ys.map((y) => rows.get(y)!.length)
-      expect(widths[widths.length - 1]).toBe(1)
-      for (let i = 1; i < widths.length; i++) expect(widths[i]).toBe(widths[i - 1] - 2)
-      for (const y of ys) {
-        const xs = rows.get(y)!
-        expect((Math.min(...xs) + Math.max(...xs)) / 2).toBe(COMPASS_CENTRE.x)
+      expect(box.bottom).toBe(RING_TOP - 2)
+      expect(box.bottom - box.top).toBe(8)
+      expect(box.left).toBe(COMPASS_CENTRE.x - 4)
+      expect(box.right).toBe(COMPASS_CENTRE.x + 4)
+      expect(rowXs(box.top)).toEqual([COMPASS_CENTRE.x])
+      expect(rowXs(box.bottom)).toEqual([COMPASS_CENTRE.x])
+      // Two pixels a row in between, each a pixel further out towards the middle row.
+      for (let y = box.top + 1; y < box.bottom; y++) {
+        const half = 4 - Math.abs(y - (box.top + 4))
+        expect(rowXs(y)).toEqual([COMPASS_CENTRE.x - half, COMPASS_CENTRE.x + half])
       }
     })
 
-    it('points just above the ring\'s top', () => {
-      const tip = Math.max(...markerOf(compassPixels(0)).map((p) => p.y))
+    it('has a worn curl either side of the diamond, each the other\'s mirror image', () => {
+      const curls = curlsOf(compassPixels(0))
+      const left = curls.filter((p) => p.x < COMPASS_CENTRE.x)
+      const right = curls.filter((p) => p.x > COMPASS_CENTRE.x)
+      const diamond = extent(diamondOf(compassPixels(0)))
 
-      expect(tip).toBeLessThan(RING_TOP)
-      expect(tip).toBeGreaterThanOrEqual(RING_TOP - 3)
+      expect(right.length).toBeGreaterThan(8)
+      expect(sortedKeys(left.map(mirror))).toEqual(sortedKeys(right))
+      expect(Math.min(...right.map((p) => p.x))).toBeGreaterThan(diamond.right)
     })
 
-    it('draws its top row worn', () => {
-      const marker = markerOf(compassPixels(0))
-      const top = Math.min(...marker.map((p) => p.y))
-      const row = marker.filter((p) => p.y === top)
+    it('curls round: each curl turns back on itself, so a column holds pixels above and below a gap', () => {
+      const right = curlsOf(compassPixels(0)).filter((p) => p.x > COMPASS_CENTRE.x)
+      const box = extent(right)
+      const middle = Math.round((box.left + box.right) / 2)
+      const ys = right.filter((p) => p.x === middle).map((p) => p.y).sort((a, b) => a - b)
 
-      expect(row.length).toBeGreaterThan(1)
-      expect(row.every((p) => p.colour === FOREGROUND_WORN)).toBe(true)
+      expect(ys.length).toBeGreaterThanOrEqual(2)
+      expect(ys[ys.length - 1] - ys[0]).toBeGreaterThan(ys.length - 1)
     })
 
-    it('draws its left edge worn', () => {
-      const marker = markerOf(compassPixels(0))
-      const ys = [...new Set(marker.map((p) => p.y))]
-      for (const y of ys) {
-        const row = marker.filter((p) => p.y === y)
-        const leftmost = row.reduce((a, b) => (b.x < a.x ? b : a))
-        expect(leftmost.colour).toBe(FOREGROUND_WORN)
+    it('rests each curl on the outer ring', () => {
+      const pixels = compassPixels(0)
+      const ring = keysOf(arcOf(pixels, COMPASS_RADIUS, FOREGROUND))
+      const curls = curlsOf(pixels)
+      for (const side of [-1, 1]) {
+        const curl = curls.filter((p) => Math.sign(p.x - COMPASS_CENTRE.x) === side)
+        const lowest = Math.max(...curl.map((p) => p.y))
+        const feet = curl.filter((p) => p.y === lowest)
+
+        expect(feet.some((p) => ring.has(key({ x: p.x, y: p.y + 1 })))).toBe(true)
+        expect(curl.some((p) => ring.has(key(p)))).toBe(false)
       }
-    })
-
-    it('draws the rest bright', () => {
-      const marker = markerOf(compassPixels(0))
-      const top = Math.min(...marker.map((p) => p.y))
-      const rest = marker.filter((p) => {
-        if (p.y === top) return false
-        const leftmost = Math.min(...marker.filter((q) => q.y === p.y).map((q) => q.x))
-        return p.x !== leftmost
-      })
-
-      expect(rest.length).toBeGreaterThan(0)
-      expect(rest.every((p) => p.colour === FOREGROUND)).toBe(true)
-    })
-
-    it('is not weathered: no pixel is missing or dim', () => {
-      const marker = markerOf(compassPixels(0))
-      const rows = new Set(marker.map((p) => p.y)).size
-
-      expect(marker).toHaveLength(rows * rows)
-      expect(marker.some((p) => p.colour === FOREGROUND_DIM)).toBe(false)
     })
 
     it('stays put whichever way the camera faces', () => {
@@ -527,132 +531,92 @@ describe('compassPixels', () => {
     it('is drawn after the rest, so nothing covers it', () => {
       const pixels = compassPixels(0)
       const marker = markerOf(pixels)
+      const last = pixels.slice(-marker.length)
 
-      expect(pixels.slice(-marker.length)).toEqual(marker)
+      expect(sortedKeys(last)).toEqual(sortedKeys(marker))
     })
   })
 
   describe('letters', () => {
-    it.each(SAMPLE_YAWS)('draws only the letters within COMPASS_WINDOW of the top (yaw %s)', (yaw) => {
-      const pixels = compassPixels(yaw)
-      const visible = visibleLetters(yaw)
-      const drawn = visible.reduce((sum, { angle }) => sum + letterPixelsToward(pixels, angle).length, 0)
+    it.each(SAMPLE_YAWS)('draws each letter in the window whole, centred at its yaw less the camera\'s (yaw %s)', (yaw) => {
+      const drawn = shown(compassPixels(yaw))
+      const visible = lettersAt(yaw).filter((l) => l.visible)
 
       expect(visible.length).toBeGreaterThan(0)
-      expect(letterPixelsOf(pixels)).toHaveLength(drawn)
+      for (const { letter, angle } of visible) {
+        const glyph = letterGlyph(letter, angle)
+        expect(glyph.every((p) => drawn.has(key(p)))).toBe(true)
+        expect(angleBetween(angleOf(centroid(glyph)), angle)).toBeLessThan(0.1)
+      }
     })
 
-    it.each(SAMPLE_YAWS)('draws each shown letter at its yaw less the camera\'s, from the top (yaw %s)', (yaw) => {
-      const pixels = compassPixels(yaw)
-      for (const { letter, angle } of visibleLetters(yaw)) {
-        const drawn = letterPixelsToward(pixels, angle)
+    it.each(SAMPLE_YAWS)('draws nothing where the letters outside the window would be (yaw %s)', (yaw) => {
+      const drawn = keysOf(compassPixels(yaw))
+      const hidden = lettersAt(yaw).filter((l) => !l.visible)
 
-        expect(isWornGlyph(drawn, letter)).toBe(true)
-        expect(angleBetween(angleOf(centroid(drawn)), angle)).toBeLessThan(0.1)
+      for (const { letter, angle } of hidden) {
+        expect(letterGlyph(letter, angle).some((p) => drawn.has(key(p)))).toBe(false)
       }
     })
 
     it.each(LETTERS)('draws only %s, straight above the centre, when facing its way', (letter) => {
-      const drawn = letterPixelsOf(compassPixels(YAW[letter]))
-      const xs = drawn.map((p) => p.x)
+      const yaw = YAW[letter]
+      const visible = lettersAt(yaw).filter((l) => l.visible)
+      const glyph = letterGlyph(letter, 0)
+      const box = extent(glyph)
 
-      expect(isWornGlyph(drawn, letter)).toBe(true)
-      expect(centroid(drawn).y).toBeLessThan(COMPASS_CENTRE.y)
-      expect(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2 - COMPASS_CENTRE.x)).toBeLessThanOrEqual(0.5)
-    })
-
-    it('shows N and W either side of the top half-way through a left turn from north', () => {
-      const pixels = compassPixels(Math.PI / 4)
-      const n = letterPixelsToward(pixels, -Math.PI / 4)
-      const w = letterPixelsToward(pixels, Math.PI / 4)
-
-      expect(isWornGlyph(n, 'N')).toBe(true)
-      expect(isWornGlyph(w, 'W')).toBe(true)
-      expect(centroid(n).x).toBeGreaterThan(COMPASS_CENTRE.x)
-      expect(centroid(w).x).toBeLessThan(COMPASS_CENTRE.x)
-      expect(letterPixelsOf(pixels)).toHaveLength(n.length + w.length)
+      expect(visible.map((l) => l.letter)).toEqual([letter])
+      expect(Math.abs((box.left + box.right) / 2 - COMPASS_CENTRE.x)).toBeLessThanOrEqual(0.5)
+      expect(Math.abs((box.top + box.bottom) / 2 - (COMPASS_CENTRE.y - LETTER_RADIUS))).toBeLessThanOrEqual(0.5)
+      expect(glyph.every((p) => shown(compassPixels(yaw)).get(key(p))?.colour === FOREGROUND)).toBe(true)
     })
 
     it.each([
-      ['has dropped the outgoing letter near the end of a turn', Math.PI / 2 - 0.1, 'W'],
-      ['has not yet brought in the incoming letter just after a turn starts', -0.1, 'N'],
-      ['hides a letter exactly COMPASS_WINDOW from the top', Math.PI / 2 - COMPASS_WINDOW, 'N'],
-    ])('%s', (_, yaw, letter) => {
-      expect(isWornGlyph(letterPixelsOf(compassPixels(yaw)), letter)).toBe(true)
+      ['has dropped the outgoing letter near the end of a turn', Math.PI / 2 - 0.1, ['W']],
+      ['has not yet brought in the incoming letter just after a turn starts', -0.1, ['N']],
+      ['hides a letter exactly COMPASS_WINDOW from the top', Math.PI / 2 - COMPASS_WINDOW, ['N']],
+      ['shows N and W either side of the top half-way through a turn', Math.PI / 4, ['N', 'W']],
+    ])('%s', (_, yaw, letters) => {
+      const drawn = keysOf(compassPixels(yaw))
+      const showing = COMPASS_LETTERS.filter(({ letter, yaw: letterYaw }) =>
+        letterGlyph(letter, wrap(letterYaw - yaw)).every((p) => drawn.has(key(p))),
+      ).map(({ letter }) => letter)
+
+      expect(showing).toEqual(letters)
     })
 
-    it('keeps the letters upright and full size as the rose turns', () => {
-      const pixels = compassPixels(0.6)
-      for (const { letter, angle } of visibleLetters(0.6)) {
-        const drawn = letterPixelsToward(pixels, angle)
-        const ys = drawn.map((p) => p.y)
-        expect(Math.max(...ys) - Math.min(...ys) + 1).toBeGreaterThanOrEqual(GLYPH_HEIGHT * LETTER_SCALE - 1)
-        expect(Math.max(...ys) - Math.min(...ys) + 1).toBeLessThanOrEqual(GLYPH_HEIGHT * LETTER_SCALE)
-        expect(isWornGlyph(drawn, letter)).toBe(true)
-      }
-    })
+    it.each(SAMPLE_YAWS)('draws the faced letter solid bright and any other solid worn (yaw %s)', (yaw) => {
+      const drawn = shown(compassPixels(yaw))
+      for (const { letter, angle, visible } of lettersAt(yaw)) {
+        if (!visible) continue
+        const colour = letter === facedLetter(yaw) ? FOREGROUND : FOREGROUND_WORN
 
-    it.each(SAMPLE_YAWS)('draws the faced letter bright with some pixels worn (yaw %s)', (yaw) => {
-      const pixels = compassPixels(yaw)
-      const faced = visibleLetters(yaw).find(({ letter }) => letter === facedLetter(yaw))!
-      const drawn = letterPixelsToward(pixels, faced.angle)
-
-      expect([...coloursOf(drawn)].sort()).toEqual([FOREGROUND, FOREGROUND_WORN].sort())
-      expect(share(drawn, FOREGROUND)).toBeGreaterThan(0.65)
-    })
-
-    it.each(SAMPLE_YAWS)('draws any other shown letter worn with some pixels dim (yaw %s)', (yaw) => {
-      const pixels = compassPixels(yaw)
-      for (const { letter, angle } of visibleLetters(yaw)) {
-        if (letter === facedLetter(yaw)) continue
-        const drawn = letterPixelsToward(pixels, angle)
-
-        expect(coloursOf(drawn).has(FOREGROUND)).toBe(false)
-        expect(share(drawn, FOREGROUND_WORN)).toBeGreaterThan(0.65)
+        expect(letterGlyph(letter, angle).every((p) => drawn.get(key(p))?.colour === colour)).toBe(true)
       }
     })
 
     it('swaps the bright letter as a turn passes the half-way point', () => {
-      const brightSide = (yaw: number) =>
-        [-Math.PI / 4, Math.PI / 4].filter((angle) =>
-          letterPixelsToward(compassPixels(yaw), angle).some((p) => p.colour === FOREGROUND),
-        )
-
-      // N is on the right (−π/4) and W on the left (π/4) half-way through.
-      expect(brightSide(Math.PI / 4 - 0.05)).toEqual([-Math.PI / 4])
-      expect(brightSide(Math.PI / 4 + 0.05)).toEqual([Math.PI / 4])
-    })
-
-    it.each(LETTERS)('wears %s the same at every yaw it shows, as it slides round', (letter) => {
-      const facing = YAW[letter]
-      const reference = normalisedWithColour(letterPixelsOf(compassPixels(facing)))
-      for (const turn of [0.1, -0.3, 0.6]) {
-        const drawn = letterPixelsToward(compassPixels(facing + turn), -turn)
-
-        expect(normalisedWithColour(drawn)).toEqual(reference)
+      const brightLetter = (yaw: number) => {
+        const drawn = shown(compassPixels(yaw))
+        return lettersAt(yaw)
+          .filter(({ letter, angle, visible }) => visible && letterGlyph(letter, angle).every((p) => drawn.get(key(p))?.colour === FOREGROUND))
+          .map(({ letter }) => letter)
       }
+
+      expect(brightLetter(Math.PI / 4 - 0.05)).toEqual(['N'])
+      expect(brightLetter(Math.PI / 4 + 0.05)).toEqual(['W'])
     })
 
-    it('wears a letter in the same places when it is not the faced one, a tone dimmer', () => {
-      const faced = letterPixelsOf(compassPixels(0))
-      // Past half-way through a turn to W, N is still showing but no longer faced.
-      const unfaced = letterPixelsToward(compassPixels(Math.PI / 4 + 0.2), -(Math.PI / 4 + 0.2))
-      const dimmer: Record<string, string> = { [FOREGROUND]: FOREGROUND_WORN, [FOREGROUND_WORN]: FOREGROUND_DIM }
+    it('keeps the letters upright and full size as the rose turns', () => {
+      const drawn = shown(compassPixels(0.6))
+      for (const { letter, angle, visible } of lettersAt(0.6)) {
+        if (!visible) continue
+        const glyph = letterGlyph(letter, angle)
+        const box = extent(glyph)
 
-      expect(normalisedWithColour(unfaced)).toEqual(
-        normalisedWithColour(faced.map((p) => ({ ...p, colour: dimmer[p.colour] }))),
-      )
-    })
-
-    it('wears each letter differently', () => {
-      // Where each faced letter's pixels are faded, relative to its glyph.
-      const fadedOf = (letter: string) =>
-        normalisedWithColour(letterPixelsOf(compassPixels(YAW[letter])))
-          .filter((k) => k.endsWith(FOREGROUND_WORN))
-          .map((k) => k.split(':')[0])
-      const patterns = LETTERS.map((letter) => fadedOf(letter).join(' '))
-
-      expect(new Set(patterns).size).toBe(LETTERS.length)
+        expect(box.bottom - box.top + 1).toBe(GLYPH_HEIGHT * LETTER_SCALE)
+        expect(glyph.every((p) => drawn.has(key(p)))).toBe(true)
+      }
     })
   })
 })

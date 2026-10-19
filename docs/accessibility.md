@@ -65,7 +65,7 @@ The check is `prefersReducedMotion` in `ViewPane`, read when each animation star
   | Tone | Contrast | Used for |
   | --- | --- | --- |
   | `FOREGROUND` (`#f2efe6`) | 16.9:1 | Text, the sign, the mirror's frame, the carets, usable buttons |
-  | `FOREGROUND_WORN` (`#9a968c`) | 6.6:1 | Weathered pixels and secondary lines |
+  | `FOREGROUND_WORN` (`#9a968c`) | 6.6:1 | Secondary lines |
   | `FOREGROUND_DIM` (`#5e5b55`) | 2.9:1 | The room's walls and floor, and unusable buttons |
 
   Text and everything that can be used are drawn in the brightest tone. The dim tone is kept for scenery and for buttons that do nothing, where low contrast is the point.
@@ -83,7 +83,7 @@ Roughly in order of impact:
 4. **Expose the objects in the accessibility tree.** The sign, mirror and pull could be hidden-but-focusable `<button>`s laid over their canvas positions, with names like "Mirror: GitHub, opens profile". Then they'd show up in screen readers' lists of controls and work with switch access and voice control ("click mirror"). Tab selection could move real DOM focus to them, with the carets following.
 5. **Warn before leaving the site.** Using the mirror navigates away in the same tab. Its label, or the status on selection, could say that it opens the profile (for example, "opens GitHub profile").
 6. **Let the visitor control the typing.** Add a way to show text instantly without turning on reduced motion, such as a remembered setting. Or make `TYPING_MS_PER_CHAR` faster when reduced motion isn't set but the visitor has skipped several pages.
-7. **Raise the contrast of the dim tone where it carries meaning.** `FOREGROUND_DIM` is 2.9:1, under WCAG's 3:1 for graphical objects. That's fine for scenery, but unusable buttons rely on it, and they also have other cues (no shadow, the blocked cursor). The room's walls and floor do show where the visitor can go. A slightly brighter dim tone, around `#64615b`, would reach 3:1 without losing the look.
+7. **Raise the contrast of the dim tone where it carries meaning.** `FOREGROUND_DIM` is 2.9:1, under WCAG's 3:1 for graphical objects. That's fine for scenery, but unusable buttons rely on it, and they also have another cue (the blocked cursor). The room's walls and floor do show where the visitor can go. A slightly brighter dim tone, around `#64615b`, would reach 3:1 without losing the look.
 8. **Name the page.** The `<title>` is "portfolio". A descriptive title, such as the owner's name and "portfolio", would help in tab lists and screen reader announcements.
 9. **Fall back without canvas or JavaScript.** With no canvas or no script there's nothing to see. A `<noscript>` message, and plain links to the profiles in the markup (visually hidden or shown as a fallback), would keep the content reachable.
 10. **Support touch and small screens.** On a phone the pane is scaled to fit and the edge zones work by tap, but there are no keys. Swipe gestures for turning and stepping, and checks that the tap targets are big enough when scaled down, would help.

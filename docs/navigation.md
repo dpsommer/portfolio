@@ -22,10 +22,13 @@ The lower panel shows a compass and four direction buttons, drawn by `drawNaviga
 
 `compassPixels` (`src/scene/navigation/compass.ts`) draws a rose that turns with the camera, so the letter for the way the visitor faces sits at the top under a fixed marker.
 
-- **Window:** only the top of the rose shows: an arc of its bezel and the letters within `COMPASS_WINDOW` (60°) of the top. At rest that's just the faced letter; during a turn it slides away round the arc as the next one slides in.
+Like the room's objects, it's drawn in one-pixel lines in solid tones, with no wear.
+
+- **Window:** only the top of the rose shows: an arc of its bezel and what's inside it within `COMPASS_WINDOW` (60°) of the top. At rest that's just the faced letter; during a turn it slides away round the arc as the next one slides in.
 - **Letters:** each letter's direction is a yaw (N 0, W π/2, S π, E −π/2), drawn at `letterYaw − yaw` from the top. Letters move round the arc but stay upright. The faced letter is bright and any other worn.
-- **Bezel:** a band like the pane's frame: a bright outer arc and a worn inner one, closed at both ends. Notches across it turn with the rose, one every 22.5°: long and bright at the letters, shorter and worn half-way between, and dim pips between those. The marker has a worn upper edge, like the frame's bevel.
-- **Wear:** everything is weathered (`weather`), keyed to things that don't change between frames (the bezel's pixels, each notch's place on the rose, each letter's own pixels), so it moves with the rose instead of shimmering.
+- **Bezel:** a band like the pane's frame: a bright outer arc and a worn inner one. At each end the outer arc rolls under into a bright scroll, like the mirror's side scrolls. Notches across it turn with the rose, one every 22.5°: long and bright at the letters, shorter and worn half-way between, and dim pips between those.
+- **Rose:** inside the bezel, turning with it: a dim hub arc, a worn kite-shaped point with a dim middle line at each half-way direction (NW, SW, …), and a worn diamond bead above each letter, like the mirror's bead. They're cut off at the window's edges, under the scrolls.
+- **Marker:** fixed at the top, a bright diamond like the mirror's crest, with a worn curl either side resting on the bezel.
 
 ### Buttons
 
@@ -39,13 +42,13 @@ The buttons (`src/scene/navigation/navButtons.ts`) sit to the compass's right in
 
 Up and down are dimmed and do nothing when there's nowhere to go. `ViewPane` hit-tests clicks with `navButtonAt`. See [cursor.md](cursor.md) for the cursor over the panel.
 
-- **Style:** each button is a worn keycap. Its base has stepped corners like the frame's. Its bright top face sits up and back from the base, like the logo plaque's face in its niche: dim lines join the face's corners to the base's, and a dotted line shades the deeper front edge below the face. The arrow on the face casts a dim shadow down and to the right. Keys are weathered per key, so each looks a little different. Unusable keys are drawn all dim, without the shadow.
+- **Style:** each button is a keycap drawn like the logo plaque in its niche, in one-pixel lines: a dim base with stepped corners like the frame's, a bright top face sitting up and back from it, dim lines joining their corners, and a bright outlined arrow on the face. Unusable keys are drawn all dim.
 
 ### Pressing
 
 Whenever a turn or step plays, its key goes down, including for room clicks: a click on the room's left edge presses the left key.
 
-- The face sinks up to `PRESS_DEPTH` pixels towards the front of its base, and its arrow loses its shadow while it's down. The face and arrow are worn relative to the face, so their wear moves with them.
+- The face and its arrow sink up to `PRESS_DEPTH` pixels towards the front of the base, and the corner lines follow them.
 - The key goes down over the first `KEY_PRESS_MS` of the animation and comes back up over the last `KEY_PRESS_MS` (`keyPressAt` in `ViewPane`).
 - While it's held the key stays bright, even if the move ends somewhere it can't be used (stepping forward into the nook), and it dims on the last frame.
 - With reduced motion there's no animation, so no key moves.
