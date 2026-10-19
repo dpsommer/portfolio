@@ -19,6 +19,7 @@ The modules are grouped by what they draw:
 | `mirror/` | The mirror's frame, preview, ripple, curtain pull and logo plaque. `pixels.ts` projects them all onto the mirror's wall and maps canvas positions back to it. |
 | `signpost/` | The welcome sign. |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
+| `selection/` | The carets around the object selected with the keyboard, their bounce, and `pixelBounds`. |
 | `textBox/` | The text box the lower panel shows while the sign's text is open: wrapping, layout, text and caret. |
 | `panels/` | Logic shared by the panels beside the room, such as `clearPanel` and `weather`. |
 | `draw.ts` | `drawScene`, which paints everything in the room canvas in order (see [layout.md](layout.md#draw-order)), and sprite placement. |
@@ -59,4 +60,4 @@ Every animation goes through `runAnimation` and follows the same rules:
 | Ripple | `rippleDuration(origin)`, longer near the glass's edge | `src/scene/mirror/ripple.ts` | [mirror.md](mirror.md#ripple) |
 | Site switch | `SWITCH_DURATION_MS` (900 ms) | `ViewPane` | [mirror.md](mirror.md#switching-sites) |
 
-The text box's typing and caret blink (`TYPING_MS_PER_CHAR`, `CARET_BLINK_MS` in `src/ViewPane/signText.ts`) are the exception. They run on their own frame loop, not through `runAnimation`, and don't count as animating, because the text box takes the pane's clicks itself. They still follow reduced motion. See [text-box.md](text-box.md#typing).
+The text box's typing and caret blink (`TYPING_MS_PER_CHAR`, `CARET_BLINK_MS` in `src/ViewPane/signText.ts`) are the exception. They run on their own frame loop, not through `runAnimation`, and don't count as animating, because the text box takes the pane's clicks itself. They still follow reduced motion. See [text-box.md](text-box.md#typing). The selection carets' bounce (`caretInset`, `src/scene/selection/selection.ts`) works the same way ([selection.md](selection.md#carets)).

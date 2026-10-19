@@ -5,9 +5,11 @@ import { createFakeContext, toFills } from '../test/fakeContext.ts'
 import type { Fill } from '../test/fakeContext.ts'
 import { extent } from '../test/pixels.ts'
 import type { FloorPoint } from '../scene/core/camera.ts'
+import type { Bounds } from '../scene/core/types.ts'
 import { BACKGROUND, FOREGROUND } from '../scene/core/palette.ts'
 import { drawScene } from '../scene/draw.ts'
 import type { MirrorExtras } from '../scene/draw.ts'
+import { GLASS_CENTRE } from '../scene/mirror/frame.ts'
 import { mirrorPixels, plaquePixels, previewPixels, pullPixels, screenToMirror } from '../scene/mirror/pixels.ts'
 import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
@@ -16,6 +18,8 @@ import { PLACES } from '../scene/navigation/places.ts'
 import { NAV_BUTTON_BOUNDS, navButtonPixels } from '../scene/navigation/navButtons.ts'
 import type { KeyPress, NavButton } from '../scene/navigation/navButtons.ts'
 import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
+import { BOUNCE_DEPTH, BOUNCE_MS, BOUNCE_PERIOD_MS, caretInset, selectionPixels } from '../scene/selection/selection.ts'
+import { signBoardBounds } from '../scene/signpost/signpost.ts'
 import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
@@ -862,7 +866,7 @@ describe('ViewPane', () => {
       expect(pressKey(key)).toBe(false)
     })
 
-    it.each(['a', 'Enter', ' ', 'Escape', 'Tab', 'PageDown', 'Up', 'Left'])(
+    it.each(['a', 'Enter', ' ', 'Escape', 'PageDown', 'Up', 'Left'])(
       'ignores the %j key and leaves its default action',
       (key) => {
         const { canvas } = renderPane()
@@ -3204,6 +3208,415 @@ describe('ViewPane', () => {
         fireEvent.click(frame(container))
 
         expect(status()).toHaveTextContent(/^$/)
+      })
+    })
+  })
+
+  describe('keyboard selection', () => {
+    useAnimation()
+
+    const SIGN_LABEL = 'Welcome sign'
+    const MIRROR_LABEL = `Mirror: ${MIRROR_SITE.name}`
+    const PULL_LABEL = 'Curtain pull'
+    const [FIRST_PAGE] = SIGN_PAGES
+    const status = () => screen.getByRole('status').textContent
+    // What the carets go around: the sign's board, the whole mirror, and the
+    // pull's handle.
+    const SIGN_BOARD = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
+    const caretFills = (bounds: Bounds, inset = 0) => toFills(selectionPixels(bounds, inset, VIEW_WIDTH, VIEW_HEIGHT))
+    const startFills = () => sceneFills(undefined, 0, PLACES.start)
+    // The keyboard's ripple, from the middle of the glass.
+    const RIPPLE_MS = rippleDuration(GLASS_CENTRE)
+    const RIPPLE_END = START + Math.ceil(RIPPLE_MS)
+    // Long enough for any turn or move to finish.
+    const STEP_MS = Math.max(TURN_DURATION_MS, MOVE_DURATION_MS)
+
+    // Renders the pane at the start facing north, clearing the room's fills from mount.
+    function renderAtStart() {
+      const result = renderPane()
+      room.fills.length = 0
+      return result
+    }
+
+    // Presses each arrow key in turn, letting each turn or move finish.
+    function walk(keys: string[]) {
+      for (const key of keys) {
+        pressKey(key)
+        frames.flush(START + STEP_MS)
+      }
+    }
+
+    function pressTimes(times: number, init: KeyboardEventInit = {}) {
+      for (let i = 0; i < times; i++) pressKey('Tab', init)
+    }
+
+    // The views with something to use, and what Tab selects there, in order.
+    const VIEWS: [string, () => unknown, string[]][] = [
+      ['at the start facing north', renderAtStart, [SIGN_LABEL]],
+      ['in the nook facing west', renderInNook, [MIRROR_LABEL, PULL_LABEL]],
+    ]
+
+    describe('stepping through', () => {
+      it.each(VIEWS)('selects each thing %s in turn with Tab, preventing its default', (_, setUp, labels) => {
+        setUp()
+
+        for (const label of labels) {
+          expect(pressKey('Tab')).toBe(false)
+          expect(status()).toBe(label)
+        }
+      })
+
+      it.each(VIEWS)('selects backwards from the last thing %s with Shift+Tab', (_, setUp, labels) => {
+        setUp()
+
+        for (const label of [...labels].reverse()) {
+          expect(pressKey('Tab', { shiftKey: true })).toBe(false)
+          expect(status()).toBe(label)
+        }
+      })
+
+      it.each(VIEWS.flatMap(([name, setUp, labels]) => [
+        ['Tab', name, setUp, labels, false],
+        ['Shift+Tab', name, setUp, labels, true],
+      ] as const))('clears the selection with %s past the end %s, leaving the key to the browser', (_, __, setUp, labels, shiftKey) => {
+        setUp()
+        pressTimes(labels.length, { shiftKey })
+
+        expect(pressKey('Tab', { shiftKey })).toBe(true)
+        expect(status()).toBe('')
+      })
+
+      it('starts from the first thing again with Tab after clearing past the end', () => {
+        renderInNook()
+        pressTimes(3)
+
+        expect(pressKey('Tab')).toBe(false)
+        expect(status()).toBe(MIRROR_LABEL)
+      })
+
+      it('steps back from the selected thing with Shift+Tab', () => {
+        renderInNook()
+        pressTimes(2)
+
+        pressKey('Tab', { shiftKey: true })
+
+        expect(status()).toBe(MIRROR_LABEL)
+      })
+
+      it.each(([
+        ['the start facing west', ['ArrowLeft']],
+        ['the start facing east', ['ArrowRight']],
+        ['the start facing south', ['ArrowLeft', 'ArrowLeft']],
+        ['the nook facing north', ['ArrowLeft', 'ArrowUp', 'ArrowRight']],
+        ['the nook facing south', ['ArrowLeft', 'ArrowUp', 'ArrowLeft']],
+      ] as [string, string[]][]).flatMap(([view, keys]) => [
+        ['Tab', view, keys, false],
+        ['Shift+Tab', view, keys, true],
+      ] as const))('does nothing with %s from %s, where there is nothing to use', (_, __, keys, shiftKey) => {
+        renderAtStart()
+        walk(keys)
+        room.fills.length = 0
+        frames.requestAnimationFrame.mockClear()
+
+        expect(pressKey('Tab', { shiftKey })).toBe(true)
+        expect(status()).toBe('')
+        expect(room.fills).toEqual([])
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it.each(['altKey', 'ctrlKey', 'metaKey'] as const)('ignores Tab with %s held', (modifier) => {
+        renderAtStart()
+
+        expect(pressKey('Tab', { [modifier]: true })).toBe(true)
+        expect(status()).toBe('')
+      })
+
+      it('ignores Tab aimed at a text field', () => {
+        renderAtStart()
+        const field = render(<div />).container.appendChild(document.createElement('input'))
+
+        expect(pressKey('Tab', {}, field)).toBe(true)
+        expect(status()).toBe('')
+      })
+
+      it.each([
+        ['Tab', false],
+        ['Shift+Tab', true],
+      ])('ignores %s while the sign\'s text is open', (_, shiftKey) => {
+        const { canvas } = renderAtStart()
+        clickAt(canvas, SIGN_X, SIGN_Y)
+
+        expect(pressKey('Tab', { shiftKey })).toBe(true)
+        expect(status()).toBe(FIRST_PAGE)
+      })
+
+      it('clears the selection with Escape', () => {
+        renderInNook()
+        pressKey('Tab')
+
+        pressKey('Escape')
+
+        expect(status()).toBe('')
+        expect(pressKey('Enter')).toBe(true)
+      })
+
+      it.each<[string, (canvas: HTMLElement) => void]>([
+        ['turning with an arrow key', () => pressKey('ArrowLeft')],
+        ['turning with a click in the room', (canvas) => clickAt(canvas, RIGHT_X)],
+        ['stepping back with an arrow key', () => pressKey('ArrowDown')],
+      ])('clears the selection on %s', (_, go) => {
+        const { canvas } = renderInNook()
+        pressKey('Tab')
+
+        go(canvas)
+        frames.flush(START + STEP_MS)
+
+        expect(status()).toBe('')
+        expect(pressKey('Enter')).toBe(true)
+      })
+
+      it('names the mirror after the site it shows once the pull has switched it', () => {
+        renderInNook()
+        pressTimes(2)
+        pressKey('Enter')
+        frames.flush(START + SWITCH_DURATION_MS)
+
+        pressKey('Tab', { shiftKey: true })
+
+        expect(status()).toBe(`Mirror: ${NEXT_SITE.name}`)
+      })
+
+      it('selects without a canvas context, requesting no frames', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+        renderPane()
+
+        pressKey('Tab')
+
+        expect(status()).toBe(SIGN_LABEL)
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('using the selected thing', () => {
+      it.each(['Enter', ' '])('opens the sign\'s text with %j, preventing its default', (key) => {
+        renderAtStart()
+        pressKey('Tab')
+
+        expect(pressKey(key)).toBe(false)
+        expect(status()).toBe(FIRST_PAGE)
+      })
+
+      // The press that opens the text doesn't also skip its typing, so the
+      // next finishes the page and the one after closes it. The text only
+      // types out with a context for the lower panel.
+      it('moves the text on with the next press, not the one that opened it', () => {
+        contextPerCanvas()
+        renderPane()
+        pressKey('Tab')
+        pressKey('Enter')
+
+        pressKey('Enter')
+        expect(status()).toBe(FIRST_PAGE)
+
+        pressKey('Enter')
+        expect(status()).toBe(SIGN_LABEL)
+      })
+
+      it('does nothing on a held key\'s repeat, still preventing its default', () => {
+        renderAtStart()
+        pressKey('Tab')
+
+        expect(pressKey('Enter', { repeat: true })).toBe(false)
+        expect(status()).toBe(SIGN_LABEL)
+      })
+
+      it.each(['Enter', ' '])('switches site with %j on the pull', (key) => {
+        const { canvas } = renderInNook()
+        pressTimes(2)
+
+        expect(pressKey(key)).toBe(false)
+        expect(canvas).toHaveAttribute('data-site', NEXT_SITE.name)
+      })
+
+      it('ignores a press mid-animation, still preventing its default', () => {
+        const { canvas } = renderInNook()
+        pressTimes(2)
+        pressKey('Enter')
+
+        expect(pressKey('Enter')).toBe(false)
+        expect(canvas).toHaveAttribute('data-site', NEXT_SITE.name)
+      })
+
+      it('ripples the mirror from the middle of its glass, with the carets on top', () => {
+        renderInNook()
+        pressKey('Tab')
+        pressKey('Enter')
+        room.fills.length = 0
+
+        frames.flush(START + RIPPLE_MS / 2)
+
+        expect(room.fills).toEqual([
+          ...sceneFills({ ripple: { origin: GLASS_CENTRE, elapsedMs: RIPPLE_MS / 2 } }),
+          ...caretFills(MIRROR, caretInset(RIPPLE_MS / 2)),
+        ])
+      })
+
+      it('goes to the mirror\'s site once the ripple has finished, not before', () => {
+        renderInNook()
+        pressKey('Tab')
+        pressKey('Enter')
+
+        frames.flush(START + RIPPLE_MS / 2)
+        expect(openUrl).not.toHaveBeenCalled()
+
+        frames.flush(RIPPLE_END)
+        expect(openUrl).toHaveBeenCalledTimes(1)
+        expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
+      })
+
+      it('goes to the mirror\'s site at once with reduced motion', () => {
+        useReducedMotion()
+        renderInNook()
+        pressKey('Tab')
+
+        pressKey('Enter')
+
+        expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('carets', () => {
+      it.each<[string, () => unknown, number, Bounds, () => Fill[]]>([
+        ['the sign', renderAtStart, 1, SIGN_BOARD, startFills],
+        ['the mirror', renderInNook, 1, MIRROR, () => sceneFills()],
+        ['the pull', renderInNook, 2, HANDLE, () => sceneFills()],
+      ])('redraws the room once with carets around %s when it is selected', (_, setUp, tabs, bounds, scene) => {
+        setUp()
+        pressTimes(tabs - 1)
+        room.fills.length = 0
+
+        pressKey('Tab')
+
+        expect(room.fills).toEqual([...scene(), ...caretFills(bounds)])
+      })
+
+      it.each([
+        ['Escape', () => pressKey('Escape')],
+        ['Shift+Tab past the first thing', () => pressKey('Tab', { shiftKey: true })],
+      ])('redraws without the carets and stops bouncing them when %s clears the selection', (_, clear) => {
+        renderInNook()
+        pressKey('Tab')
+        room.fills.length = 0
+
+        clear()
+
+        expect(room.fills).toEqual(sceneFills())
+        expect(frames.cancelAnimationFrame).toHaveBeenCalled()
+        expect(frames.pending()).toBe(0)
+      })
+
+      it('draws the turn that clears the selection without the carets', () => {
+        renderInNook()
+        pressKey('Tab')
+        room.fills.length = 0
+
+        pressKey('ArrowLeft')
+        expect(room.fills).toEqual([])
+
+        frames.flush(START + TURN_DURATION_MS)
+        expect(room.fills).toEqual(sceneFills(undefined, WEST + Math.PI / 2))
+        expect(frames.pending()).toBe(0)
+      })
+
+      it('keeps the carets still, without redrawing, through the first bounce period', () => {
+        renderInNook()
+        pressKey('Tab')
+        room.fills.length = 0
+
+        frames.flush(START + BOUNCE_PERIOD_MS / 2)
+        frames.flush(START + BOUNCE_PERIOD_MS - 1)
+
+        expect(room.fills).toEqual([])
+        expect(frames.pending()).toBe(1)
+      })
+
+      it('redraws the carets dipped in mid-bounce, and back out after it', () => {
+        renderInNook()
+        pressKey('Tab')
+        room.fills.length = 0
+
+        frames.flush(START + BOUNCE_PERIOD_MS + BOUNCE_MS / 2)
+        expect(room.fills).toEqual([...sceneFills(), ...caretFills(MIRROR, BOUNCE_DEPTH)])
+
+        room.fills.length = 0
+        frames.flush(START + BOUNCE_PERIOD_MS + BOUNCE_MS)
+        expect(room.fills).toEqual([...sceneFills(), ...caretFills(MIRROR)])
+      })
+
+      it('only redraws the carets when their inset changes', () => {
+        renderInNook()
+        pressKey('Tab')
+        frames.flush(START + BOUNCE_PERIOD_MS + BOUNCE_MS / 2)
+        room.fills.length = 0
+
+        frames.flush(START + BOUNCE_PERIOD_MS + BOUNCE_MS / 2 + 1)
+
+        expect(caretInset(BOUNCE_PERIOD_MS + BOUNCE_MS / 2 + 1)).toBe(BOUNCE_DEPTH)
+        expect(room.fills).toEqual([])
+      })
+
+      it('leaves a bounce mid-animation to the animation\'s frame, drawing once', () => {
+        renderInNook()
+        pressKey('Tab')
+        now.mockReturnValue(START + BOUNCE_PERIOD_MS)
+        pressKey('Enter')
+        room.fills.length = 0
+
+        frames.flush(START + BOUNCE_PERIOD_MS + BOUNCE_MS / 2)
+
+        expect(room.fills).toEqual([
+          ...sceneFills({ ripple: { origin: GLASS_CENTRE, elapsedMs: BOUNCE_MS / 2 } }),
+          ...caretFills(MIRROR, BOUNCE_DEPTH),
+        ])
+      })
+
+      it.each([
+        ['Tab', {}],
+        ['Shift+Tab', { shiftKey: true }],
+      ])('ignores %s mid-animation, keeping the selection and focus', (_, init) => {
+        renderInNook()
+        pressKey('Tab')
+        pressKey('Enter')
+        room.fills.length = 0
+
+        expect(pressKey('Tab', init)).toBe(false)
+        expect(screen.getByRole('status')).toHaveTextContent('Mirror')
+
+        frames.flush(START + RIPPLE_MS / 2)
+        expect(room.fills).toEqual([
+          ...sceneFills({ ripple: { origin: GLASS_CENTRE, elapsedMs: RIPPLE_MS / 2 } }),
+          ...caretFills(MIRROR, caretInset(RIPPLE_MS / 2)),
+        ])
+      })
+
+      it('draws still carets with reduced motion, requesting no frames', () => {
+        useReducedMotion()
+        renderInNook()
+
+        pressKey('Tab')
+
+        expect(room.fills).toEqual([...sceneFills(), ...caretFills(MIRROR)])
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it('stops bouncing the carets once unmounted', () => {
+        const { unmount } = renderInNook()
+        pressKey('Tab')
+
+        unmount()
+
+        expect(frames.pending()).toBe(0)
       })
     })
   })

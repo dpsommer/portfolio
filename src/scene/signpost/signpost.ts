@@ -3,7 +3,7 @@ import type { Vec3 } from '../core/camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
 import { GLYPH_HEIGHT, textPixels, textWidth } from '../core/pixelFont.ts'
 import { createRandom } from '../core/random.ts'
-import type { Pixel } from '../core/types.ts'
+import type { Bounds, Pixel } from '../core/types.ts'
 
 export const SIGN_TEXT = 'WELCOME'
 export const BOARD_WIDTH = 120
@@ -137,8 +137,6 @@ export function signpostPixels(canvasWidth: number, canvasHeight: number): Pixel
 
   return [...board, ...post, ...ground]
 }
-
-export type Bounds = { left: number; top: number; right: number; bottom: number }
 
 // A rectangle from the tilted board's lower-left corner to its upper-right corner,
 // in canvas pixels (inclusive). Used as the sign's hover area.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CEILING_Y, FLOOR_Y } from '../core/camera.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
-import { GLASS_OUTLINE, MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './frame.ts'
+import { GLASS_CENTRE, GLASS_OUTLINE, MIRROR_BOUNDS, MIRROR_LAYERS, isOnGlass } from './frame.ts'
 import type { MirrorLine, MirrorPoint } from './frame.ts'
 
 const WALL_HEIGHT = CEILING_Y - FLOOR_Y
@@ -144,6 +144,16 @@ describe('GLASS_OUTLINE', () => {
     expect(GLASS.lines.flat().map(pointKey)).toEqual(
       GLASS_OUTLINE.slice(1).flatMap((p, i) => [pointKey(GLASS_OUTLINE[i]), pointKey(p)]),
     )
+  })
+})
+
+describe('GLASS_CENTRE', () => {
+  it('is on the glass', () => {
+    expect(isOnGlass(GLASS_CENTRE)).toBe(true)
+  })
+
+  it('is centred left to right', () => {
+    expect(GLASS_CENTRE.s).toBeCloseTo(0, 9)
   })
 })
 

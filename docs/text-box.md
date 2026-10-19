@@ -33,7 +33,7 @@ While the box is open, a click anywhere in the pane (the room, the panels, the b
 2. Once it's typed, it goes to the next page.
 3. After the last page, it closes the box and the navigation panel comes back.
 
-Enter and Space follow the arrow keys' rules ([navigation.md](navigation.md#arrow-keys)). They're ignored with Alt, Ctrl or Meta held, or while focus is in a text field, and otherwise they don't scroll the page. A held key moves the text on only once, not on every repeat. They don't open the sign, because a view can have more than one thing to use (the mirror and the pull in the nook), so there's no single obvious target.
+Enter and Space follow the arrow keys' rules ([navigation.md](navigation.md#arrow-keys)). They're ignored with Alt, Ctrl or Meta held, or while focus is in a text field, and otherwise they don't scroll the page. A held key moves the text on only once, not on every repeat. On their own they don't open the sign, because a view can have more than one thing to use (the mirror and the pull in the nook). To open it from the keyboard, select it with Tab first ([selection.md](selection.md)).
 
 Meanwhile the room's clicks don't turn or move the visitor, and the panel's buttons and the arrow keys do nothing. The pointing hand shows everywhere in the pane (see [cursor.md](cursor.md)).
 

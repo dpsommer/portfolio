@@ -25,6 +25,8 @@ While an animation plays, the hands don't show: the room shows its zone cursor, 
 
 `ViewPane` sets the blocked hand on `.view-pane-frame`, so the frame's border, the bands and the side panel inherit it; the room and lower panel canvases set their own.
 
+Keyboard selection ([selection.md](selection.md)) is shown with carets drawn in the room, not the cursor, and doesn't change the cursor.
+
 ## Hover areas
 
 `ViewPane` converts the mouse position to canvas pixels using fractions of the canvas's on-screen size, so every area scales with the pane.

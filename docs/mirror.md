@@ -46,6 +46,7 @@ Clicking the glass plays a water ripple from the click point, then redirects the
 - **Rings:** `src/scene/mirror/ripple.ts` sends out three rings, `EMIT_INTERVAL` apart. A ring's radius is `SPEED · age^GROWTH`, so each ring speeds up as it spreads and the outer rings are further apart.
 - **Fade:** a ring's strength falls from 1 at the click to 0 at `1 / FADE_RATE` of the way to the glass's furthest point from it, so rings fade out before the far edge. Strong rings are drawn worn, weaker ones dim, and the weakest lose more and more pixels until they vanish. `rippleDuration` is when the last ring fades, so clicks near an edge ripple for longer.
 - **Distortion:** while it plays, the preview is sampled through `rippleOffset`, so the picture under each ring is pushed outward just behind its crest and inward just ahead of it. `ripplePixels` draws the rings over the picture, clipped to the glass.
+- **From the keyboard:** with the mirror selected ([selection.md](selection.md)), Enter or Space ripples from `GLASS_CENTRE` (`src/scene/mirror/frame.ts`), the middle of the glass.
 - **Redirect:** when it ends, `openUrl` sends the browser to the profile in the same tab. With reduced motion (or no canvas), a click goes straight to the profile.
 
 ## Curtain pull
@@ -54,7 +55,7 @@ A cord hanging from the ceiling to the right of the mirror, ending in an acorn-s
 
 - **Placement:** at s `PULL_S`, right of the mirror's side scroll. The cord ends at the handle's top a little above eye height, keeping the handle clear of the brick below it.
 - **Style:** a worn cord and a band across the handle, and a bright handle outline. `pullLayers(drop)` lowers the handle by `drop` and stretches the cord, for the tug animation.
-- **Clicking** it switches to the next site, wrapping after the last.
+- **Clicking** it, or pressing Enter or Space with it selected, switches to the next site, wrapping after the last.
 
 ## Logo plaque
 

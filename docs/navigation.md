@@ -57,4 +57,5 @@ The arrow keys work the buttons (up forward, down back, left and right turn) exa
 - The listener is on `window`, so the keys work anywhere on the page.
 - It ignores keys when Alt, Ctrl or Meta is held or when focus is in a text field, and otherwise prevents the page scrolling.
 - A held key repeats, so it keeps turning or stepping each time an animation ends.
+- Tab, Escape, Enter and Space select and use the room's objects ([selection.md](selection.md)).
 - While the sign's text box is open, the arrow keys do nothing, and Enter and Space move its text on instead ([text-box.md](text-box.md#moving-the-text-on)).

@@ -4,8 +4,9 @@ import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.t
 import type { CursorZone } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
-import { drawScene } from '../scene/draw.ts'
-import { screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
+import { GLASS_CENTRE } from '../scene/mirror/frame.ts'
+import type { MirrorPoint } from '../scene/mirror/frame.ts'
+import { mirrorPixels, pullPixels, screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
 import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
@@ -20,8 +21,11 @@ import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
 import { PLACES, backFrom, forwardFrom } from '../scene/navigation/places.ts'
 import type { PlaceName } from '../scene/navigation/places.ts'
 import { clearPanel } from '../scene/panels/panelCanvas.ts'
+import { FOREGROUND } from '../scene/core/palette.ts'
+import { drawPixels, drawScene } from '../scene/draw.ts'
+import { caretInset, pixelBounds, selectionPixels } from '../scene/selection/selection.ts'
 import { signBoardBounds } from '../scene/signpost/signpost.ts'
-import type { Bounds } from '../scene/signpost/signpost.ts'
+import type { Bounds } from '../scene/core/types.ts'
 import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import './ViewPane.scss'
 
@@ -77,6 +81,29 @@ function isOverGlass(x: number, y: number): boolean {
 function isOverPull(x: number, y: number): boolean {
   const point = screenToWall(x, y, VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)
   return point !== null && isOnPull(point)
+}
+
+// The things in the room that can be used, by clicking or by selecting them
+// with Tab and pressing Enter or Space.
+type Interactable = 'sign' | 'mirror' | 'pull'
+
+// What can be used from `place` facing `heading`, in Tab order. Each thing is
+// only usable from where it was designed to be seen.
+function interactablesIn(place: PlaceName, heading: Heading): Interactable[] {
+  if (place === 'start' && heading === 'north') return ['sign']
+  if (place === 'nook' && heading === 'west') return ['mirror', 'pull']
+  return []
+}
+
+// Where each thing is on the canvas in the view it's used from, for the
+// selection carets: the sign's board, the mirror with its frame, and the
+// pull's handle.
+const INTERACTABLE_BOUNDS: Record<Interactable, Bounds> = {
+  sign: SIGN_BOUNDS,
+  mirror: pixelBounds(mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)),
+  pull: pixelBounds(
+    pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, TURN_YAW.left, PLACES.nook).filter((p) => p.colour === FOREGROUND),
+  ),
 }
 
 const TURNS: Partial<Record<CursorZone, TurnDirection>> = { 'turn-left': 'left', 'turn-right': 'right' }
@@ -160,16 +187,22 @@ type View = {
   pullDrop?: number
   plaque?: Plaque
 }
-// What the current site puts on the mirror wall: its preview on the glass and
-// its logo on the plaque.
-type SiteLook = { preview: Preview | null; logo: LogoMap }
+// The selected thing and how far in its carets are mid-bounce.
+type Selection = { target: Interactable; inset: number }
+// What's drawn beyond the view: the current site's preview on the glass and
+// logo on the plaque, and the carets around the selected thing, if any.
+type SiteLook = { preview: Preview | null; logo: LogoMap; selection: Selection | null }
 
 function drawView(
   ctx: CanvasRenderingContext2D,
   { x, z, yaw, ripple, shimmer, pullDrop, plaque }: View,
-  { preview, logo }: SiteLook,
+  { preview, logo, selection }: SiteLook,
 ) {
   drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop, plaque: plaque ?? { logo } })
+  if (selection) {
+    const { width, height } = ctx.canvas
+    drawPixels(ctx, selectionPixels(INTERACTABLE_BOUNDS[selection.target], selection.inset, width, height))
+  }
 }
 
 // Loads an image and quantises it to a preview covering the glass, cropping
@@ -225,9 +258,21 @@ function ViewPane() {
   const frameRef = useRef<number | null>(null)
   // Each site's picture for the mirror, once loaded.
   const previewsRef = useRef<(Preview | null)[]>(MIRROR_SITES.map(() => null))
+  // The thing selected with Tab, if any. The ref is for drawing mid-animation
+  // and holds the carets' bounce too.
+  const [selected, setSelected] = useState<Interactable | null>(null)
+  const selectionRef = useRef<Selection | null>(null)
+  // The selection last drawn, and the carets' bounce frame.
+  const drawnSelectionRef = useRef<Interactable | null>(null)
+  const caretFrameRef = useRef<number | null>(null)
+  const select = (target: Interactable | null) => {
+    selectionRef.current = target && { target, inset: 0 }
+    setSelected(target)
+  }
   const currentLook = (): SiteLook => ({
     preview: previewsRef.current[siteRef.current],
     logo: MIRROR_SITES[siteRef.current].logo,
+    selection: selectionRef.current,
   })
 
   useEffect(() => {
@@ -284,6 +329,34 @@ function ViewPane() {
       textFrameRef.current = null
     }
   }, [dialogue])
+
+  // Shows the carets around the selected thing, or clears them, and bounces
+  // them every so often while it stays selected. Mid-animation the next frame
+  // draws them instead. With reduced motion they stay still.
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    if (selected !== drawnSelectionRef.current && frameRef.current === null) {
+      drawView(ctx, viewRef.current, currentLook())
+    }
+    drawnSelectionRef.current = selected
+    if (!selected || prefersReducedMotion()) return
+    const start = performance.now()
+    const step = (now: number) => {
+      const selection = selectionRef.current
+      const inset = caretInset(Math.max(0, now - start))
+      if (selection && inset !== selection.inset) {
+        selectionRef.current = { ...selection, inset }
+        if (frameRef.current === null) drawView(ctx, viewRef.current, currentLook())
+      }
+      caretFrameRef.current = requestAnimationFrame(step)
+    }
+    caretFrameRef.current = requestAnimationFrame(step)
+    return () => {
+      if (caretFrameRef.current !== null) cancelAnimationFrame(caretFrameRef.current)
+      caretFrameRef.current = null
+    }
+  }, [selected])
 
   // A click while the sign's text is open finishes typing the page, or goes
   // on to the next page, or after the last one closes the text and brings
@@ -379,6 +452,8 @@ function ViewPane() {
   function turnView(direction: TurnDirection) {
     const next = turn(heading, direction)
     setHeading(next)
+    // Whatever was selected is out of view now.
+    select(null)
     animateTo({ ...viewRef.current, yaw: viewRef.current.yaw + TURN_YAW[direction] }, TURN_DURATION_MS, {
       enabled: enabledButtons(place, next),
       pressed: direction,
@@ -389,6 +464,7 @@ function ViewPane() {
   // and presses that key on the panel.
   function moveTo(next: PlaceName, key: 'forward' | 'back') {
     setPlace(next)
+    select(null)
     animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS, {
       enabled: enabledButtons(next, heading),
       pressed: key,
@@ -396,12 +472,17 @@ function ViewPane() {
   }
 
   // Plays a ripple on the mirror from the canvas position (x, y), if it's on
-  // the glass, then goes to the site it shows. With reduced motion or no
-  // canvas it goes straight there.
+  // the glass, then goes to the site it shows.
   function rippleAt(x: number, y: number) {
     const view = viewRef.current
     const origin = screenToMirror(x, y, VIEW_WIDTH, VIEW_HEIGHT, view.yaw, view)
-    if (!origin) return
+    if (origin) rippleFrom(origin)
+  }
+
+  // Plays a ripple on the mirror from `origin` on the glass, then goes to the
+  // site it shows. With reduced motion or no canvas it goes straight there.
+  function rippleFrom(origin: MirrorPoint) {
+    const view = viewRef.current
     const { url } = MIRROR_SITES[siteRef.current]
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx || prefersReducedMotion()) {
@@ -442,6 +523,27 @@ function ViewPane() {
         plaque: plaqueAt(elapsed, from.logo, to.logo),
       }
     })
+  }
+
+  // Uses `target`, as a click on it or Enter or Space with it selected does.
+  // From the keyboard the mirror ripples from the middle of its glass.
+  function interact(target: Interactable) {
+    if (target === 'sign') setDialogue({ page: 0, skipped: false })
+    else if (target === 'mirror') rippleFrom(GLASS_CENTRE)
+    else switchSite()
+  }
+
+  // Tab and Shift+Tab step through what can be used in the view, forward or
+  // back. Past either end the selection clears and the key is left to the
+  // browser, so focus can move on rather than being trapped in the pane.
+  // Returns whether the key was used.
+  function stepSelection(backward: boolean): boolean {
+    const list = interactablesIn(place, heading)
+    if (list.length === 0) return false
+    const index = selected ? list.indexOf(selected) : backward ? list.length : -1
+    const next = list[index + (backward ? -1 : 1)] ?? null
+    select(next)
+    return next !== null
   }
 
   // Mouse position in the canvas's drawing pixels, from fractions of its
@@ -487,7 +589,7 @@ function ViewPane() {
     // While the sign's text is open the click is for it, handled by the frame.
     if (!point || !at || animating || dialogue) return
     if (at.overSign && isSignView) {
-      setDialogue({ page: 0, skipped: false })
+      interact('sign')
       return
     }
     if (at.overMirror && isMirrorView) {
@@ -495,7 +597,7 @@ function ViewPane() {
       return
     }
     if (at.overPull && isMirrorView) {
-      switchSite()
+      interact('pull')
       return
     }
     const direction = TURNS[at.zone]
@@ -538,14 +640,16 @@ function ViewPane() {
     if (button) pressNavButton(button)
   }
 
-  // The arrow keys work the navigation buttons anywhere on the page, and
-  // Enter and Space move the sign's text on while it's open, unless they're
-  // for a text field or part of a shortcut. Held arrow keys repeat, so a held
-  // key keeps turning or stepping as each animation ends; a held Enter or
-  // Space only moves the text on once. Enter and Space don't open the sign,
-  // since a view can have more than one thing to use (the mirror and pull).
-  // It subscribes again on every render so the handler sees the current
-  // place, heading and text.
+  // Keys work anywhere on the page, unless they're for a text field or part
+  // of a shortcut:
+  // - Enter and Space move the sign's text on while it's open.
+  // - Otherwise Tab and Shift+Tab select what can be used in the view, Escape
+  //   clears the selection, and Enter and Space use the selected thing.
+  // - The arrow keys work the navigation buttons.
+  // Held arrow keys repeat, so a held key keeps turning or stepping as each
+  // animation ends; a held Enter or Space acts only once. It subscribes again
+  // on every render so the handler sees the current place, heading, text and
+  // selection.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey || isTypingTarget(event.target)) return
@@ -553,6 +657,26 @@ function ViewPane() {
         // Space would otherwise scroll the page.
         event.preventDefault()
         if (!event.repeat) advanceDialogue()
+        return
+      }
+      if (!dialogue && event.key === 'Tab') {
+        // Mid-animation the view isn't settled, so the key waits, but still
+        // doesn't move focus out of the pane.
+        if (animating) {
+          if (interactablesIn(place, heading).length > 0) event.preventDefault()
+          return
+        }
+        if (stepSelection(event.shiftKey)) event.preventDefault()
+        return
+      }
+      if (selected && event.key === 'Escape') {
+        select(null)
+        return
+      }
+      if (selected && TEXT_KEYS.includes(event.key)) {
+        event.preventDefault()
+        // The text this opens for the sign is moved on by the next press.
+        if (!event.repeat && !animating) interact(selected)
         return
       }
       const button = ARROW_KEYS[event.key]
@@ -564,6 +688,10 @@ function ViewPane() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   })
+
+  // A name for `target`, for screen readers.
+  const interactableLabel = (target: Interactable) =>
+    target === 'sign' ? 'Welcome sign' : target === 'mirror' ? `Mirror: ${MIRROR_SITES[site].name}` : 'Curtain pull'
 
   // The sign, mirror and pull are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'
@@ -633,7 +761,7 @@ function ViewPane() {
       />
       {/* The panels are hidden from assistive tech, so the sign's text is read from here. */}
       <p className="view-pane-status" role="status">
-        {dialogue ? SIGN_PAGES[dialogue.page] : ''}
+        {dialogue ? SIGN_PAGES[dialogue.page] : selected ? interactableLabel(selected) : ''}
       </p>
     </div>
   )

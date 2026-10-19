@@ -21,3 +21,4 @@ The site is a portfolio styled as a retro first-person point-and-click dungeon c
 | The cursor and hover areas | [cursor.md](cursor.md) |
 | The mirror, its previews, ripple, curtain pull and logo plaque | [mirror.md](mirror.md) |
 | The text box the sign's text types into | [text-box.md](text-box.md) |
+| Selecting and using objects from the keyboard | [selection.md](selection.md) |

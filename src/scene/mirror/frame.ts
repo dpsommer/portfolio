@@ -49,6 +49,13 @@ function archOutline(inset: number): MirrorPoint[] {
 // The glass's edge, just inside the frame.
 export const GLASS_OUTLINE = archOutline(FRAME_WIDTH)
 
+// The middle of the glass, where a ripple starts when the mirror is used from
+// the keyboard.
+export const GLASS_CENTRE = point(
+  (Math.min(...GLASS_OUTLINE.map(({ s }) => s)) + Math.max(...GLASS_OUTLINE.map(({ s }) => s))) / 2,
+  (Math.min(...GLASS_OUTLINE.map(({ t }) => t)) + Math.max(...GLASS_OUTLINE.map(({ t }) => t))) / 2,
+)
+
 // Whether a mirror-local point is on the glass, inside the worn inner edge.
 export function isOnGlass({ s, t }: MirrorPoint): boolean {
   const half = HALF_WIDTH - FRAME_WIDTH

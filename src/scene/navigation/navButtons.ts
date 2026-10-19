@@ -3,7 +3,7 @@ import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import { hashRandom } from '../core/random.ts'
 import type { Pixel } from '../core/types.ts'
 import { weather } from '../panels/panelCanvas.ts'
-import type { Bounds } from '../signpost/signpost.ts'
+import type { Bounds } from '../core/types.ts'
 
 // Four direction buttons to the right of the compass, laid out like a
 // keyboard's arrow keys, in panel canvas pixels: forward on top, and back in
