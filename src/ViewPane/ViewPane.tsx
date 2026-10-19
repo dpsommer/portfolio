@@ -575,7 +575,7 @@ function ViewPane() {
     if (!point) return null
     const { x, y } = point
     return {
-      zone: getCursorZone(x / VIEW_WIDTH),
+      zone: getCursorZone(x / VIEW_WIDTH, y / VIEW_HEIGHT, VIEW_WIDTH / VIEW_HEIGHT),
       overSign: isInside(SIGN_BOUNDS, x, y),
       overMirror: isOverGlass(x, y),
       overPull: isOverPull(x, y),
@@ -615,6 +615,11 @@ function ViewPane() {
     const direction = TURNS[at.zone]
     if (direction) {
       turnView(direction)
+      return
+    }
+    // Does nothing when there's no way back, like the dimmed down button.
+    if (at.zone === 'back') {
+      pressNavButton('back')
       return
     }
     const next = forwardFrom(place, heading)
@@ -713,11 +718,12 @@ function ViewPane() {
     ((pointer.overSign && isSignView) ||
       ((pointer.overMirror || pointer.overPull) && isMirrorView))
   const canMoveForward = forwardFrom(place, heading) !== null
+  const canMoveBack = backFrom(place, heading) !== null
   // While the sign's text is open, a click anywhere in the pane moves it on.
   const cursor =
     dialogue || showHand
       ? HAND_CURSOR
-      : pointer.zone === 'forward' && !canMoveForward
+      : (pointer.zone === 'forward' && !canMoveForward) || (pointer.zone === 'back' && !canMoveBack)
         ? BLOCKED_CURSOR
         : CURSORS[pointer.zone]
   // Every panel shows the blocked hand unless something under it can be used,

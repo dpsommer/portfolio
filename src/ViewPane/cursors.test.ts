@@ -46,6 +46,9 @@ function topFaceRows(map: string[]): number[] {
 }
 
 describe('getCursorZone', () => {
+  // The pane's 320x240 aspect, where the bottom strip is 48px tall, from y 192.
+  const ASPECT = 4 / 3
+
   it.each([
     [0, 'turn-left'],
     [EDGE_ZONE_FRACTION - 0.01, 'turn-left'],
@@ -56,8 +59,40 @@ describe('getCursorZone', () => {
     [1 - EDGE_ZONE_FRACTION, 'forward'],
     [1 - EDGE_ZONE_FRACTION + 0.01, 'turn-right'],
     [1, 'turn-right'],
-  ])('maps %s to %s', (fraction, zone) => {
-    expect(getCursorZone(fraction)).toBe(zone)
+  ])('maps x %s in the middle row to %s', (x, zone) => {
+    expect(getCursorZone(x, 0.5, ASPECT)).toBe(zone)
+  })
+
+  // 48px is 15% of the pane's width, so the strip is as tall as the side zones are wide.
+  it.each([
+    [0, 'forward'],
+    [191 / 240, 'forward'],
+    [193 / 240, 'back'],
+    [1, 'back'],
+  ])('maps y %s in the centre column to %s', (y, zone) => {
+    expect(getCursorZone(0.5, y, ASPECT)).toBe(zone)
+  })
+
+  it.each([
+    [EDGE_ZONE_FRACTION, 'back'],
+    [1 - EDGE_ZONE_FRACTION, 'back'],
+    [EDGE_ZONE_FRACTION - 0.01, 'turn-left'],
+    [1 - EDGE_ZONE_FRACTION + 0.01, 'turn-right'],
+    [0, 'turn-left'],
+    [1, 'turn-right'],
+  ])('maps x %s in the bottom row to %s, the turn zones taking the corners', (x, zone) => {
+    expect(getCursorZone(x, 1, ASPECT)).toBe(zone)
+  })
+
+  it.each([
+    // A square pane: the strip is 15% of the height.
+    [1, 0.86, 'back'],
+    [1, 0.84, 'forward'],
+    // A pane twice as wide as it's tall: the strip is 30% of the height.
+    [2, 0.71, 'back'],
+    [2, 0.69, 'forward'],
+  ])('scales the strip with aspect %s, mapping y %s to %s', (aspect, y, zone) => {
+    expect(getCursorZone(0.5, y, aspect)).toBe(zone)
   })
 })
 
@@ -145,6 +180,27 @@ describe('CURSOR_MAPS', () => {
     const widths = topFaceWidths(CURSOR_MAPS.forward)
     const widest = widths.indexOf(Math.max(...widths))
     const shaft = widths.slice(widest + 1).filter((width) => width > 0)
+    expect(widths[widest]).toBeGreaterThan(Math.max(...shaft))
+  })
+
+  it('back map points at the viewer, its tip the lowest top face row where forward\'s is the highest', () => {
+    const tipRow = (map: string[]) => {
+      const widths = topFaceWidths(map)
+      const rows = topFaceRows(map)
+      const narrowest = Math.min(...rows.map((y) => widths[y]))
+      return rows.filter((y) => widths[y] === narrowest)
+    }
+    const forwardRows = topFaceRows(CURSOR_MAPS.forward)
+    const backRows = topFaceRows(CURSOR_MAPS.back)
+    expect(tipRow(CURSOR_MAPS.forward)).toEqual([Math.min(...forwardRows)])
+    expect(tipRow(CURSOR_MAPS.back)).toEqual([Math.max(...backRows)])
+  })
+
+  it('back arrowhead is wider than its shaft', () => {
+    const widths = topFaceWidths(CURSOR_MAPS.back)
+    const widest = widths.indexOf(Math.max(...widths))
+    const shaft = widths.slice(0, widest).filter((width) => width > 0)
+    expect(shaft.length).toBeGreaterThan(1)
     expect(widths[widest]).toBeGreaterThan(Math.max(...shaft))
   })
 
@@ -255,6 +311,7 @@ describe('CURSORS', () => {
     ['turn-left', 'w-resize'],
     ['forward', 'n-resize'],
     ['turn-right', 'e-resize'],
+    ['back', 's-resize'],
   ] as const)('builds the %s cursor from its pixel map, falling back to %s', (zone, fallback) => {
     expect(CURSORS[zone]).toBe(pixelMapToCursor(CURSOR_MAPS[zone], fallback))
   })

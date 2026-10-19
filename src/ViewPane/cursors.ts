@@ -1,16 +1,21 @@
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from '../scene/core/palette.ts'
 
-export type CursorZone = 'turn-left' | 'forward' | 'turn-right'
+export type CursorZone = 'turn-left' | 'forward' | 'turn-right' | 'back'
 
-// Fraction of the pane's width at each side that turns the viewer.
+// Fraction of the pane's width at each side that turns the viewer. The strip
+// along the bottom that steps back is the same height in pixels.
 export const EDGE_ZONE_FRACTION = 0.15
 
 const PIXEL_SIZE = 2
 
-// Maps the horizontal position within the pane (0 = left edge, 1 = right edge) to a zone.
-export function getCursorZone(fraction: number): CursorZone {
-  if (fraction < EDGE_ZONE_FRACTION) return 'turn-left'
-  if (fraction > 1 - EDGE_ZONE_FRACTION) return 'turn-right'
+// Maps a position within the pane, as fractions of its width (0 = left edge,
+// 1 = right edge) and height (0 = top, 1 = bottom), to a zone. `aspect` is the
+// pane's width over its height, so the bottom strip is as tall as the side
+// zones are wide. The side zones take the bottom corners.
+export function getCursorZone(x: number, y: number, aspect: number): CursorZone {
+  if (x < EDGE_ZONE_FRACTION) return 'turn-left'
+  if (x > 1 - EDGE_ZONE_FRACTION) return 'turn-right'
+  if (y > 1 - EDGE_ZONE_FRACTION * aspect) return 'back'
   return 'forward'
 }
 
@@ -29,6 +34,9 @@ const FORWARD_SHAPE: FloorPoint[][] = [
   [[0.33, 0], [0.67, 0], [0.67, 0.5], [0.33, 0.5]],
   [[0.02, 0.5], [0.98, 0.5], [0.5, 1]],
 ]
+
+// The forward arrow turned round to point at the viewer.
+const BACK_SHAPE: FloorPoint[][] = FORWARD_SHAPE.map((polygon) => polygon.map(([x, z]): FloorPoint => [x, 1 - z]))
 
 // Comes towards the viewer's left: up from the near edge, bending to point left.
 const TURN_LEFT_SHAPE: FloorPoint[][] = [
@@ -109,6 +117,7 @@ export function projectArrow(shape: FloorPoint[][]): string[] {
 
 const TURN_LEFT_MAP = projectArrow(TURN_LEFT_SHAPE)
 const FORWARD_MAP = projectArrow(FORWARD_SHAPE)
+const BACK_MAP = projectArrow(BACK_SHAPE)
 
 export function mirror(map: string[]): string[] {
   return map.map((row) => row.split('').reverse().join(''))
@@ -161,12 +170,14 @@ export const CURSOR_MAPS: Record<CursorZone, string[]> = {
   'turn-left': TURN_LEFT_MAP,
   forward: FORWARD_MAP,
   'turn-right': mirror(TURN_LEFT_MAP),
+  back: BACK_MAP,
 }
 
 export const CURSORS: Record<CursorZone, string> = {
   'turn-left': pixelMapToCursor(CURSOR_MAPS['turn-left'], 'w-resize'),
   forward: pixelMapToCursor(CURSOR_MAPS.forward, 'n-resize'),
   'turn-right': pixelMapToCursor(CURSOR_MAPS['turn-right'], 'e-resize'),
+  back: pixelMapToCursor(CURSOR_MAPS.back, 's-resize'),
 }
 
 // Shown in the centre of the view when there's no way forward.

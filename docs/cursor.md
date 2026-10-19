@@ -11,6 +11,7 @@ Whenever the mouse is inside any canvas area (the room, the lower panel or the s
 | Where | Cursor |
 | --- | --- |
 | Room, left and right `EDGE_ZONE_FRACTION` (15%) | Turn arrow in that direction |
+| Room, bottom strip between the turn zones, as tall as they are wide, with a way back | Back arrow |
 | Room, middle, with a way forward | Forward arrow |
 | Room, middle, with no way forward | Blocked hand |
 | Welcome sign's board, in front of it facing north | Pointing hand (a click opens its text box) |
@@ -18,6 +19,8 @@ Whenever the mouse is inside any canvas area (the room, the lower panel or the s
 | Usable navigation button | Pointing hand |
 | Dimmed button, or anywhere on a panel with nothing usable | Blocked hand |
 | Frame, dividing bands, side panel | Blocked hand |
+
+Without a way back, the bottom strip shows the blocked hand and a click there does nothing, even if there's a way forward. The turn zones run the full height of the room, so they take the bottom corners. `getCursorZone` picks the zone from the mouse's position as fractions of the room's width and height.
 
 While the sign's text box is open, the pointing hand shows everywhere in the pane, because a click anywhere moves the text on ([text-box.md](text-box.md)).
 
@@ -42,6 +45,6 @@ The Controls panel beside the pane is page content, not a canvas, so it keeps th
 
 Cursors are 16×16 pixel maps of strings, drawn at 2× as 32px SVG data-URI CSS cursors by `pixelMapToCursor`, which also takes a fallback cursor keyword and an optional hotspot in map pixels. Outlines are generated.
 
-- **Arrows** are flat shapes lying on the floor, seen from above at 45° with the same forced perspective as the room. `projectArrow` rasterises floor-coordinate polygons into maps: `#` is the top face and `+` is the visible side face, in the worn colour. The far end is foreshortened by cos 45° and narrowed by `PERSPECTIVE`.
+- **Arrows** are flat shapes lying on the floor, seen from above at 45° with the same forced perspective as the room. `projectArrow` rasterises floor-coordinate polygons into maps: `#` is the top face and `+` is the visible side face, in the worn colour. The far end is foreshortened by cos 45° and narrowed by `PERSPECTIVE`. The back arrow is the forward arrow's shape turned round to point at the viewer.
 - **Blocked hand** (`BLOCKED_MAP` / `BLOCKED_CURSOR`): an open hand, fingers spread, lying on the floor in the same projection as the arrows. Its fingers fan out slightly so each lands on its own pixel column once foreshortened.
 - **Pointing hand** (`HAND_MAP` / `HAND_CURSOR`): upright, not projected onto the floor, with its hotspot at the fingertip.

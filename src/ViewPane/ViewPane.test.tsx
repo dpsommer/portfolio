@@ -58,6 +58,9 @@ const LEFT_X = 10
 const CENTRE_X = 160
 const RIGHT_X = 310
 const MIDDLE_Y = 120
+// In the bottom strip between the turn zones, below y 192, which steps back
+// where there's a way back.
+const BOTTOM_Y = 230
 // The sign's board and text seen from in front of it facing north, where
 // it's used from (left 83, top 90, right 237, bottom 150 at 320x240, inclusive).
 const SIGN_BOARD = pixelBounds(signPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, PLACES.sign).filter((p) => p.colour === FOREGROUND))
@@ -290,8 +293,8 @@ function pressKey(key: string, init: KeyboardEventInit = {}, target: Window | El
 const ARROW_KEYS: Record<NavButton, string> = { forward: 'ArrowUp', back: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }
 
 // Ways of working a navigation button: clicking it on the panel, pressing its
-// arrow key or WASD key, or clicking the room's matching zone, which has no
-// way back.
+// arrow key or WASD key, or clicking the room's matching zone (its bottom
+// strip for back).
 type Pane = ReturnType<typeof renderWithPanel>
 type Input = { name: string; use: (pane: Pane, button: NavButton) => void; buttons: NavButton[] }
 const PANEL_INPUT: Input = {
@@ -312,8 +315,11 @@ const WASD_INPUT: Input = {
 }
 const ROOM_INPUT: Input = {
   name: 'the room',
-  use: ({ canvas }, button) => clickAt(canvas, { forward: CENTRE_X, back: NaN, left: LEFT_X, right: RIGHT_X }[button]),
-  buttons: ['forward', 'left', 'right'],
+  use: ({ canvas }, button) =>
+    button === 'back'
+      ? clickAt(canvas, CENTRE_X, BOTTOM_Y)
+      : clickAt(canvas, { forward: CENTRE_X, left: LEFT_X, right: RIGHT_X }[button]),
+  buttons: ['forward', 'back', 'left', 'right'],
 }
 const INPUTS = [PANEL_INPUT, KEY_INPUT, WASD_INPUT]
 
@@ -1199,6 +1205,44 @@ describe('ViewPane', () => {
       expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
     })
 
+    it('shows the back arrow at the bottom centre from the start facing east, where back leads into the nook', () => {
+      const { canvas } = renderPane()
+      clickAt(canvas, RIGHT_X)
+
+      fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: BOTTOM_Y })
+
+      expect(canvas.style.cursor).toBe(CURSORS.back)
+    })
+
+    it('shows the back arrow at the bottom centre in front of the sign facing north', () => {
+      const { canvas } = renderPane()
+      approachSign(canvas)
+
+      fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: BOTTOM_Y })
+
+      expect(canvas.style.cursor).toBe(CURSORS.back)
+    })
+
+    it('shows the blocked hand at the bottom centre from the start facing north, with a way forward but no way back', () => {
+      const { canvas } = renderPane()
+
+      fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: BOTTOM_Y })
+
+      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+    })
+
+    it.each([
+      ['left', LEFT_X, CURSORS['turn-left']],
+      ['right', RIGHT_X, CURSORS['turn-right']],
+    ] as const)('shows the turn arrow in the bottom %s corner, where there is a way back', (_, clientX, cursor) => {
+      const { canvas } = renderPane()
+      approachSign(canvas)
+
+      fireEvent.mouseMove(canvas, { clientX, clientY: BOTTOM_Y })
+
+      expect(canvas.style.cursor).toBe(cursor)
+    })
+
     it.each([
       ['blocked', 'east', [490], BLOCKED_CURSOR],
       ['forward', 'west', [110], CURSORS.forward],
@@ -1253,7 +1297,8 @@ describe('ViewPane', () => {
 
     it.each([
       ['above', 160, 50, BLOCKED_CURSOR],
-      ['below', 160, 200, BLOCKED_CURSOR],
+      // Above the bottom strip, where the back arrow would show.
+      ['below', 160, 170, BLOCKED_CURSOR],
       ['left of', 40, 120, CURSORS['turn-left']],
       ['right of', 300, 120, CURSORS['turn-right']],
     ] as const)('returns to the zone cursor when moving %s the sign', (_, clientX, clientY, cursor) => {
@@ -1632,18 +1677,19 @@ describe('ViewPane', () => {
       expect(canvas.style.cursor).not.toBe(HAND_CURSOR)
     })
 
+    // The pendant hangs into the bottom strip, so it shows the back arrow.
     it.each([
-      ['left side', MIRROR.left + 3, MIRROR_Y],
-      ['right side', MIRROR.right - 3, MIRROR_Y],
-      ['crest', MIRROR_X, MIRROR.top + 3],
-      ['pendant', MIRROR_X, MIRROR.bottom - 3],
-    ])('does not show the hand over the frame\'s %s', (_, clientX, clientY) => {
+      ['left side', MIRROR.left + 3, MIRROR_Y, BLOCKED_CURSOR],
+      ['right side', MIRROR.right - 3, MIRROR_Y, BLOCKED_CURSOR],
+      ['crest', MIRROR_X, MIRROR.top + 3, BLOCKED_CURSOR],
+      ['pendant', MIRROR_X, MIRROR.bottom - 3, CURSORS.back],
+    ])('does not show the hand over the frame\'s %s', (_, clientX, clientY, cursor) => {
       const { canvas } = renderPane()
       enterNook(canvas)
 
       fireEvent.mouseMove(canvas, { clientX, clientY })
 
-      expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+      expect(canvas.style.cursor).toBe(cursor)
     })
 
     it('does not show the hand over the mirror area from the start facing west', () => {
@@ -1806,6 +1852,42 @@ describe('ViewPane', () => {
       clickAt(canvas, CENTRE_X)
 
       expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-heading', heading)
+    })
+
+    it.each<[string, number[], string, string]>([
+      ['from the start facing east into the nook', [RIGHT_X], 'nook', 'east'],
+      ['from the sign facing north to the start', [CENTRE_X], 'start', 'north'],
+      ['out of the nook facing west to the start', [LEFT_X, CENTRE_X], 'start', 'west'],
+    ])('steps back without turning when the bottom centre is clicked %s', (_, clicks, place, heading) => {
+      const { canvas } = renderPane()
+      for (const x of clicks) clickAt(canvas, x)
+
+      clickAt(canvas, CENTRE_X, BOTTOM_Y)
+
+      expect(canvas).toHaveAttribute('data-place', place)
+      expect(canvas).toHaveAttribute('data-heading', heading)
+    })
+
+    it('does not move when the bottom centre is clicked from the start facing north, with a way forward but no way back', () => {
+      const { canvas } = renderPane()
+
+      clickAt(canvas, CENTRE_X, BOTTOM_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'start')
+      expect(canvas).toHaveAttribute('data-heading', 'north')
+    })
+
+    it.each([
+      ['left', LEFT_X, 'west'],
+      ['right', RIGHT_X, 'east'],
+    ])('turns without moving when the bottom %s corner is clicked in front of the sign', (_, clientX, heading) => {
+      const { canvas } = renderPane()
+      approachSign(canvas)
+
+      clickAt(canvas, clientX, BOTTOM_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'sign')
       expect(canvas).toHaveAttribute('data-heading', heading)
     })
 
@@ -3278,6 +3360,15 @@ describe('ViewPane', () => {
         expect(pane.canvas).toHaveAttribute('data-heading', 'north')
       })
 
+      it('does not step back with a click on the room\'s bottom strip', () => {
+        const pane = openSign()
+
+        ROOM_INPUT.use(pane, 'back')
+        frames.flush(START + MOVE_DURATION_MS)
+
+        expect(pane.canvas).toHaveAttribute('data-place', 'sign')
+      })
+
       it('does not move the text on with an arrow key', () => {
         const { container } = openSign()
 
@@ -3307,6 +3398,7 @@ describe('ViewPane', () => {
       it.each([
         ['turn zone', LEFT_X, MIDDLE_Y],
         ['blocked centre', CENTRE_X, 50],
+        ['bottom strip, where there is a way back', CENTRE_X, BOTTOM_Y],
       ])('shows the hand over the room\'s %s', (_, clientX, clientY) => {
         const { canvas } = openSign()
 
