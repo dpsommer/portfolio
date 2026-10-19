@@ -1,10 +1,10 @@
-import { CEILING_Y, FLOOR_Y, FOCAL_RATIO, NEAR, ORIGIN, projectPoint, toCamera } from '../core/camera.ts'
-import type { FloorPoint, Vec3 } from '../core/camera.ts'
+import { CEILING_Y, FLOOR_Y, FOCAL_RATIO, ORIGIN } from '../core/camera.ts'
+import type { FloorPoint } from '../core/camera.ts'
 import { FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import { hashRandom } from '../core/random.ts'
 import type { Pixel } from '../core/types.ts'
-import { MIRROR_WALL, WALLS, isVisible, mirrorToWall, onWall, rasterise, vec } from '../room/room.ts'
-import type { Segment, View } from '../room/room.ts'
+import { MIRROR_WALL, WALLS, cellPixels, isVisible, mirrorToWall, onWall, rasterise, vec } from '../room/room.ts'
+import type { Segment } from '../room/room.ts'
 import { MIRROR_LAYERS, isOnGlass } from './frame.ts'
 import type { MirrorLine, MirrorPoint } from './frame.ts'
 import { logoCells, plaqueLayers } from './plaque.ts'
@@ -118,28 +118,6 @@ export function pullPixels(canvasWidth: number, canvasHeight: number, drop = 0, 
   return pullLayers(drop)
     .flatMap(({ colour, lines }) => rasterise(mirrorSegments(lines), colour, view))
     .filter(inCanvas)
-}
-
-// How far over a whole number of pixels a cell can come out and still be that
-// many. Yaw isn't wrapped, so after turning round it's off by rounding error,
-// which can put the nook's distance from the mirror a hair under 1 and double
-// every cell.
-const CELL_SIZE_TOLERANCE = 1e-9
-
-// Adds a cell at `world` to `pixels`, as a block sized by how close it is: one
-// pixel at distance 1, the nook's distance from the mirror.
-function cellPixels(pixels: Pixel[], world: Vec3, colour: string, { yaw, eye, width, height }: View) {
-  const camera = toCamera(world, yaw, eye)
-  if (camera.z < NEAR || !isVisible(world, eye)) return
-  const centre = projectPoint(camera, width, height)
-  const size = Math.max(1, Math.ceil(1 / camera.z - CELL_SIZE_TOLERANCE))
-  const left = Math.floor(centre.x - (size - 1) / 2)
-  const top = Math.floor(centre.y - (size - 1) / 2)
-  for (let y = top; y < top + size; y++) {
-    for (let x = left; x < left + size; x++) {
-      if (x >= 0 && x < width && y >= 0 && y < height) pixels.push({ x, y, colour })
-    }
-  }
 }
 
 // Where each glass cell of a preview sits in the world.

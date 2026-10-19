@@ -24,7 +24,7 @@ import { clearPanel } from '../scene/panels/panelCanvas.ts'
 import { FOREGROUND } from '../scene/core/palette.ts'
 import { drawPixels, drawScene } from '../scene/draw.ts'
 import { caretInset, pixelBounds, selectionPixels } from '../scene/selection/selection.ts'
-import { signBoardBounds } from '../scene/signpost/signpost.ts'
+import { signPixels } from '../scene/sign/pixels.ts'
 import type { Bounds } from '../scene/core/types.ts'
 import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import './ViewPane.scss'
@@ -63,7 +63,8 @@ const PLAQUE_TURN_END_MS = 650
 // and comes back up over the last KEY_PRESS_MS.
 const KEY_PRESS_MS = 60
 
-const SIGN_BOUNDS = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
+// The sign's board and text, seen from the start facing north; not its nail and cords.
+const SIGN_BOUNDS = pixelBounds(signPixels(VIEW_WIDTH, VIEW_HEIGHT).filter((p) => p.colour === FOREGROUND))
 
 // Whether a point in canvas pixels is inside inclusive bounds.
 function isInside(bounds: Bounds, x: number, y: number): boolean {

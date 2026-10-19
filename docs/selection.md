@@ -31,7 +31,7 @@ The visually hidden `.view-pane-status` element names the selected object ("Welc
 
 - **Shape:** each caret is a solid 5×5 right-angle triangle, with the right angle at the outer corner and the long side facing the object. The four carets are reflections of one another. They're drawn 1:1 in the bright tone, to match the room's one-pixel lines.
 - **Position:** the carets sit `SELECTION_GAP` (3) pixels outside the object's on-screen bounds (`INTERACTABLE_BOUNDS` in `ViewPane`):
-  - the sign: its board (`signBoardBounds`)
+  - the sign: its board (`pixelBounds` of `signPixels`' `FOREGROUND` pixels)
   - the mirror: its frame and ornaments (`pixelBounds` of `mirrorPixels`)
   - the pull: its handle's bright outline
 - **Bounce:** `caretInset` sets the bounce. The carets rest for the first `BOUNCE_PERIOD_MS` (2 s) after an object is selected. After that, every period they dip `BOUNCE_DEPTH` (2) pixels in towards the object and back over `BOUNCE_MS` (300 ms).

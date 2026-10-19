@@ -10,7 +10,7 @@ export function clearPanel(ctx: CanvasRenderingContext2D) {
   ctx.fillRect(0, 0, width, height)
 }
 
-// Weathers a panel pixel's `colour` the way the sign is: a few pixels drop out
+// Weathers a panel pixel's `colour`: a few pixels drop out
 // (null) and some fade a tone. `roll` is the pixel's own random number, from
 // something that doesn't change between frames, so the wear doesn't shimmer.
 export function weather(colour: string, roll: number, dropChance: number, fadeChance: number): string | null {

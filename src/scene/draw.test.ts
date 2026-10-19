@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeContext, toFills } from '../test/fakeContext.ts'
-import { ORIGIN, projectPoint, toCamera } from './core/camera.ts'
-import type { FloorPoint, ScreenPoint } from './core/camera.ts'
+import { ORIGIN } from './core/camera.ts'
+import type { FloorPoint } from './core/camera.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_WORN } from './core/palette.ts'
 import type { Pixel } from './core/types.ts'
-import { drawPixels, drawScene, placeSprite, signPlacement } from './draw.ts'
+import { drawPixels, drawScene } from './draw.ts'
 import type { MirrorExtras } from './draw.ts'
 import { mirrorPixels, plaquePixels, previewPixels, pullPixels, ripplePixels } from './mirror/pixels.ts'
 import type { RippleState } from './mirror/pixels.ts'
@@ -12,15 +12,12 @@ import type { Plaque } from './mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from './mirror/preview.ts'
 import { PLACES } from './navigation/places.ts'
 import { roomPixels } from './room/room.ts'
-import { SIGN_POSITION, signpostBackingPixels, signpostPixels } from './signpost/signpost.ts'
+import { signPixels } from './sign/pixels.ts'
 
 const WIDTH = 320
 const HEIGHT = 240
 // The nook's place.
 const NOOK_EYE: FloorPoint = { x: PLACES.nook.x, z: PLACES.nook.z }
-// Where the sign's anchor is drawn from the start facing north.
-const HOME = projectPoint(toCamera(SIGN_POSITION, 0), WIDTH, HEIGHT)
-const inCanvas = (p: Pixel) => p.x >= 0 && p.x < WIDTH && p.y >= 0 && p.y < HEIGHT
 
 const WEST = Math.PI / 2
 const EAST = (3 * Math.PI) / 2
@@ -51,7 +48,7 @@ describe('drawPixels', () => {
 })
 
 describe('drawScene', () => {
-  it('fills the background, then draws the room, the signpost backing and the signpost, in that order', () => {
+  it('fills the background, then draws the room and the sign, in that order', () => {
     const { ctx, fills } = createFakeContext()
 
     drawScene(ctx)
@@ -59,8 +56,7 @@ describe('drawScene', () => {
     expect(fills).toEqual([
       { args: [0, 0, 320, 240], fillStyle: BACKGROUND },
       ...toFills(roomPixels(320, 240)),
-      ...toFills(signpostBackingPixels(320, 240)),
-      ...toFills(signpostPixels(320, 240)),
+      ...toFills(signPixels(320, 240)),
     ])
   })
 
@@ -87,24 +83,20 @@ describe('drawScene', () => {
     ])
   })
 
-  it('draws the mirror before the sign', () => {
+  it('draws the sign after the room and before the mirror and the pull', () => {
     const { ctx, fills } = createFakeContext()
     const yaw = 0.8
-    const room = roomPixels(WIDTH, HEIGHT, yaw)
-    const mirror = mirrorPixels(WIDTH, HEIGHT, yaw)
-    const placement = signPlacement(yaw, WIDTH, HEIGHT)!
-    const backing = placeSprite(signpostBackingPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
-    const sign = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
+    const sign = signPixels(WIDTH, HEIGHT, yaw)
+    expect(sign.length).toBeGreaterThan(0)
 
     drawScene(ctx, yaw)
 
     expect(fills).toEqual([
       { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-      ...toFills(room),
-      ...toFills(mirror),
-      ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw)),
-      ...toFills(backing),
+      ...toFills(roomPixels(WIDTH, HEIGHT, yaw)),
       ...toFills(sign),
+      ...toFills(mirrorPixels(WIDTH, HEIGHT, yaw)),
+      ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw)),
     ])
   })
 
@@ -114,35 +106,6 @@ describe('drawScene', () => {
     drawScene(ctx, Math.PI)
 
     expect(fills.some((c) => c.fillStyle === FOREGROUND)).toBe(false)
-  })
-
-  it('draws the sign moved by signPlacement after a small turn', () => {
-    const { ctx, fills } = createFakeContext()
-    const yaw = 0.2
-    const placement = signPlacement(yaw, WIDTH, HEIGHT)!
-    const placed = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT).filter(inCanvas)
-
-    drawScene(ctx, yaw)
-
-    expect(placement.anchor.x).toBeGreaterThan(WIDTH / 2)
-    expect(fills.slice(-placed.length)).toEqual(toFills(placed))
-  })
-
-  it('skips sign pixels moved off the canvas', () => {
-    const { ctx, fills } = createFakeContext()
-    const yaw = 0.8
-    const placement = signPlacement(yaw, WIDTH, HEIGHT)!
-    const sign = signpostPixels(WIDTH, HEIGHT)
-    const placed = placeSprite(sign, HOME, placement, WIDTH, HEIGHT)
-    const blockSize = Math.max(1, Math.ceil(placement.scale))
-
-    drawScene(ctx, yaw)
-
-    // Part of the sign has slid past the right edge, and only the rest is drawn.
-    expect(placed.length).toBeGreaterThan(0)
-    expect(placed.length).toBeLessThan(sign.length * blockSize ** 2)
-    expect(placed.every(inCanvas)).toBe(true)
-    expect(fills.slice(-placed.length)).toEqual(toFills(placed))
   })
 
   it('defaults the eye to the start', () => {
@@ -157,12 +120,13 @@ describe('drawScene', () => {
 
   it('draws the sign from the nook facing north', () => {
     const { ctx, fills } = createFakeContext()
-    const placed = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, signPlacement(0, WIDTH, HEIGHT, NOOK_EYE)!, WIDTH, HEIGHT).filter(inCanvas)
+    const room = roomPixels(WIDTH, HEIGHT, 0, NOOK_EYE)
+    const sign = signPixels(WIDTH, HEIGHT, 0, NOOK_EYE)
 
     drawScene(ctx, 0, NOOK_EYE)
 
-    expect(placed.length).toBeGreaterThan(0)
-    expect(fills.slice(-placed.length)).toEqual(toFills(placed))
+    expect(sign.length).toBeGreaterThan(0)
+    expect(fills.slice(1 + room.length, 1 + room.length + sign.length)).toEqual(toFills(sign))
   })
 
   it('draws only the background, the room, the mirror and the pull from the nook facing west', () => {
@@ -356,13 +320,10 @@ describe('drawScene', () => {
       expect(fills.slice(-(pull.length + plaque.length))).toEqual([...toFills(pull), ...toFills(plaque)])
     })
 
-    it('draws the plaque after the pull and before the sign', () => {
+    it('draws the plaque last, after the sign and the pull', () => {
       const { ctx, fills } = createFakeContext()
       const yaw = 0.8
       const plaque = plaquePixels(WIDTH, HEIGHT, PLAQUE, yaw)
-      const placement = signPlacement(yaw, WIDTH, HEIGHT)!
-      const backing = placeSprite(signpostBackingPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
-      const sign = placeSprite(signpostPixels(WIDTH, HEIGHT), HOME, placement, WIDTH, HEIGHT)
       expect(plaque.length).toBeGreaterThan(0)
 
       drawScene(ctx, yaw, ORIGIN, { plaque: PLAQUE })
@@ -370,11 +331,10 @@ describe('drawScene', () => {
       expect(fills).toEqual([
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
         ...toFills(roomPixels(WIDTH, HEIGHT, yaw)),
+        ...toFills(signPixels(WIDTH, HEIGHT, yaw)),
         ...toFills(mirrorPixels(WIDTH, HEIGHT, yaw)),
         ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw)),
         ...toFills(plaque),
-        ...toFills(backing),
-        ...toFills(sign),
       ])
     })
 
@@ -429,162 +389,5 @@ describe('drawScene', () => {
         expect(args[1]).toBeLessThan(HEIGHT)
       }
     }
-  })
-})
-
-describe('signPlacement', () => {
-  it('puts the anchor at its projected position at full size from the start facing north', () => {
-    expect(signPlacement(0, WIDTH, HEIGHT)).toEqual({ anchor: HOME, scale: 1 })
-  })
-
-  it('defaults the eye to the start', () => {
-    expect(signPlacement(0.3, WIDTH, HEIGHT)).toEqual(signPlacement(0.3, WIDTH, HEIGHT, ORIGIN))
-  })
-
-  it('moves the anchor right for a small left turn', () => {
-    expect(signPlacement(0.1, WIDTH, HEIGHT)!.anchor.x).toBeGreaterThan(WIDTH / 2)
-  })
-
-  it('moves the anchor left for a small right turn', () => {
-    expect(signPlacement(-0.1, WIDTH, HEIGHT)!.anchor.x).toBeLessThan(WIDTH / 2)
-  })
-
-  it('mirrors left and right turns', () => {
-    const left = signPlacement(0.3, WIDTH, HEIGHT)!
-    const right = signPlacement(-0.3, WIDTH, HEIGHT)!
-    expect(left.anchor.x - WIDTH / 2).toBeCloseTo(WIDTH / 2 - right.anchor.x)
-    expect(left.scale).toBeCloseTo(right.scale)
-  })
-
-  it('moves the anchor further as the turn grows', () => {
-    expect(signPlacement(0.4, WIDTH, HEIGHT)!.anchor.x).toBeGreaterThan(signPlacement(0.2, WIDTH, HEIGHT)!.anchor.x)
-  })
-
-  it('scales the anchor position with the canvas size', () => {
-    const small = signPlacement(0.2, WIDTH, HEIGHT)!
-    const large = signPlacement(0.2, WIDTH * 2, HEIGHT * 2)!
-    expect(large.anchor.x).toBeCloseTo(small.anchor.x * 2)
-    expect(large.anchor.y).toBeCloseTo(small.anchor.y * 2)
-    expect(large.scale).toBeCloseTo(small.scale)
-  })
-
-  it.each([
-    ['facing south, with the sign behind the camera', Math.PI, ORIGIN],
-    ['facing west, with the sign level with the camera', Math.PI / 2, ORIGIN],
-    ['facing east, with the sign level with the camera', -Math.PI / 2, ORIGIN],
-    ['from the nook facing west, with the sign behind the camera', Math.PI / 2, NOOK_EYE],
-  ])('is null %s', (_, yaw, eye) => {
-    expect(signPlacement(yaw, WIDTH, HEIGHT, eye)).toBeNull()
-  })
-
-  it('doubles the scale from half the distance', () => {
-    const placement = signPlacement(0, WIDTH, HEIGHT, { x: 0, z: SIGN_POSITION.z / 2 })!
-    expect(placement.scale).toBeCloseTo(2)
-    expect(placement.anchor.x).toBeCloseTo(WIDTH / 2)
-  })
-
-  it('shrinks the sign from further away', () => {
-    expect(signPlacement(0, WIDTH, HEIGHT, { x: 0, z: -0.5 })!.scale).toBeLessThan(1)
-  })
-
-  it('shows the sign right of centre at full size from the nook facing north', () => {
-    const placement = signPlacement(0, WIDTH, HEIGHT, NOOK_EYE)
-    expect(placement).not.toBeNull()
-    expect(placement!.anchor.x).toBeGreaterThan(WIDTH / 2)
-    expect(placement!.anchor.x).toBeLessThan(WIDTH)
-    expect(placement!.scale).toBeCloseTo(1)
-  })
-
-  it('shows the sign left of centre from the nook facing east', () => {
-    const placement = signPlacement((3 * Math.PI) / 2, WIDTH, HEIGHT, NOOK_EYE)
-    expect(placement).not.toBeNull()
-    expect(placement!.anchor.x).toBeLessThan(WIDTH / 2)
-    expect(placement!.anchor.x).toBeGreaterThan(0)
-  })
-
-  it('is null when a wall hides the sign, even though it is in front of the camera', () => {
-    // From the nook's front-left corner the nook's side wall is between the eye and the sign.
-    const eye = { x: -1.9, z: 0.9 }
-    expect(toCamera(SIGN_POSITION, 0, eye).z).toBeGreaterThan(0.1)
-    expect(signPlacement(0, WIDTH, HEIGHT, eye)).toBeNull()
-  })
-})
-
-describe('placeSprite', () => {
-  const home: ScreenPoint = { x: 100, y: 100 }
-  const sprite: Pixel[] = [
-    { x: 100, y: 100, colour: FOREGROUND },
-    { x: 104, y: 98, colour: FOREGROUND_WORN },
-    { x: 96, y: 106, colour: FOREGROUND },
-  ]
-
-  it('leaves the pixels unchanged at scale 1 with the anchor at home', () => {
-    expect(placeSprite(sprite, home, { anchor: home, scale: 1 }, WIDTH, HEIGHT)).toEqual(sprite)
-  })
-
-  it('translates the pixels by the anchor\'s offset from home at scale 1', () => {
-    const placed = placeSprite(sprite, home, { anchor: { x: 130, y: 90 }, scale: 1 }, WIDTH, HEIGHT)
-    expect(placed).toEqual(sprite.map((p) => ({ ...p, x: p.x + 30, y: p.y - 10 })))
-  })
-
-  it('rounds a fractional anchor to whole pixels', () => {
-    const placed = placeSprite(sprite, home, { anchor: { x: 100.4, y: 99.6 }, scale: 1 }, WIDTH, HEIGHT)
-    expect(placed).toEqual(sprite)
-  })
-
-  it('doubles distances from home at scale 2, drawing each pixel as a 2x2 block', () => {
-    const placed = placeSprite([sprite[1]], home, { anchor: home, scale: 2 }, WIDTH, HEIGHT)
-    expect(placed).toEqual([
-      { x: 108, y: 96, colour: FOREGROUND_WORN },
-      { x: 109, y: 96, colour: FOREGROUND_WORN },
-      { x: 108, y: 97, colour: FOREGROUND_WORN },
-      { x: 109, y: 97, colour: FOREGROUND_WORN },
-    ])
-  })
-
-  it('draws four pixels per sprite pixel at scale 2', () => {
-    expect(placeSprite(sprite, home, { anchor: home, scale: 2 }, WIDTH, HEIGHT)).toHaveLength(sprite.length * 4)
-  })
-
-  it('rounds the block size up for fractional enlargements', () => {
-    expect(placeSprite([sprite[0]], home, { anchor: home, scale: 1.5 }, WIDTH, HEIGHT)).toHaveLength(4)
-  })
-
-  it('halves distances from home at scale 0.5, one pixel each', () => {
-    const placed = placeSprite(sprite, home, { anchor: { x: 200, y: 50 }, scale: 0.5 }, WIDTH, HEIGHT)
-    expect(placed).toEqual([
-      { x: 200, y: 50, colour: FOREGROUND },
-      { x: 202, y: 49, colour: FOREGROUND_WORN },
-      { x: 198, y: 53, colour: FOREGROUND },
-    ])
-  })
-
-  it('drops pixels that land off the canvas', () => {
-    const placed = placeSprite(sprite, home, { anchor: { x: WIDTH - 2, y: 100 }, scale: 1 }, WIDTH, HEIGHT)
-    // Only the pixels at or left of home stay on: x 318 and 314.
-    expect(placed.map((p) => p.x).sort((a, b) => a - b)).toEqual([314, 318])
-  })
-
-  it.each([
-    ['left', { x: -50, y: 100 }],
-    ['right', { x: WIDTH + 50, y: 100 }],
-    ['top', { x: 100, y: -50 }],
-    ['bottom', { x: 100, y: HEIGHT + 50 }],
-  ])('drops a sprite moved entirely off the %s', (_, anchor) => {
-    expect(placeSprite(sprite, home, { anchor, scale: 2 }, WIDTH, HEIGHT)).toEqual([])
-  })
-
-  it('keeps the on-canvas part of a block straddling the edge', () => {
-    const placed = placeSprite([sprite[0]], home, { anchor: { x: -1, y: 100 }, scale: 2 }, WIDTH, HEIGHT)
-    expect(placed.filter(inCanvas).map((p) => p.x)).toEqual([0, 0])
-  })
-
-  it('keeps each pixel\'s colour', () => {
-    const placed = placeSprite(sprite, home, { anchor: home, scale: 0.5 }, WIDTH, HEIGHT)
-    expect(placed.map((p) => p.colour)).toEqual(sprite.map((p) => p.colour))
-  })
-
-  it('returns nothing for an empty sprite', () => {
-    expect(placeSprite([], home, { anchor: home, scale: 3 }, WIDTH, HEIGHT)).toEqual([])
   })
 })

@@ -17,7 +17,7 @@ The modules are grouped by what they draw:
 | `core/` | The camera and projection, line rasterising, palette, pixel font, seeded randomness and the `Pixel` type. Nothing here imports from the other folders. |
 | `room/` | The floor plan, walls, visibility and the room's own detail. |
 | `mirror/` | The mirror's frame, preview, ripple, curtain pull and logo plaque. `pixels.ts` projects them all onto the mirror's wall and maps canvas positions back to it. |
-| `signpost/` | The welcome sign. |
+| `sign/` | The welcome sign hanging on the far wall: its shape (`board.ts`) and its pixels (`pixels.ts`). |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
 | `selection/` | The carets around the object selected with the keyboard, their bounce, and `pixelBounds`. |
 | `textBox/` | The text box the lower panel shows while the sign's text is open: wrapping, layout, text and caret. |
@@ -31,7 +31,7 @@ The modules are grouped by what they draw:
 - **Palette:** four tones in `src/scene/core/palette.ts`: `BACKGROUND`, then `FOREGROUND_DIM`, `FOREGROUND_WORN` and `FOREGROUND`. Draw only in these. `src/index.scss` repeats the background, worn and foreground tones as CSS variables for the page.
 - **Text:** use the 5×7 bitmap font in `src/scene/core/pixelFont.ts`, not canvas text, which would be anti-aliased. Add glyphs there as needed.
 - **Randomness:** never use `Math.random`. Use the seeded `createRandom` for one-off sprites, or `hashRandom`/`hashSeed` keyed to something fixed (world coordinates, a notch's place on the compass) for anything that moves between frames, so the wear stays put instead of shimmering.
-- **Weathering:** sprites and panel art are worn by dropping some pixels and fading others a tone (`weather` in `src/scene/panels/panelCanvas.ts`).
+- **Weathering:** panel art is worn by dropping some pixels and fading others a tone (`weather` in `src/scene/panels/panelCanvas.ts`).
 
 ## Rendering loop
 

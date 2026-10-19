@@ -64,7 +64,7 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 1. If it needs new walls, add corners to `PLAN` in `room.ts` (clockwise, each with the wall running from it and a seed for its bricks), and any new constants to `src/scene/core/camera.ts`.
 2. Put it `WALL_VIEW_DISTANCE` from the walls framing it, so its close-up walls match the others.
 3. Add it to `PLACES` with its exits, and add the reverse exit to its neighbour. `backFrom` follows from the exits.
-4. Check what it can see: `isVisible` and `visibleParts` handle hiding, but objects shown in a view (like the sign) may need checking from the new spot.
+4. Check what it can see: `isVisible` and `visibleParts` hide what's behind walls, but check that objects (like the sign) still look right from the new spot.
 5. Add its views to [What each view shows](#what-each-view-shows).
 
 ## Camera and projection
@@ -79,7 +79,7 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 ## What each view shows
 
 - **From the start:**
-  - Facing north: the far wall in the middle, with the welcome sign in front of it.
+  - Facing north: the far wall in the middle, with the welcome sign hanging on it.
   - Facing west: the nook opening, with the mirror on its back wall. The back wall shows on the left; the far wall and the sign are out of view.
   - Facing east: the east wall, with the back wall on the right.
   - Facing south: the back wall.
@@ -92,16 +92,17 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 `room.ts` builds all detail in world space:
 
 - **Edges:** each wall's floor, ceiling and corner edges, as broken lines in `FOREGROUND_WORN`.
-- **Bricks:** sparse bricks on every wall, drawn as just their top and left edges, in `FOREGROUND_DIM`. Bricks the mirror covers aren't drawn.
+- **Bricks:** sparse bricks on every wall, drawn as just their top and left edges, in `FOREGROUND_DIM`. Bricks under the mirror, its fixtures or the sign aren't drawn (`isUnderFixture`).
 - **Flagstones:** scattered flagstone edges on a grid of 1/3-unit floor tiles, in `FOREGROUND_DIM`. Only grid lines with floor on both sides are drawn (`isOnFloor`).
 
 Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSeed` (`src/scene/core/random.ts`) from its own world coordinates, not from one sequential stream. That way the detail stays put while the view turns instead of shimmering. The segments are built once; `roomPixels(width, height, yaw, eye)` only projects them.
 
 ## Objects
 
-- **Welcome signpost** (`src/scene/signpost/signpost.ts`): a double-outlined "WELCOME" board on a single post that sticks up `POST_PROTRUSION` pixels above it, over a fading ground line. The board is tilted by shifting pixels along `BOARD_SLOPE` rather than by canvas rotation, which keeps it crisp. It's worn: a chipped top-right corner, a crack, and outline and text pixels randomly dropped or dimmed. Clicking it opens its text box ([text-box.md](text-box.md)).
-  - **Placement:** the sprite is drawn for the start position facing north, anchored in the world at `SIGN_POSITION` (on the floor, in front of the far wall).
-  - **Other views:** it's a billboard that always faces the viewer. `signPlacement` (`src/scene/draw.ts`) projects the anchor and scales the sprite by the anchor's depth, and `placeSprite` moves and scales the pixels, drawing enlarged pixels as blocks. It isn't drawn when the anchor is behind the camera or hidden by a wall.
+- **Welcome sign** (`src/scene/sign/`): a "WELCOME" board hanging on the north wall (`SIGN_WALL` in `room.ts`), centred at eye height and facing the start. Clicking it opens its text box ([text-box.md](text-box.md)).
+  - **Look:** drawn like the mirror, as sparse single lines: the board's outline in `FOREGROUND`, and a nail with two cords to the board's top corners in `FOREGROUND_WORN`. The board hangs crooked: it and its text are sheared by `BOARD_RISE`, so the right side is higher and verticals stay upright.
+  - **Shape:** `board.ts` holds it in sign-local units (s right, t up from the board's centre), like `mirror/frame.ts`; `signToWall` places it on the wall. The text's cells are `SIGN_CELL_SIZE` apart, one canvas pixel each from the start, and drawn with `cellPixels` like the mirror's previews.
+  - **Other views:** `signPixels` (`pixels.ts`) projects it like the room, so it stays fixed on its wall and parts behind walls are hidden.
 - **Mirror, curtain pull and logo plaque:** on the `nook-back` wall (`MIRROR_WALL` in `room.ts`), facing the nook's place, with the mirror's centre at eye height. The pull hangs to the mirror's right and the plaque sits in a niche below it. They're drawn in mirror-local units and keep bricks off themselves with their bounds; see [mirror.md](mirror.md).
 
 ## Draw order
@@ -110,10 +111,9 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
 
 1. the background
 2. the room
-3. the current site's preview on the mirror's glass, once loaded (shimmering from the previous site's preview, or distorted by the ripple, if either is playing)
-4. the ripple's rings, if one is playing
-5. the mirror, over the preview and rings so the frame covers their edges
-6. the curtain pull, lowered by `pullDrop`
-7. the logo plaque, if given (`ViewPane` always gives one)
-8. background-coloured backing pixels for sprites (`signpostBackingPixels`), so the room doesn't show through their outline-only art
-9. the sprites themselves
+3. the welcome sign
+4. the current site's preview on the mirror's glass, once loaded (shimmering from the previous site's preview, or distorted by the ripple, if either is playing)
+5. the ripple's rings, if one is playing
+6. the mirror, over the preview and rings so the frame covers their edges
+7. the curtain pull, lowered by `pullDrop`
+8. the logo plaque, if given (`ViewPane` always gives one)

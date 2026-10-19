@@ -6,8 +6,11 @@ import {
   NOOK_FRONT_Z,
   NOOK_X,
   ORIGIN,
+  NEAR,
   ROOM_HALF_WIDTH,
+  projectPoint,
   projectSegment,
+  toCamera,
 } from '../core/camera.ts'
 import type { FloorPoint, Vec3 } from '../core/camera.ts'
 import { linePoints } from '../core/line.ts'
@@ -18,6 +21,7 @@ import { MIRROR_BOUNDS } from '../mirror/frame.ts'
 import type { MirrorPoint } from '../mirror/frame.ts'
 import { PLAQUE_BOUNDS } from '../mirror/plaque.ts'
 import { PULL_BOUNDS } from '../mirror/pull.ts'
+import { SIGN_BOUNDS } from '../sign/board.ts'
 
 // The room is seen from inside, drawn as the classic dungeon-crawler "narrowing
 // box": facing north, the far wall is a small rectangle in the middle of the
@@ -105,13 +109,31 @@ export function mirrorToWall({ s, t }: MirrorPoint): { u: number; v: number } {
   return { u: WALLS[MIRROR_WALL].length / 2 + s, v: CEILING_Y - t }
 }
 
-// Whether a wall-local rectangle overlaps the mirror or the pull and plaque beside it,
-// with a brick gap's margin.
-function isUnderFixture(wall: Wall, u0: number, u1: number, v0: number, v1: number): boolean {
-  if (wall !== WALLS[MIRROR_WALL]) return false
-  return [MIRROR_BOUNDS, PULL_BOUNDS, PLAQUE_BOUNDS].some((bounds) => {
-    const topLeft = mirrorToWall({ s: bounds.left, t: bounds.top })
-    const bottomRight = mirrorToWall({ s: bounds.right, t: bounds.bottom })
+// The welcome sign hangs centred on the far wall, facing the start.
+export const SIGN_WALL: WallName = 'north'
+
+// Wall-local position of a point on the sign. Its centre is at eye height.
+export function signToWall({ s, t }: MirrorPoint): { u: number; v: number } {
+  return { u: WALLS[SIGN_WALL].length / 2 + s, v: CEILING_Y - t }
+}
+
+// Fixtures' bounds are in their own local units, which `toWall` maps onto the wall.
+type Fixtures = { toWall: (point: MirrorPoint) => { u: number; v: number }; bounds: (typeof MIRROR_BOUNDS)[] }
+
+// What hangs on each wall that bricks are kept off.
+const FIXTURES: Partial<Record<WallName, Fixtures>> = {
+  [MIRROR_WALL]: { toWall: mirrorToWall, bounds: [MIRROR_BOUNDS, PULL_BOUNDS, PLAQUE_BOUNDS] },
+  [SIGN_WALL]: { toWall: signToWall, bounds: [SIGN_BOUNDS] },
+}
+
+// Whether a wall-local rectangle overlaps something hanging on the wall (the
+// mirror, the pull and plaque beside it, or the sign), with a brick gap's margin.
+function isUnderFixture(wall: WallName, u0: number, u1: number, v0: number, v1: number): boolean {
+  const fixtures = FIXTURES[wall]
+  if (!fixtures) return false
+  return fixtures.bounds.some((bounds) => {
+    const topLeft = fixtures.toWall({ s: bounds.left, t: bounds.top })
+    const bottomRight = fixtures.toWall({ s: bounds.right, t: bounds.bottom })
     return (
       u1 > topLeft.u - BRICK_GAP &&
       u0 < bottomRight.u + BRICK_GAP &&
@@ -153,7 +175,7 @@ function edgeSegments(): Segment[] {
 // A few scattered bricks on each wall, each drawn as just its top and left edges.
 function brickSegments(): Segment[] {
   const rows = Math.round((CEILING_Y - FLOOR_Y) / BRICK_HEIGHT)
-  return Object.values(WALLS).flatMap((wall) => {
+  return (Object.entries(WALLS) as [WallName, Wall][]).flatMap(([name, wall]) => {
     const columns = Math.ceil(wall.length / BRICK_WIDTH)
     const segments: Segment[] = []
     for (let row = 0; row < rows; row++) {
@@ -166,8 +188,9 @@ function brickSegments(): Segment[] {
         const v1 = v0 + BRICK_HEIGHT - BRICK_GAP
         // Keep bricks off the wall's own edges.
         if (u0 <= 0 || u1 >= wall.length || v0 <= 0 || v1 >= CEILING_Y - FLOOR_Y) continue
-        // Nor behind the mirror, where they'd show through the glass, or the pull.
-        if (isUnderFixture(wall, u0, u1, v0, v1)) continue
+        // Nor behind what hangs on the wall, where they'd show through the
+        // mirror's glass or between the sign's lines.
+        if (isUnderFixture(name, u0, u1, v0, v1)) continue
         segments.push([onWall(wall, u0, v0), onWall(wall, u1, v0)], [onWall(wall, u0, v0), onWall(wall, u0, v1)])
       }
     }
@@ -286,6 +309,35 @@ export function rasterise(segments: Segment[], colour: string, { yaw, eye, width
       return linePoints(p.x, p.y, q.x, q.y).map((point) => ({ ...point, colour }))
     }),
   )
+}
+
+// How far over a whole number of pixels a cell can come out and still be that
+// many. Yaw isn't wrapped, so after turning round it's off by rounding error,
+// which can put the nook's distance from the mirror a hair under 1 and double
+// every cell.
+const CELL_SIZE_TOLERANCE = 1e-9
+
+// Adds a cell at `world` to `pixels`, as a block sized by how close it is: one
+// pixel at distance `onePixelAt` (by default 1, the nook's distance from the
+// mirror), and bigger closer up.
+export function cellPixels(
+  pixels: Pixel[],
+  world: Vec3,
+  colour: string,
+  { yaw, eye, width, height }: View,
+  onePixelAt = 1,
+) {
+  const camera = toCamera(world, yaw, eye)
+  if (camera.z < NEAR || !isVisible(world, eye)) return
+  const centre = projectPoint(camera, width, height)
+  const size = Math.max(1, Math.ceil(onePixelAt / camera.z - CELL_SIZE_TOLERANCE))
+  const left = Math.floor(centre.x - (size - 1) / 2)
+  const top = Math.floor(centre.y - (size - 1) / 2)
+  for (let y = top; y < top + size; y++) {
+    for (let x = left; x < left + size; x++) {
+      if (x >= 0 && x < width && y >= 0 && y < height) pixels.push({ x, y, colour })
+    }
+  }
 }
 
 // Pixels for the room seen from `eye` with the camera turned `yaw` radians left of north.

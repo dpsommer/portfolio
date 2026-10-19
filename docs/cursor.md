@@ -33,7 +33,7 @@ The Controls panel beside the pane is page content, not a canvas, so it keeps th
 
 `ViewPane` converts the mouse position to canvas pixels using fractions of the canvas's on-screen size, so every area scales with the pane.
 
-- **Sign:** the rectangle from the tilted board's lower-left corner to its upper-right corner (`signBoardBounds` in `src/scene/signpost/signpost.ts`).
+- **Sign:** the rectangle around the board and its text, seen from the start facing north (`pixelBounds` of `signPixels`' `FOREGROUND` pixels, not the nail and cords).
 - **Mirror:** the glass's arch-topped shape, not the frame or ornaments. `ViewPane` checks it with `screenToMirror` (`src/scene/mirror/pixels.ts`), the same test a click uses.
 - **Curtain pull:** `PULL_HIT` (`src/scene/mirror/pull.ts`): the handle and the lower cord, padded so the one-pixel cord is easy to hit. `ViewPane` finds the point on the wall with `screenToWall` and checks it with `isOnPull`.
 - **Buttons:** `navButtonAt` (`src/scene/navigation/navButtons.ts`).

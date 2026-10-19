@@ -18,8 +18,15 @@ import { PLACES } from '../scene/navigation/places.ts'
 import { NAV_BUTTON_BOUNDS, navButtonPixels } from '../scene/navigation/navButtons.ts'
 import type { KeyPress, NavButton } from '../scene/navigation/navButtons.ts'
 import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
-import { BOUNCE_DEPTH, BOUNCE_MS, BOUNCE_PERIOD_MS, caretInset, selectionPixels } from '../scene/selection/selection.ts'
-import { signBoardBounds } from '../scene/signpost/signpost.ts'
+import {
+  BOUNCE_DEPTH,
+  BOUNCE_MS,
+  BOUNCE_PERIOD_MS,
+  caretInset,
+  pixelBounds,
+  selectionPixels,
+} from '../scene/selection/selection.ts'
+import { signPixels } from '../scene/sign/pixels.ts'
 import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
@@ -51,7 +58,7 @@ const LEFT_X = 10
 const CENTRE_X = 160
 const RIGHT_X = 310
 const MIDDLE_Y = 120
-// Over the sign's board, away from the post.
+// Over the sign's board, left of its text.
 const SIGN_X = 130
 const SIGN_Y = 120
 // In the centre zone but left of the mirror, seen from the nook facing west.
@@ -1194,12 +1201,12 @@ describe('ViewPane', () => {
 
     // At 640x480 each canvas pixel is 2 client pixels, so odd client
     // coordinates land half-way through a canvas pixel. Bounds are
-    // left 100, top 95, right 219, bottom 144 (inclusive).
+    // left 110, top 100, right 210, bottom 140 (inclusive).
     it.each([
-      ['left', 200, 240],
-      ['right', 439, 240],
-      ['top', 320, 190],
-      ['bottom', 320, 289],
+      ['left', 220, 240],
+      ['right', 421, 240],
+      ['top', 320, 200],
+      ['bottom', 320, 281],
     ])('shows the hand just inside the %s edge', (_, clientX, clientY) => {
       const { canvas } = renderPane(new DOMRect(0, 0, 640, 480))
 
@@ -1209,10 +1216,10 @@ describe('ViewPane', () => {
     })
 
     it.each([
-      ['left', 199, 240],
-      ['right', 440, 240],
-      ['top', 320, 189],
-      ['bottom', 320, 290],
+      ['left', 219, 240],
+      ['right', 422, 240],
+      ['top', 320, 199],
+      ['bottom', 320, 282],
     ])('does not show the hand just outside the %s edge', (_, clientX, clientY) => {
       const { canvas } = renderPane(new DOMRect(0, 0, 640, 480))
 
@@ -3241,7 +3248,7 @@ describe('ViewPane', () => {
     const status = () => screen.getByRole('status').textContent
     // What the carets go around: the sign's board, the whole mirror, and the
     // pull's handle.
-    const SIGN_BOARD = signBoardBounds(VIEW_WIDTH, VIEW_HEIGHT)
+    const SIGN_BOARD = pixelBounds(signPixels(VIEW_WIDTH, VIEW_HEIGHT).filter((p) => p.colour === FOREGROUND))
     const caretFills = (bounds: Bounds, inset = 0) => toFills(selectionPixels(bounds, inset, VIEW_WIDTH, VIEW_HEIGHT))
     const startFills = () => sceneFills(undefined, 0, PLACES.start)
     // The keyboard's ripple, from the middle of the glass.

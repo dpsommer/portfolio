@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HEIGHT, WIDTH, columnAt, expectOnCanvas, extent, rowAt } from '../../test/pixels.ts'
+import { FOCAL, HEIGHT, WIDTH, columnAt, expectOnCanvas, extent, rowAt } from '../../test/pixels.ts'
 import {
   BACK_Z,
   CEILING_Y,
@@ -12,13 +12,14 @@ import {
   WALL_VIEW_DISTANCE,
 } from '../core/camera.ts'
 import type { FloorPoint } from '../core/camera.ts'
-import { FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
 import { mirrorPixels, plaquePixels, pullPixels } from '../mirror/pixels.ts'
 import { PLAQUE_BOUNDS } from '../mirror/plaque.ts'
 import { PULL_BOUNDS } from '../mirror/pull.ts'
 import { PLACES } from '../navigation/places.ts'
-import { FLOOR_PLAN, WALLS, isOnFloor, isVisible, roomPixels } from './room.ts'
+import { signPixels } from '../sign/pixels.ts'
+import { FLOOR_PLAN, SIGN_WALL, WALLS, cellPixels, isOnFloor, isVisible, onWall, roomPixels, signToWall } from './room.ts'
 import type { WallName } from './room.ts'
 
 // The far wall's rect facing north at 320x240: FAR_WALL_SCALE (0.45) of the view, centred.
@@ -796,5 +797,117 @@ describe('roomPixels around the plaque', () => {
       (p) => p.y >= NICHE.top && p.y <= NICHE.bottom && !inNiche(p),
     )
     expect(beside.length).toBeGreaterThan(0)
+  })
+})
+
+describe('signToWall', () => {
+  const toWorld = (s: number, t: number) => {
+    const { u, v } = signToWall({ s, t })
+    return onWall(WALLS[SIGN_WALL], u, v)
+  }
+
+  it('hangs the sign on the far wall', () => {
+    expect(SIGN_WALL).toBe('north')
+  })
+
+  it('puts the sign\'s centre in the middle of the far wall at eye height', () => {
+    const centre = toWorld(0, 0)
+    expect(centre.x).toBeCloseTo(0, 9)
+    expect(centre.y).toBeCloseTo(0, 9)
+    expect(centre.z).toBeCloseTo(FAR_Z, 9)
+  })
+
+  it('runs s right and t up in the world, as seen from the start facing north', () => {
+    const centre = toWorld(0, 0)
+    const moved = toWorld(0.3, 0.2)
+    expect(moved.x - centre.x).toBeCloseTo(0.3, 9)
+    expect(moved.y - centre.y).toBeCloseTo(0.2, 9)
+    expect(moved.z).toBeCloseTo(FAR_Z, 9)
+  })
+})
+
+describe('cellPixels', () => {
+  const view = { yaw: 0, eye: ORIGIN, width: WIDTH, height: HEIGHT }
+  const cell = (z: number, onePixelAt?: number, x = 0, y = 0, at = view) => {
+    const pixels: Pixel[] = []
+    cellPixels(pixels, { x, y, z }, FOREGROUND, at, onePixelAt)
+    return pixels
+  }
+
+  it('draws one pixel at distance 1 by default, where the point projects', () => {
+    expect(cell(1)).toEqual([{ x: WIDTH / 2, y: HEIGHT / 2, colour: FOREGROUND }])
+  })
+
+  it('draws one pixel further away rather than none', () => {
+    expect(cell(FAR_Z)).toHaveLength(1)
+  })
+
+  it.each([
+    [0.5, undefined, 2],
+    [1 / 3, undefined, 3],
+    [FAR_Z, FAR_Z, 1],
+    [FAR_Z / 2, FAR_Z, 2],
+  ])('draws a square block at distance %f, one pixel at %s', (z, onePixelAt, size) => {
+    const pixels = cell(z, onePixelAt)
+    const { left, top, right, bottom } = extent(pixels)
+    expect(pixels).toHaveLength(size * size)
+    expect(right - left + 1).toBe(size)
+    expect(bottom - top + 1).toBe(size)
+  })
+
+  it('centres an odd-sized block on where the point projects', () => {
+    expect(extent(cell(1 / 3))).toEqual({
+      left: WIDTH / 2 - 1,
+      top: HEIGHT / 2 - 1,
+      right: WIDTH / 2 + 1,
+      bottom: HEIGHT / 2 + 1,
+    })
+  })
+
+  it('draws one pixel for a distance a rounding error under onePixelAt', () => {
+    expect(cell(1 - 1e-12)).toHaveLength(1)
+    expect(cell(FAR_Z - 1e-12, FAR_Z)).toHaveLength(1)
+  })
+
+  it('adds to the pixels already there', () => {
+    const existing: Pixel = { x: 0, y: 0, colour: FOREGROUND_WORN }
+    const pixels = [existing]
+    cellPixels(pixels, { x: 0, y: 0, z: 1 }, FOREGROUND, view)
+    expect(pixels).toHaveLength(2)
+    expect(pixels[0]).toBe(existing)
+  })
+
+  it('draws nothing behind the camera', () => {
+    expect(cell(-1)).toEqual([])
+    expect(cell(0.05)).toEqual([])
+  })
+
+  it('draws nothing hidden behind a wall', () => {
+    // The far wall's left end is behind the nook's side wall from the nook.
+    expect(cell(FAR_Z, undefined, -ROOM_HALF_WIDTH + 0.05, 0, { ...view, eye: NOOK_EYE })).toEqual([])
+  })
+
+  it('crops a block to the canvas', () => {
+    // At the canvas's right edge a 3x3 block keeps only its left column.
+    const pixels = cell(1 / 3, undefined, WIDTH / 2 / FOCAL / 3)
+    expect(pixels.map((p) => p.x)).toEqual([WIDTH - 1, WIDTH - 1, WIDTH - 1])
+    expectOnCanvas(pixels)
+  })
+})
+
+describe('roomPixels around the sign', () => {
+  // The whole sign, nail included, from the start facing north.
+  const sign = extent(signPixels(WIDTH, HEIGHT))
+  const isUnderSign = (p: Pixel) => p.x >= sign.left && p.x <= sign.right && p.y >= sign.top && p.y <= sign.bottom
+
+  it('keeps bricks off the sign from the start facing north', () => {
+    expect(dim(roomPixels(WIDTH, HEIGHT)).filter(isUnderSign)).toEqual([])
+  })
+
+  it('still draws bricks on the far wall around the sign', () => {
+    const bricks = dim(roomPixels(WIDTH, HEIGHT)).filter(
+      (p) => p.x > FAR_WALL.left && p.x < FAR_WALL.right && p.y > FAR_WALL.top && p.y < FAR_WALL.bottom,
+    )
+    expect(bricks.filter((p) => !isUnderSign(p)).length).toBeGreaterThan(0)
   })
 })
