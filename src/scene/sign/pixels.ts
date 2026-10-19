@@ -1,4 +1,4 @@
-import { FAR_Z, ORIGIN } from '../core/camera.ts'
+import { ORIGIN, WALL_VIEW_DISTANCE } from '../core/camera.ts'
 import type { FloorPoint } from '../core/camera.ts'
 import { FOREGROUND } from '../core/palette.ts'
 import type { Pixel } from '../core/types.ts'
@@ -21,11 +21,11 @@ const LAYERS = SIGN_LAYERS.map(({ colour, lines }) => ({
 const TEXT_POINTS = SIGN_TEXT_CELLS.map(toWorld)
 
 // Pixels for the sign, seen the same way as `roomPixels`. Its text's cells are
-// one pixel each from the start.
+// one pixel each from the place in front of it.
 export function signPixels(canvasWidth: number, canvasHeight: number, yaw = 0, eye: FloorPoint = ORIGIN): Pixel[] {
   const view = { yaw, eye, width: canvasWidth, height: canvasHeight }
   const inCanvas = (p: Pixel) => p.x >= 0 && p.x < canvasWidth && p.y >= 0 && p.y < canvasHeight
   const pixels = LAYERS.flatMap(({ colour, segments }) => rasterise(segments, colour, view)).filter(inCanvas)
-  for (const point of TEXT_POINTS) cellPixels(pixels, point, FOREGROUND, view, FAR_Z)
+  for (const point of TEXT_POINTS) cellPixels(pixels, point, FOREGROUND, view, WALL_VIEW_DISTANCE)
   return pixels
 }

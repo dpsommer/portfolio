@@ -4,10 +4,10 @@ How the visitor turns and moves, and the navigation panel that shows and control
 
 ## Turning and moving
 
-The visitor starts at `start` facing north, towards the welcome sign.
+The visitor starts at `start` facing north, towards the welcome sign on the far wall. It's too far off to use until they step forward to it.
 
 - **Turning:** clicking the left or right edge of the room (see [cursor.md](cursor.md) for the zones) turns a quarter turn. The visitor's `heading` (`north`, `west`, `south`, `east`; `src/scene/navigation/heading.ts`) is exposed as `data-heading` on the room canvas. The camera yaw pans over `TURN_DURATION_MS`.
-- **Moving forward:** clicking the centre steps to the place ahead, if there is one (`forwardFrom` in `src/scene/navigation/places.ts`). From `start` facing west that's the `nook`; from the nook facing east it's back to the start. The place is exposed as `data-place` on the room canvas, and the eye position moves over `MOVE_DURATION_MS`.
+- **Moving forward:** clicking the centre steps to the place ahead, if there is one (`forwardFrom` in `src/scene/navigation/places.ts`). From `start` facing west that's the `nook`, and facing north it's the `sign` place in front of the welcome sign; from either, facing back the way they came leads back to the start. The place is exposed as `data-place` on the room canvas, and the eye position moves over `MOVE_DURATION_MS`.
 - **Stepping back:** the panel's down button and the down arrow key step to the place behind without turning (`backFrom`), so from the start facing east they lead into the nook.
 
 Turns and moves follow the shared animation rules in [architecture.md](architecture.md#animations): input waits for them to finish, and reduced motion snaps to the end.

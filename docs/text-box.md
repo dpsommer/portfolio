@@ -1,6 +1,6 @@
 # Text box
 
-The lower panel doubles as a text box. Clicking the welcome sign, at the start facing north, hides the navigation panel and types out what the sign says. The box is drawn by `drawTextBox` (`src/scene/textBox/textBox.ts`) and driven by `ViewPane`.
+The lower panel doubles as a text box. Clicking the welcome sign, from in front of it facing north, hides the navigation panel and types out what the sign says. The box is drawn by `drawTextBox` (`src/scene/textBox/textBox.ts`) and driven by `ViewPane`.
 
 ## Pages
 

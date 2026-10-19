@@ -22,8 +22,9 @@ import { signPixels } from '../sign/pixels.ts'
 import { FLOOR_PLAN, SIGN_WALL, WALLS, cellPixels, isOnFloor, isVisible, onWall, roomPixels, signToWall } from './room.ts'
 import type { WallName } from './room.ts'
 
-// The far wall's rect facing north at 320x240: FAR_WALL_SCALE (0.45) of the view, centred.
-const FAR_WALL = { left: 88, top: 66, right: 232, bottom: 174 }
+// The far wall's rect facing north at 320x240, FAR_Z (7/3) away: 2 × 128 / FAR_Z
+// wide and 1.5 × 128 / FAR_Z tall, centred, to the nearest pixel.
+const FAR_WALL = { left: 105, top: 79, right: 215, bottom: 161 }
 
 // Walls in floor plan order, clockwise seen from above.
 const WALL_ORDER: WallName[] = ['north', 'east', 'south', 'nook-back', 'nook-side', 'west']
@@ -623,7 +624,7 @@ describe('roomPixels', () => {
       expect(SIDE_DEPTH).toBeCloseTo(WALL_VIEW_DISTANCE)
       expect(CORNER_X).toBe(203)
       expect(SIDE_ROWS).toEqual([24, 216])
-      expect(FAR_TOP_Y).toBe(66)
+      expect(FAR_TOP_Y).toBe(79)
       expect(FAR_LEFT_X).toBeLessThan(CORNER_X)
     })
 
@@ -717,10 +718,14 @@ describe('roomPixels', () => {
     it('shifts detail sideways rather than redrawing it while panning', () => {
       // A small left turn moves things right on screen, so the brick pattern
       // seen at a slight pan overlaps the north view's pattern shifted right.
+      // The turn also brings one side of the far wall a little closer, which
+      // can move a brick edge by a row.
       const north = dim(roomPixels(WIDTH, HEIGHT, 0)).filter((p) => p.y < FAR_WALL.bottom && p.x > FAR_WALL.left && p.x < FAR_WALL.right)
       const panned = new Set(dim(roomPixels(WIDTH, HEIGHT, 0.05)).map(key))
       const shift = Math.round(0.05 * 0.8 * (WIDTH / 2))
-      const matched = north.filter((p) => [-2, -1, 0, 1, 2].some((d) => panned.has(key({ x: p.x + shift + d, y: p.y }))))
+      const matched = north.filter((p) =>
+        [-2, -1, 0, 1, 2].some((dx) => [-1, 0, 1].some((dy) => panned.has(key({ x: p.x + shift + dx, y: p.y + dy })))),
+      )
       expect(north.length).toBeGreaterThan(0)
       expect(matched.length / north.length).toBeGreaterThan(0.8)
     })

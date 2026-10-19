@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BACK_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, WALL_VIEW_DISTANCE } from '../core/camera.ts'
+import { BACK_Z, FAR_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, SIGN_STEP, WALL_VIEW_DISTANCE } from '../core/camera.ts'
 import type { FloorPoint } from '../core/camera.ts'
 import { FLOOR_PLAN, isOnFloor } from '../room/room.ts'
 import { HEADINGS, opposite } from './heading.ts'
@@ -40,8 +40,8 @@ function distanceToWall(from: FloorPoint, heading: Heading): number {
 }
 
 describe('PLACES', () => {
-  it('has the start and the nook', () => {
-    expect([...PLACE_NAMES].sort()).toEqual(['nook', 'start'])
+  it('has the start, the nook and the place in front of the sign', () => {
+    expect([...PLACE_NAMES].sort()).toEqual(['nook', 'sign', 'start'])
   })
 
   it('puts the start at the origin', () => {
@@ -54,8 +54,22 @@ describe('PLACES', () => {
     expect(PLACES.nook.z).toBe(ORIGIN.z)
   })
 
-  it('leads west from the start to the nook', () => {
-    expect(PLACES.start.exits).toEqual({ west: 'nook' })
+  it('puts the sign place SIGN_STEP north of the start, WALL_VIEW_DISTANCE from the far wall', () => {
+    expect(PLACES.sign.x).toBe(ORIGIN.x)
+    expect(PLACES.sign.z).toBe(ORIGIN.z + SIGN_STEP)
+    expect(FAR_Z - PLACES.sign.z).toBeCloseTo(WALL_VIEW_DISTANCE)
+  })
+
+  it('makes the step to the sign as long as the step to the nook', () => {
+    expect(PLACES.sign.z - PLACES.start.z).toBeCloseTo(PLACES.start.x - PLACES.nook.x)
+  })
+
+  it('leads west from the start to the nook and north to the sign', () => {
+    expect(PLACES.start.exits).toEqual({ west: 'nook', north: 'sign' })
+  })
+
+  it('leads south from the sign back to the start', () => {
+    expect(PLACES.sign.exits).toEqual({ south: 'start' })
   })
 
   it('leads east from the nook back to the start', () => {
@@ -80,6 +94,7 @@ describe('wall view distance', () => {
   it.each([
     ['start', ['east', 'south']],
     ['nook', ['north', 'west', 'south']],
+    ['sign', ['north', 'east', 'west']],
   ] as const)('frames the %s with walls close by to the %j', (name, headings) => {
     const close = HEADINGS.filter((heading) => distanceToWall(PLACES[name], heading) <= CLOSE)
     expect([...close].sort()).toEqual([...headings].sort())
@@ -100,7 +115,7 @@ describe('wall view distance', () => {
 
 describe('forwardFrom', () => {
   it.each([
-    ['start', 'north', null],
+    ['start', 'north', 'sign'],
     ['start', 'west', 'nook'],
     ['start', 'south', null],
     ['start', 'east', null],
@@ -108,6 +123,10 @@ describe('forwardFrom', () => {
     ['nook', 'west', null],
     ['nook', 'south', null],
     ['nook', 'east', 'start'],
+    ['sign', 'north', null],
+    ['sign', 'west', null],
+    ['sign', 'south', 'start'],
+    ['sign', 'east', null],
   ] as const)('from the %s facing %s leads to %s', (place, heading, expected) => {
     expect(forwardFrom(place, heading)).toBe(expected)
   })
@@ -151,12 +170,16 @@ describe('backFrom', () => {
   it.each([
     ['start', 'north', null],
     ['start', 'west', null],
-    ['start', 'south', null],
+    ['start', 'south', 'sign'],
     ['start', 'east', 'nook'],
     ['nook', 'north', null],
     ['nook', 'west', 'start'],
     ['nook', 'south', null],
     ['nook', 'east', null],
+    ['sign', 'north', 'start'],
+    ['sign', 'west', null],
+    ['sign', 'south', null],
+    ['sign', 'east', null],
   ] as const)('from the %s facing %s leads to %s', (place, heading, expected) => {
     expect(backFrom(place, heading)).toBe(expected)
   })

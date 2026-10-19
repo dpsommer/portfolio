@@ -206,7 +206,7 @@ function floorSegments(): Segment[] {
   const z = (row: number) => Math.min(FAR_Z, BACK_Z + row * FLOOR_TILE_SIZE)
   const firstColumn = Math.round((NOOK_X - LEFT) / FLOOR_TILE_SIZE)
   const lastColumn = Math.round((RIGHT - LEFT) / FLOOR_TILE_SIZE)
-  const rows = Math.ceil((FAR_Z - BACK_Z) / FLOOR_TILE_SIZE)
+  const rows = Math.round((FAR_Z - BACK_Z) / FLOOR_TILE_SIZE)
   const segments: Segment[] = []
   const add = (a: Vec3, b: Vec3, seed: number) => {
     const inset = FLOOR_EDGE_INSET / distance(a, b)

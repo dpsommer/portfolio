@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   BACK_Z,
   CEILING_Y,
-  FAR_WALL_SCALE,
   FAR_Z,
   FLOOR_Y,
   FOCAL_RATIO,
@@ -11,6 +10,7 @@ import {
   NOOK_X,
   ORIGIN,
   ROOM_HALF_WIDTH,
+  SIGN_STEP,
   WALL_VIEW_DISTANCE,
   clipToNearPlane,
   projectPoint,
@@ -34,6 +34,15 @@ describe('constants', () => {
   it('puts the far wall in front of the camera and the back wall behind it', () => {
     expect(FAR_Z).toBeGreaterThan(NEAR)
     expect(BACK_Z).toBeLessThan(0)
+  })
+
+  it('puts the far wall WALL_VIEW_DISTANCE beyond a SIGN_STEP forward from the start', () => {
+    expect(FAR_Z).toBeCloseTo(SIGN_STEP + WALL_VIEW_DISTANCE)
+  })
+
+  it('puts the far wall a whole number of 1/3-unit floor tiles from the back wall', () => {
+    const tiles = (FAR_Z - BACK_Z) * 3
+    expect(tiles).toBeCloseTo(Math.round(tiles))
   })
 
   it('puts the nook left of the main room, running from behind the start to in front of it', () => {
@@ -119,11 +128,11 @@ describe('projectPoint', () => {
     expect(p.y).toBeCloseTo(y)
   })
 
-  it('places the far wall corners on a centred rect FAR_WALL_SCALE the view size', () => {
+  it('places the far wall corners on a centred rect with the view\'s shape, FOCAL_RATIO / FAR_Z its size', () => {
     const topLeft = projectPoint(vec(-ROOM_HALF_WIDTH, CEILING_Y, FAR_Z), WIDTH, HEIGHT)
     const bottomRight = projectPoint(vec(ROOM_HALF_WIDTH, FLOOR_Y, FAR_Z), WIDTH, HEIGHT)
-    expect(bottomRight.x - topLeft.x).toBeCloseTo(WIDTH * FAR_WALL_SCALE)
-    expect(bottomRight.y - topLeft.y).toBeCloseTo(HEIGHT * FAR_WALL_SCALE)
+    expect(bottomRight.x - topLeft.x).toBeCloseTo((WIDTH * FOCAL_RATIO) / FAR_Z)
+    expect(bottomRight.y - topLeft.y).toBeCloseTo((HEIGHT * FOCAL_RATIO) / FAR_Z)
     expect((topLeft.x + bottomRight.x) / 2).toBeCloseTo(WIDTH / 2)
     expect((topLeft.y + bottomRight.y) / 2).toBeCloseTo(HEIGHT / 2)
   })

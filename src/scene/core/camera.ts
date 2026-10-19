@@ -13,20 +13,22 @@ export const ORIGIN: FloorPoint = { x: 0, z: 0 }
 
 // Focal length as a fraction of half the canvas width (about a 102° field of view).
 export const FOCAL_RATIO = 0.8
-// Size of the far wall on screen as a fraction of the view, facing north.
-export const FAR_WALL_SCALE = 0.45
 
 export const ROOM_HALF_WIDTH = 1
 // Floor and ceiling heights relative to the eye. Height to width matches the
 // canvas's 3:4, so the wall edges run into the corners of the view.
 export const FLOOR_Y = -0.75
 export const CEILING_Y = 0.75
-// The far (north) wall's distance gives it FAR_WALL_SCALE on screen.
-export const FAR_Z = (FOCAL_RATIO * ROOM_HALF_WIDTH) / FAR_WALL_SCALE
 // How far each place the visitor stands is from the nearby walls framing it, so
 // close-up walls look the same size everywhere. The start is this far from the
 // side walls and the back wall.
 export const WALL_VIEW_DISTANCE = 1
+// How far a step forward from the start goes towards the far wall, to the
+// place in front of the sign: as far as the step west into the nook.
+export const SIGN_STEP = 4 / 3
+// The far (north) wall, WALL_VIEW_DISTANCE beyond the place in front of the
+// sign. It's a whole number of 1/3-unit floor tiles from the back wall.
+export const FAR_Z = SIGN_STEP + WALL_VIEW_DISTANCE
 // The wall behind the starting position.
 export const BACK_Z = -WALL_VIEW_DISTANCE
 // A nook to the left of the starting position: the near part of the left wall

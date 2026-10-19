@@ -1,6 +1,6 @@
 # UI
 
-The site is a portfolio styled as a retro first-person point-and-click dungeon crawler. The visitor stands in a small stone room, starting in front of a welcome sign. Clicking it types its message into the panel below the view, RPG-style. They turn and move by clicking the edges and centre of the view, or with the navigation panel below it. In a nook to the west hangs a mirror showing the owner's profiles: clicking it ripples the glass and opens the profile, and a curtain pull beside it switches between them.
+The site is a portfolio styled as a retro first-person point-and-click dungeon crawler. The visitor stands in a small stone room, starting a few steps from a welcome sign on the far wall. Stepping up to it and clicking it types its message into the panel below the view, RPG-style. They turn and move by clicking the edges and centre of the view, or with the navigation panel below it. In a nook to the west hangs a mirror showing the owner's profiles: clicking it ripples the glass and opens the profile, and a curtain pull beside it switches between them.
 
 ## Look
 

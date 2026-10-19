@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CEILING_Y, FAR_Z, FLOOR_Y, ROOM_HALF_WIDTH, projectPoint } from '../core/camera.ts'
+import { CEILING_Y, FLOOR_Y, ROOM_HALF_WIDTH, WALL_VIEW_DISTANCE, projectPoint } from '../core/camera.ts'
 import { FOREGROUND, FOREGROUND_WORN } from '../core/palette.ts'
 import { textPixels, textWidth } from '../core/pixelFont.ts'
 import { polyline } from '../mirror/frame.ts'
@@ -90,9 +90,9 @@ describe('SIGN_LAYERS', () => {
 })
 
 describe('SIGN_CELL_SIZE', () => {
-  it('is one canvas pixel at 320 wide on the far wall, FAR_Z away', () => {
-    const a = projectPoint({ x: 0, y: 0, z: FAR_Z }, 320, 240)
-    const b = projectPoint({ x: SIGN_CELL_SIZE, y: SIGN_CELL_SIZE, z: FAR_Z }, 320, 240)
+  it('is one canvas pixel at 320 wide from WALL_VIEW_DISTANCE away, in front of the sign', () => {
+    const a = projectPoint({ x: 0, y: 0, z: WALL_VIEW_DISTANCE }, 320, 240)
+    const b = projectPoint({ x: SIGN_CELL_SIZE, y: SIGN_CELL_SIZE, z: WALL_VIEW_DISTANCE }, 320, 240)
     expect(b.x - a.x).toBeCloseTo(1, 9)
     expect(a.y - b.y).toBeCloseTo(1, 9)
   })
@@ -102,8 +102,8 @@ describe('SIGN_TEXT_CELLS', () => {
   const square = SIGN_TEXT_CELLS.map(unskew)
   const cellIndex = (n: number) => n / SIGN_CELL_SIZE - 0.5
 
-  it('has one cell per pixel of the text at scale 2', () => {
-    expect(SIGN_TEXT_CELLS).toHaveLength(textPixels(SIGN_TEXT, 2).length)
+  it('has one cell per pixel of the text at scale 3', () => {
+    expect(SIGN_TEXT_CELLS).toHaveLength(textPixels(SIGN_TEXT, 3).length)
   })
 
   it('puts every cell inside the board', () => {
@@ -111,11 +111,29 @@ describe('SIGN_TEXT_CELLS', () => {
     for (const cell of SIGN_TEXT_CELLS) expect(isInside(cell, outline)).toBe(true)
   })
 
-  it('sits each cell in the middle of a cell-sized grid square once the tilt is undone', () => {
+  it('sits each cell in the middle of a cell-sized grid square across, and within the tilt of one up', () => {
+    // Each glyph pixel's cells rise together, by the tilt at the glyph pixel's
+    // middle, so undoing the tilt cell by cell leaves them a little off the grid.
     for (const { s, t } of square) {
       expect(cellIndex(s)).toBeCloseTo(Math.round(cellIndex(s)), 6)
-      expect(cellIndex(t)).toBeCloseTo(Math.round(cellIndex(t)), 6)
+      expect(Math.abs(cellIndex(t) - Math.round(cellIndex(t)))).toBeLessThanOrEqual(BOARD_RISE + 1e-9)
     }
+  })
+
+  it('raises the cells of each glyph pixel together', () => {
+    // How far each cell sits above its grid square: the same for every cell in
+    // a glyph pixel's 3-cell-wide column, so one value per glyph column.
+    const gridT = (i: number) => (Math.round(cellIndex(square[i].t)) + 0.5) * SIGN_CELL_SIZE
+    const firstColumn = Math.min(...SIGN_TEXT_CELLS.map(({ s }) => Math.round(cellIndex(s))))
+    const rises = new Map<number, Set<string>>()
+    SIGN_TEXT_CELLS.forEach((cell, i) => {
+      const column = Math.floor((Math.round(cellIndex(cell.s)) - firstColumn) / 3)
+      const set = rises.get(column) ?? new Set<string>()
+      set.add((cell.t - gridT(i)).toFixed(9))
+      rises.set(column, set)
+    })
+    expect(rises.size).toBeGreaterThan(1)
+    for (const set of rises.values()) expect(set.size).toBe(1)
   })
 
   it('has no two cells in the same place', () => {
@@ -123,25 +141,26 @@ describe('SIGN_TEXT_CELLS', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it('spans the text\'s width at scale 2, centred on the board within a cell', () => {
+  it('spans the text\'s width at scale 3, centred on the board within a cell', () => {
     const ss = square.map(({ s }) => s)
     const left = Math.min(...ss)
     const right = Math.max(...ss)
-    expect(Math.round((right - left) / SIGN_CELL_SIZE) + 1).toBe(textWidth(SIGN_TEXT, 2))
+    expect(Math.round((right - left) / SIGN_CELL_SIZE) + 1).toBe(textWidth(SIGN_TEXT, 3))
     expect(Math.abs(left + right)).toBeLessThanOrEqual(SIGN_CELL_SIZE + 1e-9)
   })
 
   it('is centred on the board vertically within a cell', () => {
     const ts = square.map(({ t }) => t)
-    expect(Math.abs(Math.min(...ts) + Math.max(...ts))).toBeLessThanOrEqual(SIGN_CELL_SIZE + 1e-9)
+    expect(Math.abs(Math.min(...ts) + Math.max(...ts))).toBeLessThanOrEqual(SIGN_CELL_SIZE * (1 + 2 * BOARD_RISE) + 1e-9)
   })
 
   it('tilts with the board', () => {
     // Cells in the same text row rise to the right.
-    const row = SIGN_TEXT_CELLS.filter((_, i) => Math.abs(square[i].t - square[0].t) < 1e-9)
+    const rowOf = (i: number) => Math.round(cellIndex(square[i].t))
+    const row = SIGN_TEXT_CELLS.filter((_, i) => rowOf(i) === rowOf(0))
     const left = row.reduce((a, b) => (b.s < a.s ? b : a))
     const right = row.reduce((a, b) => (b.s > a.s ? b : a))
-    expect((right.t - left.t) / (right.s - left.s)).toBeCloseTo(BOARD_RISE, 9)
+    expect((right.t - left.t) / (right.s - left.s)).toBeCloseTo(BOARD_RISE, 2)
   })
 })
 

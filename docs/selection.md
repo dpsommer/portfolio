@@ -8,7 +8,7 @@ Each object can only be selected from the view it's used from, the same view whe
 
 | View | Tab order | Enter or Space |
 | --- | --- | --- |
-| Start, facing north | Welcome sign | Opens its text box ([text-box.md](text-box.md)) |
+| In front of the sign (`sign`), facing north | Welcome sign | Opens its text box ([text-box.md](text-box.md)) |
 | Nook, facing west | Mirror, then curtain pull | The mirror ripples from the centre of its glass (`GLASS_CENTRE`) and goes to its site; the pull switches site ([mirror.md](mirror.md)) |
 
 Other views have nothing to select.

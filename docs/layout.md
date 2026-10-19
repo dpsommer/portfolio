@@ -18,8 +18,9 @@ The room is built in world space (`src/scene/core/camera.ts`):
           z
           ^
    FAR_Z  |          +------- north --------+
-  (1.78)  |          |                      |
-          |        west                     |
+   (7/3)  |          |         [S]          |
+          |          |                      |
+     4/3  |        west       sign ·        |
        1  +----------+                      |
           |  nook-side                      |
           |                                 |
@@ -34,14 +35,14 @@ The room is built in world space (`src/scene/core/camera.ts`):
 
 | Wall | Runs | Notes |
 | --- | --- | --- |
-| `north` | x −1 → 1 at z `FAR_Z` | The far wall, facing north from the start. |
+| `north` | x −1 → 1 at z `FAR_Z` | The far wall, facing north from the start, where the welcome sign hangs (`[S]`). |
 | `east` | z `FAR_Z` → `BACK_Z` at x 1 | |
 | `south` | x 1 → `NOOK_X` at z `BACK_Z` | The back wall, behind the start and the nook. |
 | `nook-back` | z `BACK_Z` → `NOOK_FRONT_Z` at x `NOOK_X` | The nook's back (west) wall, where the mirror hangs (`[M]`). |
 | `nook-side` | x `NOOK_X` → −1 at z `NOOK_FRONT_Z` | The nook's north side. |
 | `west` | z `NOOK_FRONT_Z` → `FAR_Z` at x −1 | What's left of the main room's left wall. |
 
-- **Far wall:** its distance `FAR_Z` is derived so the wall fills `FAR_WALL_SCALE` (0.45) of the view facing north. This gives the classic dungeon-crawler "narrowing box".
+- **Far wall:** it's `WALL_VIEW_DISTANCE` beyond the `sign` place, which is `SIGN_STEP` (4/3, as far as the step into the nook) north of the start, so `FAR_Z` is 7/3. Facing north from the start it's a small rectangle in the middle of the view (about a third of it), the classic dungeon-crawler "narrowing box", and the sign on it is too far off to use. It's a whole number of floor tiles from the back wall, so the floor grid ends at it.
 - **Consistent close-up walls:** every place the visitor stands is `WALL_VIEW_DISTANCE` (1) from the nearby walls framing it, so close-up walls look the same size everywhere. The back wall's position, `BACK_Z` (−1), is derived from it. Facing south from the start shows the back wall framed by its edges.
 - **The nook:** a nook to the left of the start pushes the near part of the left wall back to `NOOK_X` (−7/3), from the back wall up to `NOOK_FRONT_Z` (1).
   - It's four 1/3-unit floor tiles deep, so the floor grid ends at its walls.
@@ -53,11 +54,13 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 
 | Place | Position | Exits |
 | --- | --- | --- |
-| `start` | `ORIGIN` (0, 0) | West to the nook |
+| `start` | `ORIGIN` (0, 0) | West to the nook, north to the sign |
 | `nook` | (`NOOK_X` + `WALL_VIEW_DISTANCE`, 0) = (−4/3, 0) | East to the start |
+| `sign` | (0, `SIGN_STEP`) = (0, 4/3) | South to the start |
 
 - **From the start:** the side walls and the back wall are all 1 away.
 - **From the nook:** its back wall, its side wall and the main back wall are all 1 away.
+- **From the sign:** the far wall and both side walls are all 1 away.
 
 ### Adding a place
 
@@ -79,13 +82,16 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 ## What each view shows
 
 - **From the start:**
-  - Facing north: the far wall in the middle, with the welcome sign hanging on it.
+  - Facing north: the far wall small in the middle, with the welcome sign hanging on it, too far off to read clearly or use.
   - Facing west: the nook opening, with the mirror on its back wall. The back wall shows on the left; the far wall and the sign are out of view.
   - Facing east: the east wall, with the back wall on the right.
   - Facing south: the back wall.
 - **From the nook:**
   - Facing west: the mirror, which fills most of its wall.
   - Facing east: back out to the main room.
+- **From the sign:**
+  - Facing north: the welcome sign close up, where it can be used.
+  - Facing south: back down the room to the back wall.
 
 ## Room detail
 
@@ -99,9 +105,9 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
 
 ## Objects
 
-- **Welcome sign** (`src/scene/sign/`): a "WELCOME" board hanging on the north wall (`SIGN_WALL` in `room.ts`), centred at eye height and facing the start. Clicking it opens its text box ([text-box.md](text-box.md)).
+- **Welcome sign** (`src/scene/sign/`): a "WELCOME" board hanging on the north wall (`SIGN_WALL` in `room.ts`), centred at eye height and facing the start. It's used from the `sign` place facing north: clicking it there opens its text box ([text-box.md](text-box.md)).
   - **Look:** drawn like the mirror, as sparse single lines: the board's outline in `FOREGROUND`, and a nail with two cords to the board's top corners in `FOREGROUND_WORN`. The board hangs crooked: it and its text are sheared by `BOARD_RISE`, so the right side is higher and verticals stay upright.
-  - **Shape:** `board.ts` holds it in sign-local units (s right, t up from the board's centre), like `mirror/frame.ts`; `signToWall` places it on the wall. The text's cells are `SIGN_CELL_SIZE` apart, one canvas pixel each from the start, and drawn with `cellPixels` like the mirror's previews.
+  - **Shape:** `board.ts` holds it in sign-local units (s right, t up from the board's centre), like `mirror/frame.ts`; `signToWall` places it on the wall. The text is the pixel font at 3× (`TEXT_SCALE`), as cells `SIGN_CELL_SIZE` apart, one canvas pixel each from the `sign` place, drawn with `cellPixels` like the mirror's previews. Each glyph pixel's 3×3 cells rise together with the tilt, so the letters stay blocky.
   - **Other views:** `signPixels` (`pixels.ts`) projects it like the room, so it stays fixed on its wall and parts behind walls are hidden.
 - **Mirror, curtain pull and logo plaque:** on the `nook-back` wall (`MIRROR_WALL` in `room.ts`), facing the nook's place, with the mirror's centre at eye height. The pull hangs to the mirror's right and the plaque sits in a niche below it. They're drawn in mirror-local units and keep bricks off themselves with their bounds; see [mirror.md](mirror.md).
 

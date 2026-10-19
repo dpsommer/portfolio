@@ -63,8 +63,10 @@ const PLAQUE_TURN_END_MS = 650
 // and comes back up over the last KEY_PRESS_MS.
 const KEY_PRESS_MS = 60
 
-// The sign's board and text, seen from the start facing north; not its nail and cords.
-const SIGN_BOUNDS = pixelBounds(signPixels(VIEW_WIDTH, VIEW_HEIGHT).filter((p) => p.colour === FOREGROUND))
+// The sign's board and text, seen from in front of it facing north; not its nail and cords.
+const SIGN_BOUNDS = pixelBounds(
+  signPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, PLACES.sign).filter((p) => p.colour === FOREGROUND),
+)
 
 // Whether a point in canvas pixels is inside inclusive bounds.
 function isInside(bounds: Bounds, x: number, y: number): boolean {
@@ -91,7 +93,7 @@ type Interactable = 'sign' | 'mirror' | 'pull'
 // What can be used from `place` facing `heading`, in Tab order. Each thing is
 // only usable from where it was designed to be seen.
 function interactablesIn(place: PlaceName, heading: Heading): Interactable[] {
-  if (place === 'start' && heading === 'north') return ['sign']
+  if (place === 'sign' && heading === 'north') return ['sign']
   if (place === 'nook' && heading === 'west') return ['mirror', 'pull']
   return []
 }
@@ -705,7 +707,7 @@ function ViewPane() {
 
   // The sign, mirror and pull are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'
-  const isSignView = place === 'start' && heading === 'north'
+  const isSignView = place === 'sign' && heading === 'north'
   const showHand =
     !animating &&
     ((pointer.overSign && isSignView) ||
