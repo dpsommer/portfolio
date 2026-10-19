@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/navigation.md` — turning and moving, the navigation panel's compass and buttons, and the arrow keys.
 - `docs/cursor.md` — which cursor shows where, hover areas and the cursor pixel maps. Anything added to a panel must set a pixel-art cursor.
 - `docs/mirror.md` — the mirror's sites, previews, ripple, curtain pull, logo plaque and site switching, and how to add a site.
-- `docs/text-box.md` — the lower panel's text box: the sign's pages, typing speed, caret, clicking through and reduced motion.
+- `docs/text-box.md` — the lower panel's text box: the sign's pages, typing speed, caret, moving the text on (clicks, Enter, Space) and reduced motion.
 - `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files, plus where helpers go.
 - `docs/testing.md` — test commands, Vitest setup, how to handle canvas code, shared helpers and test style.
 

@@ -3028,6 +3028,65 @@ describe('ViewPane', () => {
       })
     })
 
+    describe.each([
+      ['Enter', 'Enter'],
+      ['Space', ' '],
+    ])('with %s', (_, key) => {
+      it('finishes the page while it is typing', () => {
+        const { container } = openSign()
+
+        expect(pressKey(key)).toBe(false)
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, pageLength(FIRST_PAGE), true))
+      })
+
+      it('closes the text once the last page is typed', () => {
+        const { container } = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+
+        pressKey(key)
+
+        expect(status()).toHaveTextContent(/^$/)
+        expect(lowerPanelDraw(container)).toEqual(navPanelFills(0, START_NORTH))
+      })
+
+      it('moves the text on only once while held', () => {
+        openSign()
+        pressKey(key)
+
+        pressKey(key, { repeat: true })
+
+        expect(status()).toHaveTextContent(FIRST_PAGE)
+      })
+
+      it.each(['altKey', 'ctrlKey', 'metaKey'])('ignores it with %s held', (modifier) => {
+        const { container } = openSign()
+
+        expect(pressKey(key, { [modifier]: true })).toBe(true)
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, 1, false))
+      })
+
+      it('ignores it in a text field', () => {
+        const { container } = openSign()
+        const field = document.createElement('input')
+        document.body.append(field)
+
+        expect(pressKey(key, {}, field)).toBe(true)
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, 1, false))
+        field.remove()
+      })
+
+      it('does not open the sign, and leaves the key alone, while the text is closed', () => {
+        renderWithPanel()
+
+        expect(pressKey(key)).toBe(true)
+
+        expect(status()).toHaveTextContent(/^$/)
+      })
+    })
+
     describe('while open', () => {
       it.each([PANEL_INPUT, KEY_INPUT, ROOM_INPUT])('does not turn with $name', (input) => {
         const pane = openSign()
@@ -3038,7 +3097,7 @@ describe('ViewPane', () => {
         expect(pane.canvas).toHaveAttribute('data-heading', 'north')
       })
 
-      it('does not move the text on with a key press', () => {
+      it('does not move the text on with an arrow key', () => {
         const { container } = openSign()
 
         pressKey(ARROW_KEYS.left)

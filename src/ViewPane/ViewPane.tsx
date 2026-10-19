@@ -130,6 +130,9 @@ const ARROW_KEYS: Record<string, NavButton> = {
   ArrowRight: 'right',
 }
 
+// The keys that move the sign's text on, as a click does: Enter and Space.
+const TEXT_KEYS = ['Enter', ' ']
+
 // Whether a key event is aimed at something that takes typing, so arrow keys
 // should be left to it.
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -535,14 +538,25 @@ function ViewPane() {
     if (button) pressNavButton(button)
   }
 
-  // The arrow keys work the navigation buttons anywhere on the page, unless
-  // they're for a text field or part of a shortcut. Held keys repeat, so a
-  // held key keeps turning or stepping as each animation ends. It subscribes
-  // again on every render so the handler sees the current place and heading.
+  // The arrow keys work the navigation buttons anywhere on the page, and
+  // Enter and Space move the sign's text on while it's open, unless they're
+  // for a text field or part of a shortcut. Held arrow keys repeat, so a held
+  // key keeps turning or stepping as each animation ends; a held Enter or
+  // Space only moves the text on once. Enter and Space don't open the sign,
+  // since a view can have more than one thing to use (the mirror and pull).
+  // It subscribes again on every render so the handler sees the current
+  // place, heading and text.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || isTypingTarget(event.target)) return
+      if (dialogue && TEXT_KEYS.includes(event.key)) {
+        // Space would otherwise scroll the page.
+        event.preventDefault()
+        if (!event.repeat) advanceDialogue()
+        return
+      }
       const button = ARROW_KEYS[event.key]
-      if (!button || event.altKey || event.ctrlKey || event.metaKey || isTypingTarget(event.target)) return
+      if (!button) return
       // Arrow keys would otherwise scroll the page.
       event.preventDefault()
       pressNavButton(button)

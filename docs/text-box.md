@@ -25,13 +25,15 @@ Each page must fit in the box. `textBoxLayout` gives the characters per line and
 - The typing loop runs on its own `requestAnimationFrame` loop, not through `runAnimation` (see [architecture.md](architecture.md#animations)). It redraws only when a character or the caret changes, and it doesn't count as animating.
 - **Reduced motion:** with reduced motion, or no canvas context, the whole page shows at once and the caret stays on.
 
-## Clicks
+## Moving the text on
 
-While the box is open, a click anywhere in the pane (the room, the panels, the bands or the frame) bubbles up to `.view-pane-frame`, which moves the text on:
+While the box is open, a click anywhere in the pane (the room, the panels, the bands or the frame) bubbles up to `.view-pane-frame`, which moves the text on. Enter and Space do the same, from anywhere on the page:
 
-1. While a page is still typing, the click shows the rest of it at once.
-2. Once it's typed, the click goes to the next page.
-3. After the last page, the click closes the box and the navigation panel comes back.
+1. While a page is still typing, a click or key press shows the rest of it at once.
+2. Once it's typed, it goes to the next page.
+3. After the last page, it closes the box and the navigation panel comes back.
+
+Enter and Space follow the arrow keys' rules ([navigation.md](navigation.md#arrow-keys)). They're ignored with Alt, Ctrl or Meta held, or while focus is in a text field, and otherwise they don't scroll the page. A held key moves the text on only once, not on every repeat. They don't open the sign, because a view can have more than one thing to use (the mirror and the pull in the nook), so there's no single obvious target.
 
 Meanwhile the room's clicks don't turn or move the visitor, and the panel's buttons and the arrow keys do nothing. The pointing hand shows everywhere in the pane (see [cursor.md](cursor.md)).
 
