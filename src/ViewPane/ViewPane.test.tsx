@@ -73,6 +73,8 @@ const SIGN_BOARD = pixelBounds(signPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, PLACES.sig
 // Over the sign's board seen from in front of it, left of its text.
 const SIGN_X = 90
 const SIGN_Y = 120
+// What the status reads while the sign is selected.
+const SIGN_LABEL = 'Welcome sign'
 // In the centre zone but left of the mirror, seen from the nook facing west.
 const BESIDE_MIRROR_X = 70
 // The rectangle the mirror covers seen from the nook facing west (left 94,
@@ -3627,7 +3629,6 @@ describe('ViewPane', () => {
   describe('keyboard selection', () => {
     useAnimation()
 
-    const SIGN_LABEL = 'Welcome sign'
     const MIRROR_LABEL = `Mirror: ${MIRROR_SITE.name}`
     const PULL_LABEL = 'Curtain pull'
     const CARD_LABEL = 'Character card: Duncan'
@@ -3785,7 +3786,9 @@ describe('ViewPane', () => {
         pressKey('Escape')
 
         expect(status()).toBe('')
-        expect(pressKey('Enter')).toBe(true)
+        // Tab starts from the first thing again, not the one after the mirror.
+        pressKey('Tab')
+        expect(status()).toBe(MIRROR_LABEL)
       })
 
       it.each<[string, (canvas: HTMLElement) => void]>([
@@ -3912,6 +3915,82 @@ describe('ViewPane', () => {
 
         expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
         expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('with nothing selected', () => {
+      it.each(['Enter', ' '])('selects the sign and opens its text with %j, preventing its default', (key) => {
+        renderAtSign()
+
+        expect(pressKey(key)).toBe(false)
+        expect(status()).toBe(FIRST_PAGE)
+      })
+
+      it('moves the sign\'s text on with the next press, leaving the sign selected once it closes', () => {
+        contextPerCanvas()
+        renderAtSign()
+        pressKey('Enter')
+
+        // The next press finishes the page and the one after closes it.
+        pressKey('Enter')
+        expect(status()).toBe(FIRST_PAGE)
+
+        pressKey('Enter')
+        expect(status()).toBe(SIGN_LABEL)
+      })
+
+      it.each(['Enter', ' '])('selects the mirror in the nook with %j, preventing its default', (key) => {
+        renderInNook()
+
+        expect(pressKey(key)).toBe(false)
+        expect(status()).toBe(MIRROR_LABEL)
+      })
+
+      it('ripples the mirror from the middle of its glass, then goes to its site', () => {
+        renderInNook()
+        pressKey('Enter')
+        room.fills.length = 0
+
+        frames.flush(START + RIPPLE_MS / 2)
+        expect(room.fills).toEqual([
+          ...sceneFills({ ripple: { origin: GLASS_CENTRE, elapsedMs: RIPPLE_MS / 2 } }),
+          ...caretFills(MIRROR, caretInset(RIPPLE_MS / 2)),
+        ])
+        expect(openUrl).not.toHaveBeenCalled()
+
+        frames.flush(RIPPLE_END)
+        expect(openUrl).toHaveBeenCalledTimes(1)
+        expect(openUrl).toHaveBeenCalledWith(MIRROR_SITE.url)
+      })
+
+      it.each(['Enter', ' '])('does nothing with %j where only the card can be used, leaving the key to the browser', (key) => {
+        const { canvas } = renderAtStart()
+
+        expect(pressKey(key)).toBe(true)
+        expect(status()).toBe('')
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        expect(room.fills).toEqual([])
+      })
+
+      it('does nothing while the profile view is open, even where the room has something to use', () => {
+        const { canvas } = renderAtSign()
+        // Tab to the card and open the profile view, then Tab past the card
+        // to clear the selection.
+        pressTimes(2)
+        pressKey('Enter')
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        pressKey('Tab')
+
+        expect(pressKey('Enter')).toBe(true)
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(status()).toBe(PROFILE_DESCRIPTION)
+      })
+
+      it('does nothing on a held key\'s repeat, still preventing its default', () => {
+        renderAtSign()
+
+        expect(pressKey('Enter', { repeat: true })).toBe(false)
+        expect(status()).toBe('')
       })
     })
 
@@ -4252,8 +4331,8 @@ describe('ViewPane', () => {
         expect(text).toContain(ABOUT_TEXT)
       })
 
-      it.each(['Enter', ' '])('closes again with %j, leaving the card selected', (key) => {
-        const { canvas } = renderCard()
+      it.each(['Enter', ' '])('closes again with %j, leaving the card selected with its carets, so the next Enter reopens it', (key) => {
+        const { canvas, side } = renderCard()
         pressKey('Tab')
         pressKey(key)
 
@@ -4261,6 +4340,9 @@ describe('ViewPane', () => {
 
         expect(canvas).toHaveAttribute('data-view', 'room')
         expect(status()).toBe(CARD_LABEL)
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills(0))
+        pressKey('Enter')
+        expect(canvas).toHaveAttribute('data-view', 'profile')
       })
 
       it('starts on the room view', () => {
@@ -4294,17 +4376,36 @@ describe('ViewPane', () => {
         expect(lastPanelDraw(fillsOn(panel))).toEqual(navPanelFills(0, START_NORTH))
       })
 
-      it('closes with Escape, keeping the card selected, then clears the selection with the next', () => {
-        const { canvas } = renderCard()
+      it.each<[string, (side: HTMLElement) => void]>([
+        ['a click on the card', (side) => clickSide(side)],
+        ['Escape', () => pressKey('Escape')],
+      ])('clears the selection and the card\'s carets when %s closes it', (_, close) => {
+        const { canvas, side } = renderCard()
         pressKey('Tab')
         pressKey('Enter')
 
-        pressKey('Escape')
+        close(side)
+
         expect(canvas).toHaveAttribute('data-view', 'room')
-        expect(status()).toBe(CARD_LABEL)
+        expect(status()).toBe('')
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills())
+      })
+
+      it.each<[string, (side: HTMLElement) => void]>([
+        ['a click on the card', (side) => clickSide(side)],
+        ['Escape', () => pressKey('Escape')],
+      ])('leaves a second Escape harmless after %s closes it, and Tab selects the first thing in the view again', (_, close) => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowUp'])
+        clickSide(side)
+        close(side)
 
         pressKey('Escape')
+        expect(canvas).toHaveAttribute('data-view', 'room')
         expect(status()).toBe('')
+
+        pressKey('Tab')
+        expect(status()).toBe(SIGN_LABEL)
       })
 
       it.each(ON_CARD)('toggles with a click on %s of the card', (_, x, y) => {
@@ -4393,13 +4494,13 @@ describe('ViewPane', () => {
         expect(status()).toBe(PROFILE_STATUS)
       })
 
-      it('selects the card when a click opens it', () => {
-        const { side } = renderCard()
+      it('selects the card when a click opens it, so Enter closes the view and leaves the card selected', () => {
+        const { canvas, side } = renderCard()
         clickSide(side)
 
-        expect(status()).toBe(PROFILE_STATUS)
-        // Closing shows that the card is what was selected.
-        pressKey('Escape')
+        pressKey('Enter')
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
         expect(status()).toBe(CARD_LABEL)
       })
 
@@ -4409,11 +4510,11 @@ describe('ViewPane', () => {
         clickSide(side)
         // Past the card, which opening selected, the selection clears.
         pressKey('Tab')
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills())
 
         expect(pressKey('Tab')).toBe(false)
         expect(status()).toBe(PROFILE_STATUS)
-        pressKey('Escape')
-        expect(status()).toBe(CARD_LABEL)
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills(0))
       })
 
       it('clears the selection with Tab past the card, leaving the key to the browser', () => {
@@ -4517,17 +4618,6 @@ describe('ViewPane', () => {
         expect(canvas).toHaveAttribute('data-view', 'profile')
         expect(status()).toBe(PROFILE_STATUS)
         expect(fillsOn(side)).toHaveLength(sideBefore)
-      })
-
-      it.each<[string, (side: HTMLElement) => void]>([
-        ['a click on the card', (side) => clickSide(side)],
-        ['Escape', () => pressKey('Escape')],
-      ])('keeps the card\'s carets on the side panel when %s closes it', (_, close) => {
-        const { side } = openProfile()
-
-        close(side)
-
-        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills(0))
       })
     })
 

@@ -30,7 +30,7 @@ The avatar is the GitHub profile picture, committed as `src/assets/avatar.jpg` (
 
 ## Profile view
 
-Clicking the card, or pressing Enter or Space with it selected, opens the profile view. Doing either again closes it, and so does Escape.
+Clicking the card, or pressing Enter or Space with it selected, opens the profile view. Doing either again closes it, and so does Escape. Closing with a click or Escape also clears the selection (`closeProfile`). Closing with Enter or Space keeps the card selected, so the next press opens the view again.
 
 - **Room canvas:** `drawProfile` (`profile.ts`) draws in place of the room, from `PROFILE` (`src/ViewPane/aboutText.ts`). The canvas's `data-view` is `profile`, or `room` otherwise. The view shows:
   - **Avatar:** `AVATAR_PROFILE_SIZE` (96) square, in the upper left with a dim outline.

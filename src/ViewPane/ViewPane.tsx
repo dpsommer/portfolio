@@ -641,6 +641,12 @@ function ViewPane() {
     return next !== null
   }
 
+  // The first thing in the room that can be used from the current view, if
+  // any: what Enter or Space uses with nothing selected.
+  function firstInRoom(): Interactable | null {
+    return interactablesIn(place, heading, profileOpen).find((target) => target !== 'card') ?? null
+  }
+
   // Mouse position in the canvas's drawing pixels, from fractions of its
   // on-screen size so hit areas scale with the pane.
   function canvasPointAt(event: MouseEvent<HTMLCanvasElement>): { x: number; y: number } | null {
@@ -752,7 +758,16 @@ function ViewPane() {
   function handleSideClick(event: MouseEvent<HTMLCanvasElement>) {
     const point = canvasPointAt(event)
     if (!point || animating || dialogue || !isInside(CARD_BOUNDS, point.x, point.y)) return
-    interact('card')
+    if (profileOpen) closeProfile()
+    else interact('card')
+  }
+
+  // Closes the profile view and clears the selection, as a click on the card
+  // or Escape does. Enter or Space on the card closes it through `interact`
+  // instead, keeping the card selected so the next press opens it again.
+  function closeProfile() {
+    setProfileOpen(false)
+    select(null)
   }
 
   // Keys work anywhere on the page, unless they're for a text field or part
@@ -760,7 +775,7 @@ function ViewPane() {
   // - Enter and Space move the sign's text on while it's open.
   // - Otherwise Tab and Shift+Tab select what can be used in the view, Escape
   //   closes the profile view or else clears the selection, and Enter and
-  //   Space use the selected thing.
+  //   Space use the selected thing, or else the first thing in the room ahead.
   // - The arrow keys work the navigation buttons.
   // Held arrow keys repeat, so a held key keeps turning or stepping as each
   // animation ends; a held Enter or Space acts only once. It subscribes again
@@ -786,17 +801,24 @@ function ViewPane() {
         return
       }
       if (profileOpen && event.key === 'Escape') {
-        setProfileOpen(false)
+        closeProfile()
         return
       }
       if (selected && event.key === 'Escape') {
         select(null)
         return
       }
-      if (selected && TEXT_KEYS.includes(event.key)) {
+      if (TEXT_KEYS.includes(event.key)) {
+        // With nothing selected the first thing in the room ahead is selected
+        // and used. The card isn't in the room, so a view with nothing else
+        // leaves the key alone.
+        const target = selected ?? firstInRoom()
+        if (!target) return
         event.preventDefault()
+        if (event.repeat || animating) return
+        if (!selected) select(target)
         // The text this opens for the sign is moved on by the next press.
-        if (!event.repeat && !animating) interact(selected)
+        interact(target)
         return
       }
       const button = MOVE_KEYS[event.key]

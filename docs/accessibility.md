@@ -12,8 +12,8 @@ Every key listener is on `window`, so the keys work without focusing anything on
 | ↓ or S | Step back without turning | There's a way back | [navigation.md](navigation.md#arrow-keys) |
 | ← / → or A / D | Turn a quarter turn | Always | [navigation.md](navigation.md#arrow-keys) |
 | Tab / Shift+Tab | Select the next or previous object in the view, ending with the character card | Always | [selection.md](selection.md#keys) |
-| Escape | Close the profile view, or else clear the selection | The profile view is open, or something is selected | [selection.md](selection.md#keys) |
-| Enter / Space | Use the selected object, as a click would | Something is selected | [selection.md](selection.md#keys) |
+| Escape | Close the profile view if it's open, and clear the selection | The profile view is open, or something is selected | [selection.md](selection.md#keys) |
+| Enter / Space | Use the selected object, as a click would, or with nothing selected select and use the first object in the room ahead | Something is selected, or the view has a room object | [selection.md](selection.md#keys) |
 | Enter / Space | Move the sign's text on | The text box is open | [text-box.md](text-box.md#moving-the-text-on) |
 
 - **Everything the mouse can do, the keyboard can too.** The arrow keys and WASD work the navigation buttons through the same `pressNavButton` path as clicks, including the key-press animation. Enter and Space call the same `interact` function as a click on the sign, mirror or pull.

@@ -19,8 +19,8 @@ The character card is always usable, so it's always last in the Tab order, and i
 The keys follow the same rules as the arrow keys ([navigation.md](navigation.md#arrow-keys)): they work anywhere on the page, and they're ignored with Alt, Ctrl or Meta held or while focus is in a text field.
 
 - **Tab / Shift+Tab:** select the next or previous object. With nothing selected they start from the first or last object. Past either end the selection clears and the key is left to the browser, so focus moves on and keyboard users are never trapped in the pane.
-- **Escape:** closes the profile view if it's open, keeping the card selected; otherwise clears the selection.
-- **Enter / Space:** use the selected object. A held key acts only once.
+- **Escape:** closes the profile view if it's open, and clears the selection either way.
+- **Enter / Space:** use the selected object. A held key acts only once. With nothing selected, they select and use the first room object in the view's Tab order (the sign, or the mirror). The card isn't in the room, so in a view with nothing else, or while the profile view is open, they do nothing and the key is left to the browser.
 - **While an animation plays:** Tab, Enter and Space are ignored, but they still don't move focus or scroll.
 - **While the text box is open:** Enter and Space move its text on, and Tab is left to the browser. Selecting the sign and pressing Enter opens the text box, and the next press moves its text on.
 
