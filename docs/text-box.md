@@ -6,11 +6,11 @@ The lower panel doubles as a text box. Clicking the welcome sign, at the start f
 
 The sign's text is `SIGN_PAGES` in `src/ViewPane/signText.ts`, one page per click. A newline starts a new line. Longer lines wrap between words (`wrapText`), and a word longer than a line is broken where it overflows.
 
-Each page must fit in the box. `textBoxLayout` gives the characters per line and the lines that fit above the caret: 25 by 5 in the 320×132 panel.
+Each page must fit in the box. `textBoxLayout` gives the characters per line and the lines that fit above the caret in the panel.
 
 ## Layout
 
-- **Text:** the 5×7 font at `TEXT_SCALE` (2×), in the bright tone. It starts `TEXT_MARGIN` (8) pixels in from the top left, with 6 pixels between lines.
+- **Text:** the 5×7 font at `TEXT_SCALE`, in the bright tone. It starts `TEXT_MARGIN` pixels in from the top left, with 6 pixels between lines.
 - **Caret:** a small down-pointing triangle at the same scale, inset by the margin from the bottom right.
 
 ## Typing

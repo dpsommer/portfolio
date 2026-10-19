@@ -10,7 +10,7 @@ import { clearPanel } from '../panels/panelCanvas.ts'
 // Text is drawn at this multiple of the font's size, inset by TEXT_MARGIN from
 // the panel's edges, with LINE_GAP pixels between lines.
 export const TEXT_SCALE = 2
-export const TEXT_MARGIN = 8
+export const TEXT_MARGIN = 18
 const LINE_GAP = 6
 const CHAR_ADVANCE = (GLYPH_WIDTH + GLYPH_SPACING) * TEXT_SCALE
 const LINE_ADVANCE = GLYPH_HEIGHT * TEXT_SCALE + LINE_GAP
