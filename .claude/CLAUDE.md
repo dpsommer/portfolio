@@ -24,6 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/mirror.md` — the mirror's sites, previews, ripple, curtain pull, logo plaque and site switching, and how to add a site.
 - `docs/text-box.md` — the lower panel's text box: the sign's pages, typing speed, caret, moving the text on (clicks, Enter, Space) and reduced motion.
 - `docs/selection.md` — selecting the room's objects with Tab, the corner carets and their bounce, using objects with Enter or Space, and how to make a new object selectable.
+- `docs/accessibility.md` — keyboard controls, screen reader support, reduced motion and contrast in one place, plus suggested improvements. Update it when adding input, animation or colours.
 - `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files, plus where helpers go.
 - `docs/testing.md` — test commands, Vitest setup, how to handle canvas code, shared helpers and test style.
 

@@ -11,5 +11,6 @@
 | [text-box.md](text-box.md) | The lower panel's text box: the sign's pages, typing, caret and clicking through. |
 | [selection.md](selection.md) | Selecting the room's objects with Tab, the corner carets, and using them with Enter or Space. |
 | [mirror.md](mirror.md) | The mirror's sites, previews, ripple, curtain pull, logo plaque and site switching. |
+| [accessibility.md](accessibility.md) | Keyboard controls, screen reader support, reduced motion, contrast, and suggested improvements. |
 | [components.md](components.md) | Where React components and their helpers go. |
 | [testing.md](testing.md) | Test commands, Vitest setup, canvas handling, helpers and test style. |
