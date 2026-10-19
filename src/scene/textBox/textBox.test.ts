@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createFakeContext, toFills } from '../../test/fakeContext.ts'
 import { expectOnCanvas, extent } from '../../test/pixels.ts'
 import { BACKGROUND, FOREGROUND } from '../core/palette.ts'
+import { GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
+import { ABOUT_TEXT } from '../../ViewPane/aboutText.ts'
 import { SIGN_PAGES } from '../../ViewPane/signText.ts'
 import { LOWER_PANEL_HEIGHT, LOWER_PANEL_WIDTH } from '../../ViewPane/ViewPane.tsx'
 import { TEXT_MARGIN, drawTextBox, textBoxLayout, textBoxLines, textBoxPixels, wrapText } from './textBox.ts'
@@ -9,6 +11,9 @@ import { TEXT_MARGIN, drawTextBox, textBoxLayout, textBoxLines, textBoxPixels, w
 const WIDTH = LOWER_PANEL_WIDTH
 const HEIGHT = LOWER_PANEL_HEIGHT
 const LAYOUT = textBoxLayout(WIDTH, HEIGHT)
+
+// Font pixels between lines, at any scale.
+const LINE_GAP = 3
 
 // The panel filled with as much text as its layout allows.
 const FULL_LINES = Array.from({ length: LAYOUT.lines }, () => 'W'.repeat(LAYOUT.charsPerLine))
@@ -36,33 +41,48 @@ describe('wrapText', () => {
   })
 })
 
-describe('textBoxLayout', () => {
-  it('fits a full line of text across the panel inside the margins', () => {
-    const pixels = textBoxPixels(WIDTH, HEIGHT, FULL_LINES.slice(0, 1), LAYOUT.charsPerLine, false)
+// The default scale (the sign's), and the font's own size (the About Me text's).
+const SCALES: [string, number | undefined][] = [
+  ['at the default scale', undefined],
+  ['at scale 1', 1],
+]
 
-    expect(extent(pixels).right).toBeLessThan(WIDTH - TEXT_MARGIN)
+describe.each(SCALES)('textBoxLayout %s', (_, scale) => {
+  const layout = textBoxLayout(WIDTH, HEIGHT, scale)
+  const fullLines = Array.from({ length: layout.lines }, () => 'W'.repeat(layout.charsPerLine))
+  const pixels = (lines: string[], shown: number, caretOn: boolean) =>
+    textBoxPixels(WIDTH, HEIGHT, lines, shown, caretOn, scale)
+
+  it('fits a full line of text across the panel inside the margins', () => {
+    expect(extent(pixels(fullLines.slice(0, 1), layout.charsPerLine, false)).right).toBeLessThan(WIDTH - TEXT_MARGIN)
   })
 
   it('has no room for another character on a line', () => {
-    const line = ['W'.repeat(LAYOUT.charsPerLine + 1)]
-    const pixels = textBoxPixels(WIDTH, HEIGHT, line, line[0].length, false)
+    const line = ['W'.repeat(layout.charsPerLine + 1)]
 
-    expect(extent(pixels).right).toBeGreaterThanOrEqual(WIDTH - TEXT_MARGIN)
+    expect(extent(pixels(line, line[0].length, false)).right).toBeGreaterThanOrEqual(WIDTH - TEXT_MARGIN)
   })
 
   it('fits every line above the caret', () => {
-    const text = textBoxPixels(WIDTH, HEIGHT, FULL_LINES, fullLength(FULL_LINES), false)
-    const caret = textBoxPixels(WIDTH, HEIGHT, [], 0, true)
+    const text = pixels(fullLines, fullLength(fullLines), false)
 
-    expect(extent(text).bottom).toBeLessThan(extent(caret).top)
+    expect(extent(text).bottom).toBeLessThan(extent(pixels([], 0, true)).top)
   })
 
   it('has no room for another line above the caret', () => {
-    const lines = [...FULL_LINES, 'W']
-    const text = textBoxPixels(WIDTH, HEIGHT, lines, fullLength(lines), false)
-    const caret = textBoxPixels(WIDTH, HEIGHT, [], 0, true)
+    const lines = [...fullLines, 'W']
+    const text = pixels(lines, fullLength(lines), false)
 
-    expect(extent(text).bottom).toBeGreaterThanOrEqual(extent(caret).top)
+    expect(extent(text).bottom).toBeGreaterThanOrEqual(extent(pixels([], 0, true)).top)
+  })
+})
+
+describe('textBoxLayout at scale 1', () => {
+  it('fits more characters and lines than the default', () => {
+    const small = textBoxLayout(WIDTH, HEIGHT, 1)
+
+    expect(small.charsPerLine).toBeGreaterThan(LAYOUT.charsPerLine)
+    expect(small.lines).toBeGreaterThan(LAYOUT.lines)
   })
 })
 
@@ -75,6 +95,16 @@ describe('textBoxLines', () => {
 
   it.each(SIGN_PAGES)('fits the sign page %j in the lower panel', (page) => {
     expect(textBoxLines(WIDTH, page).length).toBeLessThanOrEqual(LAYOUT.lines)
+  })
+
+  it('wraps a page to the panel width at scale 1', () => {
+    const page = 'word '.repeat(40).trim()
+
+    expect(textBoxLines(WIDTH, page, 1)).toEqual(wrapText(page, textBoxLayout(WIDTH, 0, 1).charsPerLine))
+  })
+
+  it('fits the About Me text in the lower panel at scale 1', () => {
+    expect(textBoxLines(WIDTH, ABOUT_TEXT, 1).length).toBeLessThanOrEqual(textBoxLayout(WIDTH, HEIGHT, 1).lines)
   })
 })
 
@@ -103,15 +133,6 @@ describe('textBoxPixels', () => {
     expect({ left, top }).toEqual({ left: TEXT_MARGIN, top: TEXT_MARGIN })
   })
 
-  it('puts each line below the one before, starting at the left margin', () => {
-    const first = textBoxPixels(WIDTH, HEIGHT, ['W'], 1, false)
-    const firstKeys = new Set(first.map(({ x, y }) => `${x},${y}`))
-    const second = textBoxPixels(WIDTH, HEIGHT, ['W', 'W'], 2, false).filter(({ x, y }) => !firstKeys.has(`${x},${y}`))
-
-    expect(extent(second).left).toBe(TEXT_MARGIN)
-    expect(extent(second).top).toBeGreaterThan(extent(first).bottom)
-  })
-
   it.each<[string, string[], number, string[]]>([
     ['the first characters of a line', ['Hello'], 2, ['He']],
     ['on into the next line', ['Hello', 'there'], 7, ['Hello', 'th']],
@@ -135,6 +156,17 @@ describe('textBoxPixels', () => {
 
     expect(textBoxPixels(WIDTH, HEIGHT, ['Hello'], 5, true)).toEqual([...text, ...caret])
   })
+
+  it.each([2, 1])('puts the second line a glyph\'s height plus a gap below the first at scale %s', (scale) => {
+    const top = TEXT_MARGIN + (GLYPH_HEIGHT + LINE_GAP) * scale
+    const expected = textPixels('Hi', scale).map(({ x, y }) => ({ x: TEXT_MARGIN + x, y: top + y, colour: FOREGROUND }))
+
+    expect(textBoxPixels(WIDTH, HEIGHT, ['', 'Hi'], 2, false, scale)).toEqual(expected)
+  })
+
+  it('draws the same caret at scale 1 as by default', () => {
+    expect(textBoxPixels(WIDTH, HEIGHT, [], 0, true, 1)).toEqual(textBoxPixels(WIDTH, HEIGHT, [], 0, true))
+  })
 })
 
 describe('drawTextBox', () => {
@@ -151,6 +183,17 @@ describe('drawTextBox', () => {
     expect(fills).toEqual([
       { args: [0, 0, width, height], fillStyle: BACKGROUND },
       ...toFills(textBoxPixels(width, height, lines, shown, caretOn)),
+    ])
+  })
+
+  it('draws the text at the scale given', () => {
+    const { ctx, fills } = createFakeContext(WIDTH, HEIGHT)
+
+    drawTextBox(ctx, ['Hello', 'there'], 10, false, 1)
+
+    expect(fills).toEqual([
+      { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+      ...toFills(textBoxPixels(WIDTH, HEIGHT, ['Hello', 'there'], 10, false, 1)),
     ])
   })
 })

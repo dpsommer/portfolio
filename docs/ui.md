@@ -1,6 +1,6 @@
 # UI
 
-The site is a portfolio styled as a retro first-person point-and-click dungeon crawler. The visitor stands in a small stone room, starting a few steps from a welcome sign on the far wall. Stepping up to it and clicking it types its message into the panel below the view, RPG-style. They turn and move by clicking the edges and centre of the view, or with the navigation panel below it. In a nook to the west hangs a mirror showing the owner's profiles: clicking it ripples the glass and opens the profile, and a curtain pull beside it switches between them.
+The site is a portfolio styled as a retro first-person point-and-click dungeon crawler. The visitor stands in a small stone room, starting a few steps from a welcome sign on the far wall. Stepping up to it and clicking it types its message into the panel below the view, RPG-style. They turn and move by clicking the edges and centre of the view, or with the navigation panel below it. In a nook to the west hangs a mirror showing the owner's profiles: clicking it ripples the glass and opens the profile, and a curtain pull beside it switches between them. A character card in the side panel shows the owner's avatar and name, and opens a profile view with an About Me text.
 
 ## Look
 
@@ -20,6 +20,7 @@ The site is a portfolio styled as a retro first-person point-and-click dungeon c
 | Turning, moving, the compass, buttons and arrow keys | [navigation.md](navigation.md) |
 | The cursor and hover areas | [cursor.md](cursor.md) |
 | The mirror, its previews, ripple, curtain pull and logo plaque | [mirror.md](mirror.md) |
+| The character card and profile view | [character.md](character.md) |
 | The text box the sign's text types into | [text-box.md](text-box.md) |
 | Selecting and using objects from the keyboard | [selection.md](selection.md) |
 | Keyboard, screen reader and reduced-motion support | [accessibility.md](accessibility.md) |

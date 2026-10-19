@@ -11,17 +11,17 @@ Every key listener is on `window`, so the keys work without focusing anything on
 | ↑ or W | Step forward | There's a way forward | [navigation.md](navigation.md#arrow-keys) |
 | ↓ or S | Step back without turning | There's a way back | [navigation.md](navigation.md#arrow-keys) |
 | ← / → or A / D | Turn a quarter turn | Always | [navigation.md](navigation.md#arrow-keys) |
-| Tab / Shift+Tab | Select the next or previous object in the view | The view has something to use | [selection.md](selection.md#keys) |
-| Escape | Clear the selection | Something is selected | [selection.md](selection.md#keys) |
+| Tab / Shift+Tab | Select the next or previous object in the view, ending with the character card | Always | [selection.md](selection.md#keys) |
+| Escape | Close the profile view, or else clear the selection | The profile view is open, or something is selected | [selection.md](selection.md#keys) |
 | Enter / Space | Use the selected object, as a click would | Something is selected | [selection.md](selection.md#keys) |
 | Enter / Space | Move the sign's text on | The text box is open | [text-box.md](text-box.md#moving-the-text-on) |
 
 - **Everything the mouse can do, the keyboard can too.** The arrow keys and WASD work the navigation buttons through the same `pressNavButton` path as clicks, including the key-press animation. Enter and Space call the same `interact` function as a click on the sign, mirror or pull.
-- **No keyboard trap:** Tab past the last object (or Shift+Tab past the first) clears the selection and lets the browser move focus on. Views with nothing to select leave Tab alone entirely.
+- **No keyboard trap:** Tab past the last object (or Shift+Tab past the first) clears the selection and lets the browser move focus on. Every view has the character card to select, so Tab always selects it before letting focus go.
 - **No accidental repeats:** held arrow and WASD keys repeat on purpose, turning or stepping each time an animation ends. A held Enter or Space acts only once, so it can't skip through the text or reopen a profile.
 - **Scrolling:** the arrow keys, and Space when the pane uses it, call `preventDefault` so the page doesn't scroll under the visitor.
 - **Visible selection:** the selected object is marked by four bright carets at its corners ([selection.md](selection.md#carets)), drawn in the brightest tone so they stand out from the dimmer room.
-- **Input waits for animations:** keys and clicks are ignored while a turn, step, ripple or site switch plays ([architecture.md](architecture.md#animations)). Tab still doesn't move focus during an animation in a view with something to select.
+- **Input waits for animations:** keys and clicks are ignored while a turn, step, ripple or site switch plays ([architecture.md](architecture.md#animations)). Tab still doesn't move focus during an animation.
 
 ## Controls panel
 
@@ -35,11 +35,12 @@ The Controls panel beside or under the pane ([controls-panel.md](controls-panel.
 
 The scene is drawn on canvases, so assistive tech can't read what's in it. The markup gives it what it can:
 
-- **Room:** the room canvas has `role="img"` and `aria-label="Dungeon view"`. Its `data-place`, `data-heading` and `data-site` attributes record the state, but they're for tests and aren't announced.
+- **Room:** the room canvas has `role="img"` and `aria-label="Dungeon view"`. Its `data-place`, `data-heading`, `data-site` and `data-view` attributes record the state, but they're for tests and aren't announced.
 - **Panels:** the lower and side panel canvases are `aria-hidden`, since they only repeat what the keys already control.
 - **Status:** a visually hidden `role="status"` paragraph (`.view-pane-status`), which screen readers announce politely when it changes:
   - while the sign's text box is open: the current page's full text, all at once rather than letter by letter
-  - otherwise, while something is selected: its name ("Welcome sign", "Mirror: GitHub", "Curtain pull")
+  - while the profile view is open: the full name and the About Me text
+  - otherwise, while something is selected: its name ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Character card: Duncan")
   - otherwise: empty
 - **Language:** `index.html` sets `lang="en"`.
 

@@ -25,5 +25,5 @@ export const CONTROLS: Control[] = [
   { keyGroups: [[{ label: 'Tab' }]], action: 'Select' },
   { keyGroups: [[{ label: 'Shift+Tab' }]], action: 'Previous' },
   { keyGroups: [[{ label: 'Enter' }, { label: 'Space' }]], action: 'Interact' },
-  { keyGroups: [[{ label: 'Esc', name: 'Escape' }]], action: 'Deselect' },
+  { keyGroups: [[{ label: 'Esc', name: 'Escape' }]], action: 'Cancel' },
 ]

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
+import { ABOUT_TEXT, CARD_NAME, FULL_NAME } from './aboutText.ts'
+import avatarSrc from '../assets/avatar.jpg'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
 import { GLASS_CENTRE } from '../scene/mirror/frame.ts'
@@ -9,6 +11,10 @@ import type { MirrorPoint } from '../scene/mirror/frame.ts'
 import { mirrorPixels, pullPixels, screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
+import { AVATAR_CARD_SIZE, CARD_BOUNDS, drawSidePanel } from '../scene/character/card.ts'
+import { quantisePicture } from '../scene/character/picture.ts'
+import type { Picture } from '../scene/character/picture.ts'
+import { AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
 import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import type { Preview, Shimmer } from '../scene/mirror/preview.ts'
 import { isOnPull } from '../scene/mirror/pull.ts'
@@ -20,7 +26,6 @@ import type { KeyPress, NavButton } from '../scene/navigation/navButtons.ts'
 import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
 import { PLACES, backFrom, forwardFrom } from '../scene/navigation/places.ts'
 import type { PlaceName } from '../scene/navigation/places.ts'
-import { clearPanel } from '../scene/panels/panelCanvas.ts'
 import { FOREGROUND } from '../scene/core/palette.ts'
 import { drawPixels, drawScene } from '../scene/draw.ts'
 import { caretInset, pixelBounds, selectionPixels } from '../scene/selection/selection.ts'
@@ -86,22 +91,27 @@ function isOverPull(x: number, y: number): boolean {
   return point !== null && isOnPull(point)
 }
 
-// The things in the room that can be used, by clicking or by selecting them
-// with Tab and pressing Enter or Space.
-type Interactable = 'sign' | 'mirror' | 'pull'
+// The things that can be used, by clicking or by selecting them with Tab and
+// pressing Enter or Space: those in the room, and the character card in the
+// side panel.
+type RoomInteractable = 'sign' | 'mirror' | 'pull'
+type Interactable = RoomInteractable | 'card'
 
-// What can be used from `place` facing `heading`, in Tab order. Each thing is
-// only usable from where it was designed to be seen.
-function interactablesIn(place: PlaceName, heading: Heading): Interactable[] {
-  if (place === 'sign' && heading === 'north') return ['sign']
-  if (place === 'nook' && heading === 'west') return ['mirror', 'pull']
-  return []
+// What can be used from `place` facing `heading`, in Tab order. Each thing in
+// the room is only usable from where it was designed to be seen. The card is
+// always usable and comes last; while the profile view covers the room it's
+// the only thing.
+function interactablesIn(place: PlaceName, heading: Heading, profileOpen: boolean): Interactable[] {
+  if (profileOpen) return ['card']
+  if (place === 'sign' && heading === 'north') return ['sign', 'card']
+  if (place === 'nook' && heading === 'west') return ['mirror', 'pull', 'card']
+  return ['card']
 }
 
-// Where each thing is on the canvas in the view it's used from, for the
-// selection carets: the sign's board, the mirror with its frame, and the
-// pull's handle.
-const INTERACTABLE_BOUNDS: Record<Interactable, Bounds> = {
+// Where each thing in the room is on the canvas in the view it's used from,
+// for the selection carets: the sign's board, the mirror with its frame, and
+// the pull's handle. The card's carets are on the side panel (CARD_BOUNDS).
+const INTERACTABLE_BOUNDS: Record<RoomInteractable, Bounds> = {
   sign: SIGN_BOUNDS,
   mirror: pixelBounds(mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)),
   pull: pixelBounds(
@@ -211,40 +221,56 @@ function drawView(
   { preview, logo, selection }: SiteLook,
 ) {
   drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop, plaque: plaque ?? { logo } })
-  if (selection) {
+  if (selection && selection.target !== 'card') {
     const { width, height } = ctx.canvas
     drawPixels(ctx, selectionPixels(INTERACTABLE_BOUNDS[selection.target], selection.inset, width, height))
   }
 }
 
-// Loads an image and quantises it to a preview covering the glass, cropping
-// whichever dimension overflows. Resolves to null without a 2D canvas.
-function loadPreview(src: string): Promise<Preview | null> {
+// Loads an image scaled to cover `cols` × `rows` cells, cropping whichever
+// dimension overflows, and turns its pixels into tones with `quantise`.
+// Resolves to null without a 2D canvas.
+function loadPicture<T>(
+  src: string,
+  cols: number,
+  rows: number,
+  quantise: (rgba: Uint8ClampedArray, width: number, height: number) => T,
+): Promise<T | null> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => {
       const canvas = document.createElement('canvas')
-      canvas.width = PREVIEW_WIDTH
-      canvas.height = PREVIEW_HEIGHT
+      canvas.width = cols
+      canvas.height = rows
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
       if (!ctx) return resolve(null)
-      const scale = Math.max(PREVIEW_WIDTH / image.width, PREVIEW_HEIGHT / image.height)
+      const scale = Math.max(cols / image.width, rows / image.height)
       const width = image.width * scale
       const height = image.height * scale
       ctx.imageSmoothingQuality = 'high'
-      ctx.drawImage(image, (PREVIEW_WIDTH - width) / 2, (PREVIEW_HEIGHT - height) / 2, width, height)
-      const { data } = ctx.getImageData(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT)
-      resolve(quantisePreview(data, PREVIEW_WIDTH, PREVIEW_HEIGHT))
+      ctx.drawImage(image, (cols - width) / 2, (rows - height) / 2, width, height)
+      const { data } = ctx.getImageData(0, 0, cols, rows)
+      resolve(quantise(data, cols, rows))
     }
     image.onerror = reject
     image.src = src
   })
 }
 
+// The avatar at the card's size and the profile view's, each quantised at
+// its own size so both stay sharp.
+type Avatars = { card: Picture | null; profile: Picture | null }
+
+// The About Me text is longer than the sign's, so it's drawn at the font's own size.
+const ABOUT_SCALE = 1
+const ABOUT_LINES = textBoxLines(LOWER_PANEL_WIDTH, ABOUT_TEXT, ABOUT_SCALE)
+
 function ViewPane() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const lowerPanelRef = useRef<HTMLCanvasElement>(null)
   const sidePanelRef = useRef<HTMLCanvasElement>(null)
+  // Whether the mouse is over the character card in the side panel.
+  const [overCard, setOverCard] = useState(false)
   const [pointer, setPointer] = useState<Pointer>({
     zone: 'forward',
     overSign: false,
@@ -259,6 +285,14 @@ function ViewPane() {
   // While the sign's text is open, the lower panel shows it in place of the
   // navigation panel, and a click anywhere in the pane moves it on.
   const [dialogue, setDialogue] = useState<Dialogue | null>(null)
+  // While the profile view is open it covers the room and the lower panel
+  // shows the About Me text. The ref is for callbacks set up on mount.
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileOpenRef = useRef(false)
+  profileOpenRef.current = profileOpen
+  // Whether the room canvas last showed the profile view.
+  const drawnProfileRef = useRef(false)
+  const avatarsRef = useRef<Avatars>({ card: null, profile: null })
   // Whether the open page has finished typing, and the text box's frame.
   const pageDoneRef = useRef(false)
   const textFrameRef = useRef<number | null>(null)
@@ -287,11 +321,17 @@ function ViewPane() {
     selection: selectionRef.current,
   })
 
+  // Draws the side panel: the card, with its carets while it's selected.
+  const drawSide = () => {
+    const ctx = sidePanelRef.current?.getContext('2d')
+    const selection = selectionRef.current
+    if (ctx) drawSidePanel(ctx, CARD_NAME, avatarsRef.current.card, selection?.target === 'card' ? selection.inset : null)
+  }
+
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) drawView(ctx, viewRef.current, currentLook())
-    const sideCtx = sidePanelRef.current?.getContext('2d')
-    if (sideCtx) clearPanel(sideCtx)
+    drawSide()
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
@@ -304,8 +344,24 @@ function ViewPane() {
     if (ctx) drawNavigationPanel(ctx, viewRef.current.yaw, enabled, press)
   }
   useEffect(() => {
-    if (!dialogue) drawPanel(enabledButtons(place, heading))
-  }, [place, heading, dialogue])
+    if (!dialogue && !profileOpen) drawPanel(enabledButtons(place, heading))
+  }, [place, heading, dialogue, profileOpen])
+
+  // Opening the profile view draws it over the room and puts the About Me
+  // text, all at once, in the lower panel. Closing it brings the room back;
+  // the effect above brings back the navigation panel.
+  useEffect(() => {
+    if (profileOpen === drawnProfileRef.current) return
+    drawnProfileRef.current = profileOpen
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!profileOpen) {
+      if (ctx) drawView(ctx, viewRef.current, currentLook())
+      return
+    }
+    if (ctx) drawProfile(ctx, FULL_NAME, avatarsRef.current.profile)
+    const lowerCtx = lowerPanelRef.current?.getContext('2d')
+    if (lowerCtx) drawTextBox(lowerCtx, ABOUT_LINES, ABOUT_LINES.join('').length, false, ABOUT_SCALE)
+  }, [profileOpen])
 
   // Types the open page out a character at a time, then blinks the caret
   // until the page is moved on. A skipped page, or reduced motion, shows the
@@ -345,21 +401,28 @@ function ViewPane() {
   // Shows the carets around the selected thing, or clears them, and bounces
   // them every so often while it stays selected. Mid-animation the next frame
   // draws them instead. With reduced motion they stay still.
+  // The card's carets are on the side panel, the rest on the room.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (!ctx) return
-    if (selected !== drawnSelectionRef.current && frameRef.current === null) {
-      drawView(ctx, viewRef.current, currentLook())
+    const sideCtx = sidePanelRef.current?.getContext('2d')
+    // Redraws wherever the carets of any of `targets` are, once each.
+    const redraw = (...targets: (Interactable | null)[]) => {
+      if (targets.includes('card')) drawSide()
+      const inRoom = targets.some((target) => target !== null && target !== 'card')
+      if (inRoom && ctx && frameRef.current === null && !profileOpenRef.current) {
+        drawView(ctx, viewRef.current, currentLook())
+      }
     }
+    if (selected !== drawnSelectionRef.current) redraw(drawnSelectionRef.current, selected)
     drawnSelectionRef.current = selected
-    if (!selected || prefersReducedMotion()) return
+    if (!selected || prefersReducedMotion() || !(selected === 'card' ? sideCtx : ctx)) return
     const start = performance.now()
     const step = (now: number) => {
       const selection = selectionRef.current
       const inset = caretInset(Math.max(0, now - start))
       if (selection && inset !== selection.inset) {
         selectionRef.current = { ...selection, inset }
-        if (frameRef.current === null) drawView(ctx, viewRef.current, currentLook())
+        redraw(selection.target)
       }
       caretFrameRef.current = requestAnimationFrame(step)
     }
@@ -384,16 +447,30 @@ function ViewPane() {
   useEffect(() => {
     let cancelled = false
     MIRROR_SITES.forEach(({ preview: src }, index) => {
-      loadPreview(src)
+      loadPicture(src, PREVIEW_WIDTH, PREVIEW_HEIGHT, quantisePreview)
         .then((preview) => {
           if (cancelled || !preview) return
           previewsRef.current[index] = preview
           const ctx = canvasRef.current?.getContext('2d')
-          // Mid-animation, the next frame picks it up.
-          if (ctx && index === siteRef.current && frameRef.current === null) drawView(ctx, viewRef.current, currentLook())
+          // Mid-animation, the next frame picks it up; the profile view hides the room.
+          if (ctx && index === siteRef.current && frameRef.current === null && !profileOpenRef.current) {
+            drawView(ctx, viewRef.current, currentLook())
+          }
         })
         .catch(() => {})
     })
+    const avatarSizes = { card: AVATAR_CARD_SIZE, profile: AVATAR_PROFILE_SIZE }
+    for (const key of ['card', 'profile'] as const) {
+      loadPicture(avatarSrc, avatarSizes[key], avatarSizes[key], quantisePicture)
+        .then((avatar) => {
+          if (cancelled || !avatar) return
+          avatarsRef.current[key] = avatar
+          if (key === 'card') drawSide()
+          const ctx = canvasRef.current?.getContext('2d')
+          if (key === 'profile' && ctx && profileOpenRef.current) drawProfile(ctx, FULL_NAME, avatar)
+        })
+        .catch(() => {})
+    }
     return () => {
       cancelled = true
     }
@@ -464,8 +541,8 @@ function ViewPane() {
   function turnView(direction: TurnDirection) {
     const next = turn(heading, direction)
     setHeading(next)
-    // Whatever was selected is out of view now.
-    select(null)
+    // Whatever was selected in the room is out of view now; the card isn't.
+    if (selected !== 'card') select(null)
     animateTo({ ...viewRef.current, yaw: viewRef.current.yaw + TURN_YAW[direction] }, TURN_DURATION_MS, {
       enabled: enabledButtons(place, next),
       pressed: direction,
@@ -476,7 +553,7 @@ function ViewPane() {
   // and presses that key on the panel.
   function moveTo(next: PlaceName, key: 'forward' | 'back') {
     setPlace(next)
-    select(null)
+    if (selected !== 'card') select(null)
     animateTo({ ...viewRef.current, x: PLACES[next].x, z: PLACES[next].z }, MOVE_DURATION_MS, {
       enabled: enabledButtons(next, heading),
       pressed: key,
@@ -538,11 +615,17 @@ function ViewPane() {
   }
 
   // Uses `target`, as a click on it or Enter or Space with it selected does.
-  // From the keyboard the mirror ripples from the middle of its glass.
+  // From the keyboard the mirror ripples from the middle of its glass. The
+  // card opens the profile view, or closes it if it's open.
   function interact(target: Interactable) {
     if (target === 'sign') setDialogue({ page: 0, skipped: false })
     else if (target === 'mirror') rippleFrom(GLASS_CENTRE)
-    else switchSite()
+    else if (target === 'pull') switchSite()
+    else {
+      // The profile view covers the room, so whatever was selected there is out of view.
+      if (!profileOpen && selected !== 'card') select(null)
+      setProfileOpen(!profileOpen)
+    }
   }
 
   // Tab and Shift+Tab step through what can be used in the view, forward or
@@ -550,8 +633,7 @@ function ViewPane() {
   // browser, so focus can move on rather than being trapped in the pane.
   // Returns whether the key was used.
   function stepSelection(backward: boolean): boolean {
-    const list = interactablesIn(place, heading)
-    if (list.length === 0) return false
+    const list = interactablesIn(place, heading, profileOpen)
     const index = selected ? list.indexOf(selected) : backward ? list.length : -1
     const next = list[index + (backward ? -1 : 1)] ?? null
     select(next)
@@ -599,7 +681,8 @@ function ViewPane() {
     const point = canvasPointAt(event)
     const at = pointerAt(event)
     // While the sign's text is open the click is for it, handled by the frame.
-    if (!point || !at || animating || dialogue) return
+    // The profile view covers the room, so it takes no clicks.
+    if (!point || !at || animating || dialogue || profileOpen) return
     if (at.overSign && isSignView) {
       interact('sign')
       return
@@ -642,7 +725,7 @@ function ViewPane() {
   // or step forward, plus stepping back without turning. Clicks and the arrow
   // keys both work them.
   function pressNavButton(button: NavButton) {
-    if (animating || dialogue || !enabledButtons(place, heading)[button]) return
+    if (animating || dialogue || profileOpen || !enabledButtons(place, heading)[button]) return
     if (button === 'left' || button === 'right') {
       turnView(button)
       return
@@ -652,16 +735,31 @@ function ViewPane() {
   }
 
   function handlePanelClick(event: MouseEvent<HTMLCanvasElement>) {
-    if (dialogue) return
+    if (dialogue || profileOpen) return
     const button = panelButtonAt(event)
     if (button) pressNavButton(button)
+  }
+
+  function handleSideMouseMove(event: MouseEvent<HTMLCanvasElement>) {
+    const point = canvasPointAt(event)
+    const next = point !== null && isInside(CARD_BOUNDS, point.x, point.y)
+    if (next !== overCard) setOverCard(next)
+  }
+
+  // A click on the card opens or closes the profile view. While the sign's
+  // text is open the click is for it, handled by the frame.
+  function handleSideClick(event: MouseEvent<HTMLCanvasElement>) {
+    const point = canvasPointAt(event)
+    if (!point || animating || dialogue || !isInside(CARD_BOUNDS, point.x, point.y)) return
+    interact('card')
   }
 
   // Keys work anywhere on the page, unless they're for a text field or part
   // of a shortcut:
   // - Enter and Space move the sign's text on while it's open.
   // - Otherwise Tab and Shift+Tab select what can be used in the view, Escape
-  //   clears the selection, and Enter and Space use the selected thing.
+  //   closes the profile view or else clears the selection, and Enter and
+  //   Space use the selected thing.
   // - The arrow keys work the navigation buttons.
   // Held arrow keys repeat, so a held key keeps turning or stepping as each
   // animation ends; a held Enter or Space acts only once. It subscribes again
@@ -680,10 +778,14 @@ function ViewPane() {
         // Mid-animation the view isn't settled, so the key waits, but still
         // doesn't move focus out of the pane.
         if (animating) {
-          if (interactablesIn(place, heading).length > 0) event.preventDefault()
+          event.preventDefault()
           return
         }
         if (stepSelection(event.shiftKey)) event.preventDefault()
+        return
+      }
+      if (profileOpen && event.key === 'Escape') {
+        setProfileOpen(false)
         return
       }
       if (selected && event.key === 'Escape') {
@@ -707,31 +809,39 @@ function ViewPane() {
   })
 
   // A name for `target`, for screen readers.
-  const interactableLabel = (target: Interactable) =>
-    target === 'sign' ? 'Welcome sign' : target === 'mirror' ? `Mirror: ${MIRROR_SITES[site].name}` : 'Curtain pull'
+  const interactableLabels: Record<Interactable, string> = {
+    sign: 'Welcome sign',
+    mirror: `Mirror: ${MIRROR_SITES[site].name}`,
+    pull: 'Curtain pull',
+    card: `Character card: ${CARD_NAME}`,
+  }
 
   // The sign, mirror and pull are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'
   const isSignView = place === 'sign' && heading === 'north'
   const showHand =
     !animating &&
+    !profileOpen &&
     ((pointer.overSign && isSignView) ||
       ((pointer.overMirror || pointer.overPull) && isMirrorView))
   const canMoveForward = forwardFrom(place, heading) !== null
   const canMoveBack = backFrom(place, heading) !== null
   // While the sign's text is open, a click anywhere in the pane moves it on.
+  // The profile view takes no clicks, so it shows the blocked hand.
   const cursor =
     dialogue || showHand
       ? HAND_CURSOR
-      : (pointer.zone === 'forward' && !canMoveForward) || (pointer.zone === 'back' && !canMoveBack)
+      : profileOpen || (pointer.zone === 'forward' && !canMoveForward) || (pointer.zone === 'back' && !canMoveBack)
         ? BLOCKED_CURSOR
         : CURSORS[pointer.zone]
   // Every panel shows the blocked hand unless something under it can be used,
   // or the sign's text is open.
   const panelCursor =
-    dialogue || (panelButton !== null && !animating && enabledButtons(place, heading)[panelButton])
+    dialogue || (panelButton !== null && !animating && !profileOpen && enabledButtons(place, heading)[panelButton])
       ? HAND_CURSOR
       : BLOCKED_CURSOR
+  // The side panel inherits the frame's cursor, except over the card while it can be used.
+  const sideCursor = overCard && !animating && !dialogue ? HAND_CURSOR : undefined
   return (
     // The frame, dividers and side panel inherit the blocked hand, or the
     // pointing hand while the sign's text is open; the room and lower panel
@@ -753,6 +863,7 @@ function ViewPane() {
         data-place={place}
         data-heading={heading}
         data-site={MIRROR_SITES[site].name}
+        data-view={profileOpen ? 'profile' : 'room'}
         style={{ cursor }}
         onMouseMove={handleMouseMove}
         onClick={handleClick}
@@ -776,10 +887,20 @@ function ViewPane() {
         width={SIDE_PANEL_WIDTH}
         height={SIDE_PANEL_HEIGHT}
         aria-hidden="true"
+        style={{ cursor: sideCursor }}
+        onMouseMove={handleSideMouseMove}
+        onMouseLeave={() => setOverCard(false)}
+        onClick={handleSideClick}
       />
-      {/* The panels are hidden from assistive tech, so the sign's text is read from here. */}
+      {/* The panels are hidden from assistive tech, so the sign's and About Me text are read from here. */}
       <p className="view-pane-status" role="status">
-        {dialogue ? SIGN_PAGES[dialogue.page] : selected ? interactableLabel(selected) : ''}
+        {dialogue
+          ? SIGN_PAGES[dialogue.page]
+          : profileOpen
+            ? `${FULL_NAME}. ${ABOUT_TEXT}`
+            : selected
+              ? interactableLabels[selected]
+              : ''}
       </p>
     </div>
   )

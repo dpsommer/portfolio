@@ -10,6 +10,7 @@
 | [cursor.md](cursor.md) | Which cursor shows where, hover areas and the cursor pixel maps. |
 | [text-box.md](text-box.md) | The lower panel's text box: the sign's pages, typing, caret and clicking through. |
 | [selection.md](selection.md) | Selecting the room's objects with Tab, the corner carets, and using them with Enter or Space. |
+| [character.md](character.md) | The character card in the side panel, its avatar and icons, and the profile view it opens. |
 | [mirror.md](mirror.md) | The mirror's sites, previews, ripple, curtain pull, logo plaque and site switching. |
 | [controls-panel.md](controls-panel.md) | The Controls panel beside or under the pane, the page layout, and the pixel web font. |
 | [accessibility.md](accessibility.md) | Keyboard controls, screen reader support, reduced motion, contrast, and suggested improvements. |

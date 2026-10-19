@@ -39,4 +39,6 @@ Meanwhile the room's clicks don't turn or move the visitor, and the panel's butt
 
 ## Accessibility
 
+The profile view uses the text box too, for its About Me text ([character.md](character.md#profile-view)). That text is drawn at the font's own size rather than `TEXT_SCALE`, through the optional `scale` argument of `textBoxLayout`, `textBoxLines`, `textBoxPixels` and `drawTextBox`, and it all shows at once with no caret.
+
 The panels are hidden from assistive tech, so the open page's text is also put in a visually hidden `role="status"` element (`.view-pane-status`), where screen readers announce it.

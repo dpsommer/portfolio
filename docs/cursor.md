@@ -17,8 +17,10 @@ Whenever the mouse is inside any canvas area (the room, the lower panel or the s
 | Welcome sign's board, in front of it facing north | Pointing hand (a click opens its text box) |
 | Mirror's glass or curtain pull, in the nook facing west | Pointing hand |
 | Usable navigation button | Pointing hand |
+| Character card (`CARD_BOUNDS`) | Pointing hand (a click opens or closes the profile view) |
+| Room, while the profile view is open | Blocked hand |
 | Dimmed button, or anywhere on a panel with nothing usable | Blocked hand |
-| Frame, dividing bands, side panel | Blocked hand |
+| Frame, dividing bands, side panel away from the card | Blocked hand |
 
 Without a way back, the bottom strip shows the blocked hand and a click there does nothing, even if there's a way forward. The turn zones run the full height of the room, so they take the bottom corners. `getCursorZone` picks the zone from the mouse's position as fractions of the room's width and height.
 
@@ -26,7 +28,7 @@ While the sign's text box is open, the pointing hand shows everywhere in the pan
 
 While an animation plays, the hands don't show: the room shows its zone cursor, and every panel button shows the blocked hand.
 
-`ViewPane` sets the blocked hand on `.view-pane-frame`, so the frame's border, the bands and the side panel inherit it; the room and lower panel canvases set their own.
+`ViewPane` sets the blocked hand on `.view-pane-frame`, so the frame's border, the bands and the side panel inherit it. The room and lower panel canvases set their own, and the side panel sets the pointing hand while the mouse is over the card.
 
 Keyboard selection ([selection.md](selection.md)) is shown with carets drawn in the room, not the cursor, and doesn't change the cursor.
 
@@ -40,6 +42,7 @@ The Controls panel beside the pane is page content, not a canvas, so it keeps th
 - **Mirror:** the glass's arch-topped shape, not the frame or ornaments. `ViewPane` checks it with `screenToMirror` (`src/scene/mirror/pixels.ts`), the same test a click uses.
 - **Curtain pull:** `PULL_HIT` (`src/scene/mirror/pull.ts`): the handle and the lower cord, padded so the one-pixel cord is easy to hit. `ViewPane` finds the point on the wall with `screenToWall` and checks it with `isOnPull`.
 - **Buttons:** `navButtonAt` (`src/scene/navigation/navButtons.ts`).
+- **Character card:** `CARD_BOUNDS` (`src/scene/character/card.ts`), the card's border and everything inside it.
 
 ## Pixel maps
 

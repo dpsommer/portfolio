@@ -8,7 +8,7 @@ How the code is organised and how a frame gets drawn. For the room's geometry se
 
 ## Scene modules
 
-Drawing logic lives in `src/scene/` as pure functions that return lists of `Pixel`s (`{ x, y, colour }`, `src/scene/core/types.ts`). Only a few functions touch a canvas context: `drawPixels` and `drawScene` (`src/scene/draw.ts`), `drawNavigationPanel`, `drawTextBox` and `clearPanel`. Keeping the rest pure lets it be tested without a canvas (see [testing.md](testing.md#canvas)).
+Drawing logic lives in `src/scene/` as pure functions that return lists of `Pixel`s (`{ x, y, colour }`, `src/scene/core/types.ts`). Only a few functions touch a canvas context: `drawPixels` and `drawScene` (`src/scene/draw.ts`), `drawNavigationPanel`, `drawTextBox`, `drawSidePanel`, `drawProfile` and `clearPanel`. Keeping the rest pure lets it be tested without a canvas (see [testing.md](testing.md#canvas)).
 
 The modules are grouped by what they draw:
 
@@ -20,11 +20,12 @@ The modules are grouped by what they draw:
 | `sign/` | The welcome sign hanging on the far wall: its shape (`board.ts`) and its pixels (`pixels.ts`). |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
 | `selection/` | The carets around the object selected with the keyboard, their bounce, and `pixelBounds`. |
+| `character/` | The character card in the side panel, its keyboard and mouse icons, the profile view, and photos quantised to the palette (`picture.ts`). |
 | `textBox/` | The text box the lower panel shows while the sign's text is open: wrapping, layout, text and caret. |
 | `panels/` | Logic shared by the panels beside the room, such as `clearPanel`. |
 | `draw.ts` | `drawScene`, which paints everything in the room canvas in order (see [layout.md](layout.md#draw-order)), and sprite placement. |
 
-`src/ViewPane/` also holds non-drawing data and helpers used only by the pane: cursors (`cursors.ts`), the sign's text and typing speed (`signText.ts`), the mirror's sites (`mirrorSites.ts`) and their logos (`siteLogos.ts`).
+`src/ViewPane/` also holds non-drawing data and helpers used only by the pane: cursors (`cursors.ts`), the sign's text and typing speed (`signText.ts`), the mirror's sites (`mirrorSites.ts`) and their logos (`siteLogos.ts`), and the card's name and About Me text (`aboutText.ts`).
 
 ## Art rules
 
@@ -42,7 +43,9 @@ The room canvas draws at a fixed 320×240 (`VIEW_WIDTH`/`VIEW_HEIGHT`), and CSS 
 - on mount, and when a site's preview finishes loading
 - on every frame of an animation, through `runAnimation`, which calls `requestAnimationFrame` until its duration has passed and then runs a `done` callback
 
-The lower panel is redrawn with `drawNavigationPanel` whenever the place or heading changes, and on every frame of a turn or move so the compass turns with the view. While the sign's text is open it's drawn with `drawTextBox` instead, from its own frame loop ([text-box.md](text-box.md#typing)).
+The lower panel is redrawn with `drawNavigationPanel` whenever the place or heading changes, and on every frame of a turn or move so the compass turns with the view. While the sign's text is open it's drawn with `drawTextBox` instead, from its own frame loop ([text-box.md](text-box.md#typing)). While the profile view is open, the room canvas shows `drawProfile` and the lower panel the About Me text ([character.md](character.md#profile-view)).
+
+The side panel is redrawn with `drawSidePanel` on mount, when the card's avatar loads, and when the card's selection or caret bounce changes.
 
 ## Animations
 

@@ -6,7 +6,7 @@ import type { Fill } from '../test/fakeContext.ts'
 import { extent } from '../test/pixels.ts'
 import type { FloorPoint } from '../scene/core/camera.ts'
 import type { Bounds } from '../scene/core/types.ts'
-import { BACKGROUND, FOREGROUND } from '../scene/core/palette.ts'
+import { FOREGROUND } from '../scene/core/palette.ts'
 import { drawScene } from '../scene/draw.ts'
 import type { MirrorExtras } from '../scene/draw.ts'
 import { GLASS_CENTRE } from '../scene/mirror/frame.ts'
@@ -28,6 +28,12 @@ import {
 } from '../scene/selection/selection.ts'
 import { signPixels } from '../scene/sign/pixels.ts'
 import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
+import { AVATAR_CARD_SIZE, CARD_BOUNDS, drawSidePanel } from '../scene/character/card.ts'
+import { quantisePicture } from '../scene/character/picture.ts'
+import type { Picture } from '../scene/character/picture.ts'
+import { AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
+import avatarSrc from '../assets/avatar.jpg'
+import { ABOUT_TEXT, CARD_NAME, FULL_NAME } from './aboutText.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -335,6 +341,22 @@ const SIGN_NORTH: Enabled = { forward: false, back: true, left: true, right: tru
 // won't be once the move ends.
 const NOOK_WEST_FORWARD_HELD: Enabled = { ...NOOK_WEST, forward: true }
 
+// The fills drawSidePanel makes on a canvas the side panel's size: the card,
+// with carets `inset` in while it's selected (null otherwise).
+function sidePanelFills(inset: number | null = null, avatar: Picture | null = null): Fill[] {
+  const { ctx, fills } = createFakeContext(SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT)
+  drawSidePanel(ctx, CARD_NAME, avatar, inset)
+  return fills
+}
+
+// The fills since the side panel's last background fill: its most recent drawing.
+function lastSideDraw(fills: Fill[]): Fill[] {
+  const starts = fills.flatMap(({ args }, index) =>
+    args.join() === `0,0,${SIDE_PANEL_WIDTH},${SIDE_PANEL_HEIGHT}` ? [index] : [],
+  )
+  return starts.length === 0 ? [] : fills.slice(starts[starts.length - 1])
+}
+
 // The fills drawNavigationPanel makes on a canvas the lower panel's size.
 function navPanelFills(yaw: number, enabled: Enabled, press?: KeyPress): Fill[] {
   const { ctx, fills } = createFakeContext(LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT)
@@ -402,14 +424,12 @@ describe('ViewPane', () => {
       expect(panel).toHaveAttribute('aria-hidden', 'true')
     })
 
-    it('fills the side panel with the background on mount', () => {
+    it('draws the character card, unselected and without its avatar, on the side panel on mount', () => {
       const fillsOn = contextPerCanvas()
 
       const { container } = render(<ViewPane />)
 
-      expect(fillsOn(sidePanel(container))).toEqual([
-        { args: [0, 0, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT], fillStyle: BACKGROUND },
-      ])
+      expect(fillsOn(sidePanel(container))).toEqual(sidePanelFills())
     })
 
     it('shows the blocked cursor over the frame, which its dividers and the side panel inherit', () => {
@@ -2710,11 +2730,13 @@ describe('ViewPane', () => {
       }
     }
 
+    // White read back at whatever size is asked for: the preview grid, or the avatar's.
+    const white = (width: number, height: number) => new Uint8ClampedArray(width * height * 4).fill(255)
     function createOffscreenContext() {
       return {
         imageSmoothingQuality: '',
         drawImage: vi.fn(),
-        getImageData: vi.fn(() => ({ data: WHITE })),
+        getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({ data: white(width, height) })),
       }
     }
 
@@ -2765,12 +2787,12 @@ describe('ViewPane', () => {
       useReducedMotion()
     })
 
-    it('loads every mirror site\'s preview image', async () => {
+    it('loads every mirror site\'s preview image, then the avatar twice, for the card and the profile view', async () => {
       provideContexts(createOffscreenContext())
 
       await renderLoaded()
 
-      expect(images.map((image) => image.src)).toEqual(MIRROR_SITES.map(({ preview }) => preview))
+      expect(images.map((image) => image.src)).toEqual([...MIRROR_SITES.map(({ preview }) => preview), avatarSrc, avatarSrc])
     })
 
     it('draws each image to cover the preview grid, centred, in an offscreen context it reads back often', async () => {
@@ -2780,7 +2802,7 @@ describe('ViewPane', () => {
       await renderLoaded()
 
       expect(getContext).toHaveBeenCalledWith('2d', { willReadFrequently: true })
-      expect(offscreen.drawImage).toHaveBeenCalledTimes(MIRROR_SITES.length)
+      expect(offscreen.drawImage).toHaveBeenCalledTimes(MIRROR_SITES.length + 2)
       const [image, x, y, width, height] = offscreen.drawImage.mock.calls[0] as unknown as [unknown, ...number[]]
       expect(image).toBe(images[0])
       expect(width).toBeCloseTo(PREVIEW_WIDTH)
@@ -2789,6 +2811,27 @@ describe('ViewPane', () => {
       expect(x).toBeCloseTo((PREVIEW_WIDTH - width) / 2)
       expect(y).toBeCloseTo((PREVIEW_HEIGHT - height) / 2)
       expect(offscreen.getImageData).toHaveBeenCalledWith(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+    })
+
+    it.each([
+      ['the card', 0, AVATAR_CARD_SIZE],
+      ['the profile view', 1, AVATAR_PROFILE_SIZE],
+    ])('draws the avatar for %s to cover a square grid its size, centred', async (_, nth, size) => {
+      const offscreen = createOffscreenContext()
+      provideContexts(offscreen)
+
+      await renderLoaded()
+
+      const [image, x, y, width, height] = offscreen.drawImage.mock.calls[MIRROR_SITES.length + nth] as unknown as [
+        { src: string },
+        ...number[],
+      ]
+      expect(image.src).toBe(avatarSrc)
+      expect(width).toBeCloseTo(size)
+      expect(height).toBeGreaterThanOrEqual(size)
+      expect(x).toBeCloseTo((size - width) / 2)
+      expect(y).toBeCloseTo((size - height) / 2)
+      expect(offscreen.getImageData).toHaveBeenCalledWith(0, 0, size, size)
     })
 
     it('redraws the view once the preview has loaded', async () => {
@@ -2852,11 +2895,12 @@ describe('ViewPane', () => {
     })
 
     it('does not draw the preview when unmounted before it loads', async () => {
-      // Hold the load until after unmounting.
-      let finishLoad = () => {}
+      // Hold every load until after unmounting.
+      const finishers: (() => void)[] = []
+      const finishLoad = () => finishers.forEach((finish) => finish())
       class LateImage extends FakeImage {
         set src(value: string) {
-          finishLoad = () => this.onload?.()
+          finishers.push(() => this.onload?.())
           void value
         }
       }
@@ -2869,6 +2913,105 @@ describe('ViewPane', () => {
       await act(async () => finishLoad())
 
       expect(room.fills).toEqual([])
+    })
+
+    describe('avatar', () => {
+      const CARD_AVATAR = quantisePicture(white(AVATAR_CARD_SIZE, AVATAR_CARD_SIZE), AVATAR_CARD_SIZE, AVATAR_CARD_SIZE)
+      const PROFILE_AVATAR = quantisePicture(
+        white(AVATAR_PROFILE_SIZE, AVATAR_PROFILE_SIZE),
+        AVATAR_PROFILE_SIZE,
+        AVATAR_PROFILE_SIZE,
+      )
+      let side: ReturnType<typeof createFakeContext>
+
+      // As provideContexts, with a recording context for the side panel too.
+      function provideWithSide(offscreen: ReturnType<typeof createOffscreenContext>) {
+        side = createFakeContext(SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT)
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (
+          this: HTMLCanvasElement,
+          _: string,
+          options?: CanvasRenderingContext2DSettings,
+        ) {
+          if (options?.willReadFrequently) return offscreen
+          if (this.classList.contains('view-pane-side')) return side.ctx
+          return this.classList.contains('view-pane') ? room.ctx : null
+        } as unknown as HTMLCanvasElement['getContext'])
+      }
+
+      // The fills drawProfile makes on the room canvas.
+      function profileFills(avatar: Picture | null): Fill[] {
+        const { ctx, fills } = createFakeContext(VIEW_WIDTH, VIEW_HEIGHT)
+        drawProfile(ctx, FULL_NAME, avatar)
+        return fills
+      }
+
+      // Images that load only when told to, in the order they were asked for.
+      const finishers: (() => void)[] = []
+      class HeldImage extends FakeImage {
+        set src(value: string) {
+          this.source = value
+          finishers.push(() => this.onload?.())
+        }
+      }
+      const finishLoad = async (index: number) => act(async () => finishers[index]())
+      const PROFILE_LOAD = MIRROR_SITES.length + 1
+
+      // Selects the card, the only thing to use at the start, and opens it.
+      const openProfile = () => {
+        pressKey('Tab')
+        pressKey('Enter')
+      }
+
+      beforeEach(() => {
+        finishers.length = 0
+      })
+
+      it('draws the card\'s avatar on the side panel once it has loaded', async () => {
+        provideWithSide(createOffscreenContext())
+
+        await renderLoaded()
+
+        expect(lastSideDraw(side.fills)).toEqual(sidePanelFills(null, CARD_AVATAR))
+      })
+
+      it('draws the profile view\'s avatar when the view opens after it has loaded', async () => {
+        provideWithSide(createOffscreenContext())
+        await renderLoaded()
+        room.fills.length = 0
+
+        openProfile()
+
+        expect(room.fills).toEqual(profileFills(PROFILE_AVATAR))
+      })
+
+      it('draws the profile view\'s avatar as soon as it loads while the view is open', async () => {
+        vi.stubGlobal('Image', HeldImage)
+        provideWithSide(createOffscreenContext())
+        renderPane()
+        openProfile()
+        expect(room.fills.slice(-profileFills(null).length)).toEqual(profileFills(null))
+        room.fills.length = 0
+
+        await finishLoad(PROFILE_LOAD)
+
+        expect(room.fills).toEqual(profileFills(PROFILE_AVATAR))
+      })
+
+      it.each([
+        ['the profile view\'s avatar', 'with the view closed', PROFILE_LOAD, false],
+        ['the shown site\'s preview', 'under the profile view', 0, true],
+      ])('does not redraw the room when %s loads %s', async (_, __, index, open) => {
+        vi.stubGlobal('Image', HeldImage)
+        provideWithSide(createOffscreenContext())
+        const { canvas } = renderPane()
+        if (open) openProfile()
+        expect(canvas).toHaveAttribute('data-view', open ? 'profile' : 'room')
+        room.fills.length = 0
+
+        await finishLoad(index)
+
+        expect(room.fills).toEqual([])
+      })
     })
 
     describe('for each site', () => {
@@ -3487,6 +3630,7 @@ describe('ViewPane', () => {
     const SIGN_LABEL = 'Welcome sign'
     const MIRROR_LABEL = `Mirror: ${MIRROR_SITE.name}`
     const PULL_LABEL = 'Curtain pull'
+    const CARD_LABEL = 'Character card: Duncan'
     const [FIRST_PAGE] = SIGN_PAGES
     const status = () => screen.getByRole('status').textContent
     // What the carets go around: the sign's board (SIGN_BOARD), the whole
@@ -3518,10 +3662,11 @@ describe('ViewPane', () => {
       for (let i = 0; i < times; i++) pressKey('Tab', init)
     }
 
-    // The views with something to use, and what Tab selects there, in order.
+    // The views with something in the room to use, and what Tab selects
+    // there, in order: the card always comes last.
     const VIEWS: [string, () => unknown, string[]][] = [
-      ['in front of the sign facing north', renderAtSign, [SIGN_LABEL]],
-      ['in the nook facing west', renderInNook, [MIRROR_LABEL, PULL_LABEL]],
+      ['in front of the sign facing north', renderAtSign, [SIGN_LABEL, CARD_LABEL]],
+      ['in the nook facing west', renderInNook, [MIRROR_LABEL, PULL_LABEL, CARD_LABEL]],
     ]
 
     describe('stepping through', () => {
@@ -3556,7 +3701,7 @@ describe('ViewPane', () => {
 
       it('starts from the first thing again with Tab after clearing past the end', () => {
         renderInNook()
-        pressTimes(3)
+        pressTimes(4)
 
         expect(pressKey('Tab')).toBe(false)
         expect(status()).toBe(MIRROR_LABEL)
@@ -3582,16 +3727,29 @@ describe('ViewPane', () => {
       ] as [string, string[]][]).flatMap(([view, keys]) => [
         ['Tab', view, keys, false],
         ['Shift+Tab', view, keys, true],
-      ] as const))('does nothing with %s from %s, where there is nothing to use', (_, __, keys, shiftKey) => {
+      ] as const))('selects only the card with %s from %s, where there is nothing else to use', (_, __, keys, shiftKey) => {
         renderAtStart()
         walk(keys)
         room.fills.length = 0
-        frames.requestAnimationFrame.mockClear()
+
+        expect(pressKey('Tab', { shiftKey })).toBe(false)
+        expect(status()).toBe(CARD_LABEL)
+        // The card's carets are on the side panel, so the room isn't redrawn.
+        expect(room.fills).toEqual([])
 
         expect(pressKey('Tab', { shiftKey })).toBe(true)
         expect(status()).toBe('')
-        expect(room.fills).toEqual([])
-        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it.each([
+        ['Tab', false],
+        ['Shift+Tab', true],
+      ])('keeps %s from moving focus mid-turn, even where only the card can be selected', (_, shiftKey) => {
+        renderAtStart()
+        pressKey('ArrowLeft')
+
+        expect(pressKey('Tab', { shiftKey })).toBe(false)
+        expect(status()).toBe('')
       })
 
       it.each(['altKey', 'ctrlKey', 'metaKey'] as const)('ignores Tab with %s held', (modifier) => {
@@ -3888,6 +4046,474 @@ describe('ViewPane', () => {
         unmount()
 
         expect(frames.pending()).toBe(0)
+      })
+    })
+  })
+
+  describe('character card', () => {
+    useAnimation({ withContext: false })
+    let fillsOn: ReturnType<typeof contextPerCanvas>
+
+    beforeEach(() => {
+      fillsOn = contextPerCanvas()
+    })
+
+    const CARD_LABEL = `Character card: ${CARD_NAME}`
+    const PROFILE_STATUS = `${FULL_NAME}. ${ABOUT_TEXT}`
+    const ABOUT_LINES = textBoxLines(LOWER_PANEL_WIDTH, ABOUT_TEXT, 1)
+    const STEP_MS = Math.max(TURN_DURATION_MS, MOVE_DURATION_MS)
+    const status = () => screen.getByRole('status').textContent
+
+    // The side panel is shown at twice its drawing size, offset in the page,
+    // so a point on it in drawing pixels is scaled and moved to a client point.
+    const SIDE_RECT = new DOMRect(400, 10, SIDE_PANEL_WIDTH * 2, SIDE_PANEL_HEIGHT * 2)
+    const toClient = (x: number, y: number) => ({ clientX: SIDE_RECT.left + x * 2, clientY: SIDE_RECT.top + y * 2 })
+    const CARD_CENTRE = {
+      x: (CARD_BOUNDS.left + CARD_BOUNDS.right + 1) / 2,
+      y: (CARD_BOUNDS.top + CARD_BOUNDS.bottom + 1) / 2,
+    }
+    // Points on the card, at its middle and just inside its corners, and just off it.
+    const ON_CARD: [string, number, number][] = [
+      ['the middle', CARD_CENTRE.x, CARD_CENTRE.y],
+      ['the top-left corner', CARD_BOUNDS.left, CARD_BOUNDS.top],
+      ['the bottom-right corner', CARD_BOUNDS.right + 0.5, CARD_BOUNDS.bottom + 0.5],
+    ]
+    const OFF_CARD: [string, number, number][] = [
+      ['left of the card', CARD_BOUNDS.left - 1, CARD_CENTRE.y],
+      ['right of the card', CARD_BOUNDS.right + 1, CARD_CENTRE.y],
+      ['above the card', CARD_CENTRE.x, CARD_BOUNDS.top - 1],
+      ['below the card', CARD_CENTRE.x, CARD_BOUNDS.bottom + 1],
+    ]
+
+    // Renders the pane, with the side panel's on-screen rect at SIDE_RECT,
+    // clearing the frames requested on mount.
+    function renderCard() {
+      const pane = renderWithPanel()
+      const side = sidePanel(pane.container)
+      vi.spyOn(side, 'getBoundingClientRect').mockReturnValue(SIDE_RECT)
+      frames.requestAnimationFrame.mockClear()
+      // The room's role finds it as an element; it's the room canvas.
+      return { ...pane, canvas: pane.canvas as HTMLCanvasElement, side }
+    }
+    const clickSide = (side: HTMLElement, x = CARD_CENTRE.x, y = CARD_CENTRE.y) => fireEvent.click(side, toClient(x, y))
+    const hoverSide = (side: HTMLElement, x = CARD_CENTRE.x, y = CARD_CENTRE.y) =>
+      fireEvent.mouseMove(side, toClient(x, y))
+
+    // Walks with each key in turn, letting each turn or move finish.
+    function walk(keys: string[]) {
+      for (const key of keys) {
+        pressKey(key)
+        frames.flush(START + STEP_MS)
+      }
+    }
+
+    // Renders, walks into the nook facing west and selects the card, after the mirror and pull.
+    function cardInNook() {
+      const pane = renderCard()
+      walk(['ArrowLeft', 'ArrowUp'])
+      pressKey('Tab')
+      pressKey('Tab')
+      pressKey('Tab')
+      expect(status()).toBe(CARD_LABEL)
+      return pane
+    }
+
+    // Renders and opens the profile view with a click on the card.
+    function openProfile() {
+      const pane = renderCard()
+      clickSide(pane.side)
+      expect(pane.canvas).toHaveAttribute('data-view', 'profile')
+      return pane
+    }
+
+    // The fills drawProfile makes on the room canvas, before the avatar loads.
+    function profileFills(): Fill[] {
+      const { ctx, fills } = createFakeContext(VIEW_WIDTH, VIEW_HEIGHT)
+      drawProfile(ctx, FULL_NAME, null)
+      return fills
+    }
+
+    // The About Me text in the lower panel, all shown, at scale 1, with no caret.
+    function aboutFills(): Fill[] {
+      const { ctx, fills } = createFakeContext(LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT)
+      drawTextBox(ctx, ABOUT_LINES, ABOUT_LINES.join('').length, false, 1)
+      return fills
+    }
+
+    describe('selecting', () => {
+      it('names the card in the status', () => {
+        renderCard()
+
+        pressKey('Tab')
+
+        expect(status()).toBe(CARD_LABEL)
+      })
+
+      it('draws the card\'s carets on the side panel, not the room', () => {
+        const { canvas, side } = renderCard()
+        const roomBefore = fillsOn(canvas).length
+        const sideBefore = fillsOn(side).length
+
+        pressKey('Tab')
+
+        expect(fillsOn(side).slice(sideBefore)).toEqual(sidePanelFills(0))
+        expect(fillsOn(canvas)).toHaveLength(roomBefore)
+      })
+
+      it('redraws the room once without the pull\'s carets, and the side panel with the card\'s, as Tab moves on to the card', () => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowLeft', 'ArrowUp'])
+        pressKey('Tab')
+        pressKey('Tab')
+        const roomBefore = fillsOn(canvas).length
+        const sideBefore = fillsOn(side).length
+
+        pressKey('Tab')
+
+        expect(fillsOn(canvas).slice(roomBefore)).toEqual(sceneFills())
+        expect(fillsOn(side).slice(sideBefore)).toEqual(sidePanelFills(0))
+      })
+
+      it.each([
+        ['Escape', () => pressKey('Escape')],
+        ['Tab past the end', () => pressKey('Tab')],
+      ])('clears the card\'s carets from the side panel when %s clears the selection', (_, clear) => {
+        const { side } = renderCard()
+        pressKey('Tab')
+        const sideBefore = fillsOn(side).length
+
+        clear()
+
+        expect(status()).toBe('')
+        expect(fillsOn(side).slice(sideBefore)).toEqual(sidePanelFills())
+      })
+
+      it('bounces the card\'s carets on the side panel, leaving the room alone', () => {
+        const { canvas, side } = renderCard()
+        pressKey('Tab')
+        const roomBefore = fillsOn(canvas).length
+        const sideBefore = fillsOn(side).length
+
+        frames.flush(START + BOUNCE_PERIOD_MS + BOUNCE_MS / 2)
+
+        expect(fillsOn(side).slice(sideBefore)).toEqual(sidePanelFills(BOUNCE_DEPTH))
+        expect(fillsOn(canvas)).toHaveLength(roomBefore)
+      })
+
+      it.each<[string, string[], string, string]>([
+        ['turning', ['ArrowLeft'], 'start', 'west'],
+        ['moving forward', ['ArrowUp'], 'sign', 'north'],
+        ['moving back after turning', ['ArrowRight', 'ArrowDown'], 'nook', 'east'],
+      ])('keeps the card selected through %s from the start', (_, keys, place, heading) => {
+        const { canvas } = renderCard()
+        pressKey('Tab')
+
+        walk(keys)
+
+        expect(canvas).toHaveAttribute('data-place', place)
+        expect(canvas).toHaveAttribute('data-heading', heading)
+        expect(status()).toBe(CARD_LABEL)
+      })
+
+      it.each<[string, string, () => Fill[]]>([
+        ['turning', 'ArrowLeft', () => sceneFills(undefined, WEST + Math.PI / 2)],
+        ['stepping back', 'ArrowDown', () => sceneFills(undefined, WEST, PLACES.start)],
+      ])('keeps the card selected on %s from the nook, its carets on the side panel and none in the room', (_, key, scene) => {
+        const { canvas, side } = cardInNook()
+
+        walk([key])
+
+        expect(status()).toBe(CARD_LABEL)
+        expect(fillsOn(canvas).slice(-scene().length)).toEqual(scene())
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills(0))
+      })
+    })
+
+    describe('opening the profile view', () => {
+      it.each(['Enter', ' '])('opens with %j while the card is selected, preventing its default', (key) => {
+        const { canvas } = renderCard()
+        pressKey('Tab')
+
+        expect(pressKey(key)).toBe(false)
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(status()).toBe(PROFILE_STATUS)
+      })
+
+      it.each(['Enter', ' '])('closes again with %j, leaving the card selected', (key) => {
+        const { canvas } = renderCard()
+        pressKey('Tab')
+        pressKey(key)
+
+        pressKey(key)
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        expect(status()).toBe(CARD_LABEL)
+      })
+
+      it('starts on the room view', () => {
+        const { canvas } = renderCard()
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
+      })
+
+      it('draws the profile view over the room, and the room again once it closes', () => {
+        const { canvas } = renderCard()
+        const mounted = [...fillsOn(canvas)]
+        pressKey('Tab')
+        const before = fillsOn(canvas).length
+
+        pressKey('Enter')
+        expect(fillsOn(canvas).slice(before)).toEqual(profileFills())
+
+        const opened = fillsOn(canvas).length
+        pressKey('Enter')
+        expect(fillsOn(canvas).slice(opened)).toEqual(mounted)
+      })
+
+      it('shows the About Me text in the lower panel while open, and the navigation panel once it closes', () => {
+        const { panel } = renderCard()
+        pressKey('Tab')
+
+        pressKey('Enter')
+        expect(lastPanelDraw(fillsOn(panel))).toEqual(aboutFills())
+
+        pressKey('Enter')
+        expect(lastPanelDraw(fillsOn(panel))).toEqual(navPanelFills(0, START_NORTH))
+      })
+
+      it('closes with Escape, keeping the card selected, then clears the selection with the next', () => {
+        const { canvas } = renderCard()
+        pressKey('Tab')
+        pressKey('Enter')
+
+        pressKey('Escape')
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        expect(status()).toBe(CARD_LABEL)
+
+        pressKey('Escape')
+        expect(status()).toBe('')
+      })
+
+      it.each(ON_CARD)('toggles with a click on %s of the card', (_, x, y) => {
+        const { canvas, side } = renderCard()
+
+        clickSide(side, x, y)
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(status()).toBe(PROFILE_STATUS)
+
+        clickSide(side, x, y)
+        expect(canvas).toHaveAttribute('data-view', 'room')
+      })
+
+      it.each(OFF_CARD)('does nothing with a click %s', (_, x, y) => {
+        const { canvas, side } = renderCard()
+
+        clickSide(side, x, y)
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        expect(status()).toBe('')
+      })
+
+      it('does nothing with a click on the side panel when it has no size on screen', () => {
+        const { canvas, side } = renderCard()
+        vi.spyOn(side, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 0, 0))
+
+        clickSide(side)
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
+      })
+
+      it('does not open while the sign\'s text is open, the click moving the text on instead', () => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowUp'])
+        clickAt(canvas, SIGN_X, SIGN_Y)
+        expect(status()).toBe(SIGN_PAGES[0])
+
+        clickSide(side)
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        // The click finished typing the page; it's still open.
+        expect(status()).toBe(SIGN_PAGES[0])
+        fireEvent.click(canvas, { clientX: LEFT_X, clientY: MIDDLE_Y })
+        expect(status()).toBe('')
+      })
+
+      it.each<[string, (side: HTMLElement) => void]>([
+        ['a click on the card', (side) => clickSide(side)],
+        ['Enter with the card selected', () => pressKey('Enter')],
+      ])('does not open mid-animation with %s', (_, open) => {
+        const { canvas, side } = renderCard()
+        pressKey('Tab')
+        pressKey('ArrowLeft')
+
+        open(side)
+
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        frames.flush(START + TURN_DURATION_MS)
+        expect(canvas).toHaveAttribute('data-view', 'room')
+      })
+    })
+
+    describe('while the profile view is open', () => {
+      it.each([PANEL_INPUT, KEY_INPUT, WASD_INPUT, ROOM_INPUT].flatMap((input) =>
+        (['forward', 'left', 'right'] as const).map((button) => [input.name, button, input] as const),
+      ))('does not move with %s (%s)', (_, button, input) => {
+        const pane = openProfile()
+
+        input.use(pane, button)
+        frames.flush(START + STEP_MS)
+
+        expect(pane.canvas).toHaveAttribute('data-place', 'start')
+        expect(pane.canvas).toHaveAttribute('data-heading', 'north')
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it('does not open the sign\'s text with a click on the sign', () => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowUp'])
+        clickSide(side)
+
+        clickAt(canvas, SIGN_X, SIGN_Y)
+
+        expect(status()).toBe(PROFILE_STATUS)
+      })
+
+      it('selects only the card with Tab, even where the room has things to use', () => {
+        const { side } = renderCard()
+        walk(['ArrowUp'])
+        clickSide(side)
+
+        expect(pressKey('Tab')).toBe(false)
+        expect(screen.getByRole('status').textContent).toBe(PROFILE_STATUS)
+        // Closing shows that the card is what was selected.
+        pressKey('Escape')
+        expect(status()).toBe(CARD_LABEL)
+      })
+
+      it('clears the selection with Tab past the card, leaving the key to the browser', () => {
+        const { side } = renderCard()
+        walk(['ArrowUp'])
+        clickSide(side)
+        pressKey('Tab')
+
+        expect(pressKey('Tab')).toBe(true)
+        pressKey('Escape')
+        expect(status()).toBe('')
+      })
+
+      it.each([
+        ['the forward zone', CENTRE_X, MIDDLE_Y],
+        ['a turn zone', LEFT_X, MIDDLE_Y],
+      ])('shows the blocked cursor over the room\'s %s', (_, clientX, clientY) => {
+        const { canvas } = openProfile()
+
+        fireEvent.mouseMove(canvas, { clientX, clientY })
+
+        expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+
+      it('shows the blocked cursor over the sign, rather than the hand', () => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowUp'])
+        clickSide(side)
+
+        fireEvent.mouseMove(canvas, { clientX: SIGN_X, clientY: SIGN_Y })
+
+        expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+
+      it('shows the blocked cursor over a usable button on the lower panel', () => {
+        const { panel } = openProfile()
+
+        hoverButton(panel, 'left')
+
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+
+      it('goes back to the usual cursors once it closes', () => {
+        const { canvas, panel, side } = openProfile()
+        fireEvent.mouseMove(canvas, { clientX: LEFT_X, clientY: MIDDLE_Y })
+        hoverButton(panel, 'left')
+
+        clickSide(side)
+
+        expect(canvas.style.cursor).toBe(CURSORS['turn-left'])
+        expect(panel.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it.each([
+        ['the mirror', 1],
+        ['the curtain pull', 2],
+      ])('clears %s, selected before a click opened it, so Enter does not use it', (_, tabs) => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowLeft', 'ArrowUp'])
+        for (let i = 0; i < tabs; i++) pressKey('Tab')
+
+        clickSide(side)
+        pressKey('Enter')
+        // Long enough for a ripple or site switch to finish, had one started.
+        frames.flush(START + 10_000)
+
+        expect(status()).toBe(PROFILE_STATUS)
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(canvas).toHaveAttribute('data-site', MIRROR_SITES[0].name)
+        expect(openUrl).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('side panel cursor', () => {
+      it.each(ON_CARD)('shows the hand over %s of the card', (_, x, y) => {
+        const { side } = renderCard()
+
+        hoverSide(side, x, y)
+
+        expect(side.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it.each(OFF_CARD)('inherits the frame\'s cursor %s', (_, x, y) => {
+        const { side } = renderCard()
+
+        hoverSide(side, x, y)
+
+        expect(side.style.cursor).toBe('')
+      })
+
+      it('inherits the frame\'s cursor again once the mouse leaves the card', () => {
+        const { side } = renderCard()
+        hoverSide(side)
+
+        fireEvent.mouseLeave(side)
+
+        expect(side.style.cursor).toBe('')
+      })
+
+      it('keeps the hand over the card while the profile view is open, as a click closes it', () => {
+        const { side } = openProfile()
+
+        hoverSide(side)
+
+        expect(side.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it('inherits the frame\'s cursor over the card while the sign\'s text is open', () => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowUp'])
+        clickAt(canvas, SIGN_X, SIGN_Y)
+
+        hoverSide(side)
+
+        expect(side.style.cursor).toBe('')
+      })
+
+      it('inherits the frame\'s cursor over the card mid-animation, and shows the hand once it ends', () => {
+        const { side } = renderCard()
+        pressKey('ArrowLeft')
+
+        hoverSide(side)
+        expect(side.style.cursor).toBe('')
+
+        frames.flush(START + TURN_DURATION_MS)
+        expect(side.style.cursor).toBe(HAND_CURSOR)
       })
     })
   })

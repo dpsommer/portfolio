@@ -7,13 +7,14 @@ import { clearPanel } from '../panels/panelCanvas.ts'
 // The lower panel doubles as a text box: text typed out from the top left,
 // with a caret in the bottom right once a page is done.
 
-// Text is drawn at this multiple of the font's size, inset by TEXT_MARGIN from
-// the panel's edges, with LINE_GAP pixels between lines.
+// Text is drawn at this multiple of the font's size by default, inset by
+// TEXT_MARGIN from the panel's edges, with LINE_GAP font pixels between lines.
+// Longer text, like the About Me text, can be drawn at a smaller scale.
 export const TEXT_SCALE = 2
 export const TEXT_MARGIN = 18
-const LINE_GAP = 6
-const CHAR_ADVANCE = (GLYPH_WIDTH + GLYPH_SPACING) * TEXT_SCALE
-const LINE_ADVANCE = GLYPH_HEIGHT * TEXT_SCALE + LINE_GAP
+const LINE_GAP = 3
+const charAdvance = (scale: number) => (GLYPH_WIDTH + GLYPH_SPACING) * scale
+const lineAdvance = (scale: number) => (GLYPH_HEIGHT + LINE_GAP) * scale
 
 // A small down-pointing caret, drawn at TEXT_SCALE.
 const CARET_MAP = ['#####', '.###.', '..#..']
@@ -21,11 +22,15 @@ const CARET_WIDTH = CARET_MAP[0].length * TEXT_SCALE
 const CARET_HEIGHT = CARET_MAP.length * TEXT_SCALE
 
 // How many characters fit on a line and how many lines fit above the caret,
-// in a panel `width` by `height` pixels.
-export function textBoxLayout(width: number, height: number): { charsPerLine: number; lines: number } {
+// in a panel `width` by `height` pixels, with text at `scale`.
+export function textBoxLayout(
+  width: number,
+  height: number,
+  scale = TEXT_SCALE,
+): { charsPerLine: number; lines: number } {
   return {
-    charsPerLine: Math.floor((width - 2 * TEXT_MARGIN + GLYPH_SPACING * TEXT_SCALE) / CHAR_ADVANCE),
-    lines: Math.floor((height - 2 * TEXT_MARGIN - CARET_HEIGHT) / LINE_ADVANCE),
+    charsPerLine: Math.floor((width - 2 * TEXT_MARGIN + GLYPH_SPACING * scale) / charAdvance(scale)),
+    lines: Math.floor((height - 2 * TEXT_MARGIN - CARET_HEIGHT) / lineAdvance(scale)),
   }
 }
 
@@ -55,21 +60,28 @@ export function wrapText(text: string, maxChars: number): string[] {
   return lines
 }
 
-// The lines `page` is typed in, in a panel `width` pixels wide.
-export function textBoxLines(width: number, page: string): string[] {
-  return wrapText(page, textBoxLayout(width, 0).charsPerLine)
+// The lines `page` is typed in, in a panel `width` pixels wide, at `scale`.
+export function textBoxLines(width: number, page: string, scale = TEXT_SCALE): string[] {
+  return wrapText(page, textBoxLayout(width, 0, scale).charsPerLine)
 }
 
 // Pixels for the first `shown` characters of `lines`, read left to right and
-// top to bottom, plus the caret in the bottom right if `caretOn`.
-export function textBoxPixels(width: number, height: number, lines: string[], shown: number, caretOn: boolean): Pixel[] {
+// top to bottom, at `scale`, plus the caret in the bottom right if `caretOn`.
+export function textBoxPixels(
+  width: number,
+  height: number,
+  lines: string[],
+  shown: number,
+  caretOn: boolean,
+  scale = TEXT_SCALE,
+): Pixel[] {
   const pixels: Pixel[] = []
   let remaining = shown
   lines.forEach((line, row) => {
     const typed = line.slice(0, Math.max(0, remaining))
     remaining -= line.length
-    const top = TEXT_MARGIN + row * LINE_ADVANCE
-    for (const { x, y } of textPixels(typed, TEXT_SCALE)) {
+    const top = TEXT_MARGIN + row * lineAdvance(scale)
+    for (const { x, y } of textPixels(typed, scale)) {
       pixels.push({ x: TEXT_MARGIN + x, y: top + y, colour: FOREGROUND })
     }
   })
@@ -91,9 +103,15 @@ export function textBoxPixels(width: number, height: number, lines: string[], sh
 }
 
 // Draws the text box over the whole panel: the background, then the first
-// `shown` characters of `lines` and, if `caretOn`, the caret.
-export function drawTextBox(ctx: CanvasRenderingContext2D, lines: string[], shown: number, caretOn: boolean) {
+// `shown` characters of `lines` at `scale` and, if `caretOn`, the caret.
+export function drawTextBox(
+  ctx: CanvasRenderingContext2D,
+  lines: string[],
+  shown: number,
+  caretOn: boolean,
+  scale = TEXT_SCALE,
+) {
   const { width, height } = ctx.canvas
   clearPanel(ctx)
-  drawPixels(ctx, textBoxPixels(width, height, lines, shown, caretOn))
+  drawPixels(ctx, textBoxPixels(width, height, lines, shown, caretOn, scale))
 }

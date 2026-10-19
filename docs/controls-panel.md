@@ -13,7 +13,7 @@ The entries are `CONTROLS` in `src/ControlsPanel/controls.ts`:
 | Tab | Select |
 | Shift+Tab | Previous |
 | Enter/Space | Interact |
-| Esc | Deselect |
+| Esc | Cancel |
 
 - **Markup:** an `<aside>` landmark labelled by its "Controls" heading, holding a `<dl>`. Each entry is a `<dt>` of `<kbd>` keys and a `<dd>` action.
 - **Key groups:** an entry's `keyGroups` are alternative sets of keys for the same action, such as the arrow keys and WASD. Keys in a group are joined by `/`, and groups by ` | `. Screen readers hear "or" in place of the pipe, which is `aria-hidden`.

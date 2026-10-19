@@ -23,6 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/navigation.md` — turning and moving, the navigation panel's compass and buttons, and the arrow keys.
 - `docs/cursor.md` — which cursor shows where, hover areas and the cursor pixel maps. Anything added to a panel must set a pixel-art cursor.
 - `docs/mirror.md` — the mirror's sites, previews, ripple, curtain pull, logo plaque and site switching, and how to add a site.
+- `docs/character.md` — the side panel's character card, the avatar asset and its quantising, the keyboard and mouse icons, and the profile view with its About Me text.
 - `docs/text-box.md` — the lower panel's text box: the sign's pages, typing speed, caret, moving the text on (clicks, Enter, Space) and reduced motion.
 - `docs/selection.md` — selecting the room's objects with Tab, the corner carets and their bounce, using objects with Enter or Space, and how to make a new object selectable.
 - `docs/controls-panel.md` — the Controls panel, the page's grid layout and breakpoint, shared Sass sizes and the pixel web font.
