@@ -8,14 +8,15 @@ The entries are `CONTROLS` in `src/ControlsPanel/controls.ts`:
 
 | Keys | Action |
 | --- | --- |
-| ↑/↓ | Move |
-| ←/→ | Rotate |
+| ↑/↓ \| W/S | Move |
+| ←/→ \| A/D | Rotate |
 | Tab | Select |
 | Shift+Tab | Previous |
 | Enter/Space | Interact |
 | Esc | Deselect |
 
 - **Markup:** an `<aside>` landmark labelled by its "Controls" heading, holding a `<dl>`. Each entry is a `<dt>` of `<kbd>` keys and a `<dd>` action.
+- **Key groups:** an entry's `keyGroups` are alternative sets of keys for the same action, such as the arrow keys and WASD. Keys in a group are joined by `/`, and groups by ` | `. Screen readers hear "or" in place of the pipe, which is `aria-hidden`.
 - **Key names:** keys whose symbol doesn't say what it is to a screen reader have a `name` ("Up arrow", "Escape"). The `<kbd>` shows the symbol with `aria-hidden` and holds the name in visually hidden text (`.controls-panel-hidden`). It doesn't use `aria-label`, because a `<kbd>` has no role and screen readers may ignore a label on it.
 - **Keeping it in step:** the entries describe the keys `ViewPane` handles ([navigation.md](navigation.md#arrow-keys), [selection.md](selection.md#keys), [text-box.md](text-box.md#moving-the-text-on)). Change both together.
 - **Characters:** every character must have a glyph in the pixel font (see [Font](#font)).

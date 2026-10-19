@@ -31,6 +31,6 @@ jsdom has no canvas implementation. `src/test/setup.ts` stubs `HTMLCanvasElement
 
 ## Style
 
-- **Parametrise:** when cases differ only in their inputs, use `it.each` or `describe.each` rather than repeating a test. `ViewPane.test.tsx` runs its navigation tests over each input method (panel clicks and arrow keys, plus room clicks for key presses) this way.
+- **Parametrise:** when cases differ only in their inputs, use `it.each` or `describe.each` rather than repeating a test. `ViewPane.test.tsx` runs its navigation tests over each input method (panel clicks, arrow keys and WASD, plus room clicks for key presses) this way.
 - **Share setup:** use the helpers above, or a helper at the top of the file, rather than repeating the same arrangement in each test.
 - **Test behaviour, not duplicates:** don't add a case that a parametrised or broader test already covers.

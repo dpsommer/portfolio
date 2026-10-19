@@ -14,7 +14,7 @@ Turns and moves follow the shared animation rules in [architecture.md](architect
 
 ## Navigation panel
 
-While the sign's text box is open ([text-box.md](text-box.md)), it takes the panel's place. The buttons, the arrow keys and the room's clicks do nothing until it closes.
+While the sign's text box is open ([text-box.md](text-box.md)), it takes the panel's place. The buttons, the arrow keys, WASD and the room's clicks do nothing until it closes.
 
 The lower panel shows a compass and four direction buttons, drawn by `drawNavigationPanel` (`src/scene/navigation/navigationPanel.ts`). `ViewPane` redraws it on every turn and move frame, so the compass turns in step with the view.
 
@@ -52,10 +52,10 @@ Whenever a turn or step plays, its key goes down, including for room clicks: a c
 
 ## Arrow keys
 
-The arrow keys work the buttons (up forward, down back, left and right turn) exactly as clicking them does, through the same `pressNavButton` in `ViewPane`, including the press animation.
+The arrow keys work the buttons (up forward, down back, left and right turn) exactly as clicking them does, through the same `pressNavButton` in `ViewPane`, including the press animation. WASD does the same (W forward, S back, A and D turn), in either case so Caps Lock makes no difference (`MOVE_KEYS`). WASD goes by the character typed, not the key's position, so it follows the labels on keyboards with other layouts.
 
 - The listener is on `window`, so the keys work anywhere on the page.
-- It ignores keys when Alt, Ctrl or Meta is held or when focus is in a text field, and otherwise prevents the page scrolling.
+- It ignores keys when Alt, Ctrl or Meta is held or when focus is in a text field, and otherwise prevents the default action (scrolling, or typing a letter).
 - A held key repeats, so it keeps turning or stepping each time an animation ends.
 - Tab, Escape, Enter and Space select and use the room's objects ([selection.md](selection.md)).
-- While the sign's text box is open, the arrow keys do nothing, and Enter and Space move its text on instead ([text-box.md](text-box.md#moving-the-text-on)).
+- While the sign's text box is open, the arrow keys and WASD do nothing, and Enter and Space move its text on instead ([text-box.md](text-box.md#moving-the-text-on)).

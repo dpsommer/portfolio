@@ -9,22 +9,32 @@ function ControlsPanel() {
         Controls
       </h2>
       <dl className="controls-panel-list">
-        {CONTROLS.map(({ keys, action }) => (
+        {CONTROLS.map(({ keyGroups, action }) => (
           <div key={action} className="controls-panel-entry">
             <dt>
-              {keys.map(({ label, name }, index) => (
-                <span key={label}>
-                  {index > 0 && '/'}
-                  {name ? (
-                    // The symbol is shown and the name read: a <kbd> can't
-                    // reliably take an aria-label, as it has no role.
-                    <kbd>
-                      <span aria-hidden="true">{label}</span>
-                      <span className="controls-panel-hidden">{name}</span>
-                    </kbd>
-                  ) : (
-                    <kbd>{label}</kbd>
+              {keyGroups.map((keys, group) => (
+                <span key={group}>
+                  {group > 0 && (
+                    <>
+                      <span aria-hidden="true"> | </span>
+                      <span className="controls-panel-hidden"> or </span>
+                    </>
                   )}
+                  {keys.map(({ label, name }, index) => (
+                    <span key={label}>
+                      {index > 0 && '/'}
+                      {name ? (
+                        // The symbol is shown and the name read: a <kbd> can't
+                        // reliably take an aria-label, as it has no role.
+                        <kbd>
+                          <span aria-hidden="true">{label}</span>
+                          <span className="controls-panel-hidden">{name}</span>
+                        </kbd>
+                      ) : (
+                        <kbd>{label}</kbd>
+                      )}
+                    </span>
+                  ))}
                 </span>
               ))}
             </dt>

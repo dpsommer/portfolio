@@ -149,12 +149,21 @@ function plaqueAt(elapsed: number, fromLogo: LogoMap, toLogo: LogoMap): Plaque {
   return { logo: toLogo, depth: 1 - easeInOut(out) }
 }
 
-// The arrow keys and the navigation buttons they work.
-const ARROW_KEYS: Record<string, NavButton> = {
+// The keys that work the navigation buttons: the arrow keys, and WASD (either
+// case, so Caps Lock doesn't stop them).
+const MOVE_KEYS: Record<string, NavButton> = {
   ArrowUp: 'forward',
   ArrowDown: 'back',
   ArrowLeft: 'left',
   ArrowRight: 'right',
+  w: 'forward',
+  s: 'back',
+  a: 'left',
+  d: 'right',
+  W: 'forward',
+  S: 'back',
+  A: 'left',
+  D: 'right',
 }
 
 // The keys that move the sign's text on, as a click does: Enter and Space.
@@ -679,9 +688,9 @@ function ViewPane() {
         if (!event.repeat && !animating) interact(selected)
         return
       }
-      const button = ARROW_KEYS[event.key]
+      const button = MOVE_KEYS[event.key]
       if (!button) return
-      // Arrow keys would otherwise scroll the page.
+      // Arrow keys would otherwise scroll the page, and letters type into it.
       event.preventDefault()
       pressNavButton(button)
     }

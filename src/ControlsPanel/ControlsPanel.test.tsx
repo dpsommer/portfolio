@@ -4,7 +4,7 @@ import { textPixels } from '../scene/core/pixelFont.ts'
 import ControlsPanel from './ControlsPanel.tsx'
 import { CONTROLS } from './controls.ts'
 
-const KEYS = CONTROLS.flatMap(({ keys }) => keys)
+const KEYS = CONTROLS.flatMap(({ keyGroups }) => keyGroups.flat())
 
 // The text of `element` as seen, leaving out text only screen readers get.
 function shownText(element: Element): string {
@@ -32,12 +32,14 @@ describe('ControlsPanel', () => {
     expect(within(panel).getByRole('heading', { level: 2 })).toHaveTextContent('Controls')
   })
 
-  it('lists each control in order as its keys, joined by "/", then its action', () => {
+  it('lists each control in order as its keys, joined by "/" in groups separated by " | ", then its action', () => {
     const panel = renderPanel()
 
     const terms = within(panel).getAllByRole('term')
     const definitions = within(panel).getAllByRole('definition')
-    expect(terms.map(shownText)).toEqual(CONTROLS.map(({ keys }) => keys.map(({ label }) => label).join('/')))
+    expect(terms.map(shownText)).toEqual(
+      CONTROLS.map(({ keyGroups }) => keyGroups.map((keys) => keys.map(({ label }) => label).join('/')).join(' | ')),
+    )
     expect(definitions.map((definition) => definition.textContent)).toEqual(CONTROLS.map(({ action }) => action))
   })
 
@@ -64,6 +66,17 @@ describe('ControlsPanel', () => {
 
     const kbds = Array.from(panel.querySelectorAll('kbd'), readText)
     expect(kbds).toEqual(KEYS.map(({ label, name }) => name ?? label))
+  })
+
+  it('reads the pipe between key groups as "or"', () => {
+    const panel = renderPanel()
+
+    const terms = within(panel).getAllByRole('term').map(readText)
+    expect(terms).toEqual(
+      CONTROLS.map(({ keyGroups }) =>
+        keyGroups.map((keys) => keys.map(({ label, name }) => name ?? label).join('/')).join(' or '),
+      ),
+    )
   })
 
   // A <kbd> has no role, so an aria-label on it isn't reliably read.

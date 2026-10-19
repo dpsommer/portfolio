@@ -8,17 +8,17 @@ Every key listener is on `window`, so the keys work without focusing anything on
 
 | Key | Does | When | Details |
 | --- | --- | --- | --- |
-| ↑ | Step forward | There's a way forward | [navigation.md](navigation.md#arrow-keys) |
-| ↓ | Step back without turning | There's a way back | [navigation.md](navigation.md#arrow-keys) |
-| ← / → | Turn a quarter turn | Always | [navigation.md](navigation.md#arrow-keys) |
+| ↑ or W | Step forward | There's a way forward | [navigation.md](navigation.md#arrow-keys) |
+| ↓ or S | Step back without turning | There's a way back | [navigation.md](navigation.md#arrow-keys) |
+| ← / → or A / D | Turn a quarter turn | Always | [navigation.md](navigation.md#arrow-keys) |
 | Tab / Shift+Tab | Select the next or previous object in the view | The view has something to use | [selection.md](selection.md#keys) |
 | Escape | Clear the selection | Something is selected | [selection.md](selection.md#keys) |
 | Enter / Space | Use the selected object, as a click would | Something is selected | [selection.md](selection.md#keys) |
 | Enter / Space | Move the sign's text on | The text box is open | [text-box.md](text-box.md#moving-the-text-on) |
 
-- **Everything the mouse can do, the keyboard can too.** The arrow keys work the navigation buttons through the same `pressNavButton` path as clicks, including the key-press animation. Enter and Space call the same `interact` function as a click on the sign, mirror or pull.
+- **Everything the mouse can do, the keyboard can too.** The arrow keys and WASD work the navigation buttons through the same `pressNavButton` path as clicks, including the key-press animation. Enter and Space call the same `interact` function as a click on the sign, mirror or pull.
 - **No keyboard trap:** Tab past the last object (or Shift+Tab past the first) clears the selection and lets the browser move focus on. Views with nothing to select leave Tab alone entirely.
-- **No accidental repeats:** held arrow keys repeat on purpose, turning or stepping each time an animation ends. A held Enter or Space acts only once, so it can't skip through the text or reopen a profile.
+- **No accidental repeats:** held arrow and WASD keys repeat on purpose, turning or stepping each time an animation ends. A held Enter or Space acts only once, so it can't skip through the text or reopen a profile.
 - **Scrolling:** the arrow keys, and Space when the pane uses it, call `preventDefault` so the page doesn't scroll under the visitor.
 - **Visible selection:** the selected object is marked by four bright carets at its corners ([selection.md](selection.md#carets)), drawn in the brightest tone so they stand out from the dimmer room.
 - **Input waits for animations:** keys and clicks are ignored while a turn, step, ripple or site switch plays ([architecture.md](architecture.md#animations)). Tab still doesn't move focus during an animation in a view with something to select.

@@ -262,7 +262,8 @@ function pressKey(key: string, init: KeyboardEventInit = {}, target: Window | El
 const ARROW_KEYS: Record<NavButton, string> = { forward: 'ArrowUp', back: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }
 
 // Ways of working a navigation button: clicking it on the panel, pressing its
-// arrow key, or clicking the room's matching zone, which has no way back.
+// arrow key or WASD key, or clicking the room's matching zone, which has no
+// way back.
 type Pane = ReturnType<typeof renderWithPanel>
 type Input = { name: string; use: (pane: Pane, button: NavButton) => void; buttons: NavButton[] }
 const PANEL_INPUT: Input = {
@@ -275,12 +276,18 @@ const KEY_INPUT: Input = {
   use: (_, button) => pressKey(ARROW_KEYS[button]),
   buttons: ['forward', 'back', 'left', 'right'],
 }
+const WASD_KEYS: Record<NavButton, string> = { forward: 'w', back: 's', left: 'a', right: 'd' }
+const WASD_INPUT: Input = {
+  name: 'WASD',
+  use: (_, button) => pressKey(WASD_KEYS[button]),
+  buttons: ['forward', 'back', 'left', 'right'],
+}
 const ROOM_INPUT: Input = {
   name: 'the room',
   use: ({ canvas }, button) => clickAt(canvas, { forward: CENTRE_X, back: NaN, left: LEFT_X, right: RIGHT_X }[button]),
   buttons: ['forward', 'left', 'right'],
 }
-const INPUTS = [PANEL_INPUT, KEY_INPUT]
+const INPUTS = [PANEL_INPUT, KEY_INPUT, WASD_INPUT]
 
 type Enabled = Record<NavButton, boolean>
 
@@ -839,6 +846,18 @@ describe('ViewPane', () => {
       expect(visited).toEqual(['start/west', 'nook/west', 'start/west', 'start/north'])
     })
 
+    it('visits the same places with WASD in either case, so Caps Lock makes no difference', () => {
+      const { canvas } = renderPane()
+      const visited: string[] = []
+
+      for (const key of ['a', 'W', 's', 'D']) {
+        pressKey(key)
+        visited.push(`${canvas.dataset.place}/${canvas.dataset.heading}`)
+      }
+
+      expect(visited).toEqual(['start/west', 'nook/west', 'start/west', 'start/north'])
+    })
+
     it('mixes with panel clicks, both working the same buttons', () => {
       const { canvas, panel } = renderWithPanel()
 
@@ -860,13 +879,13 @@ describe('ViewPane', () => {
 
     // ArrowUp and ArrowDown lead nowhere from the start, so this includes keys
     // whose button is unusable.
-    it.each(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])('prevents the default action of %s', (key) => {
+    it.each(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'])('prevents the default action of %s', (key) => {
       renderPane()
 
       expect(pressKey(key)).toBe(false)
     })
 
-    it.each(['a', 'Enter', ' ', 'Escape', 'PageDown', 'Up', 'Left'])(
+    it.each(['q', 'Enter', ' ', 'Escape', 'PageDown', 'Up', 'Left'])(
       'ignores the %j key and leaves its default action',
       (key) => {
         const { canvas } = renderPane()

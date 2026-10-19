@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { GLYPH_HEIGHT, GLYPH_WIDTH, textPixels, textWidth } from './pixelFont.ts'
 
 // Every glyph the font has, and those that draw something (all but space).
-const ALL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?'-:/+↑↓←→".split('')
+const ALL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?'-:/|+↑↓←→".split('')
 const GLYPHS = ALL_GLYPHS.filter((char) => char !== ' ')
 
 // A glyph as rows of '#' and '.', read back from its pixels.
