@@ -34,7 +34,7 @@ Clicking the card, or pressing Enter or Space with it selected, opens the profil
 
 - **Room canvas:** `drawProfile` (`profile.ts`) draws in place of the room. It shows the avatar, `AVATAR_PROFILE_SIZE` (96) square, in the upper left with a dim outline. To its right is `FULL_NAME`, one word per line, at twice the font's size. The canvas's `data-view` is `profile`, or `room` otherwise.
 - **Lower panel:** `ABOUT_TEXT` in the text box ([text-box.md](text-box.md)), at the font's own size (`ABOUT_SCALE`). It all shows at once, with no typing and no caret.
-- **Input:** the room takes no clicks and shows the blocked hand. The navigation buttons and movement keys do nothing. The card stays usable, and it's the only thing Tab selects. Opening the view clears the selection of a room object, since the object is hidden, so Enter can't use it.
+- **Input:** the room takes no clicks and shows the blocked hand. The navigation buttons and movement keys do nothing. The card stays usable, and it's the only thing Tab selects. Opening the view selects the card, however it was opened, so its carets show on the side panel. That also replaces a room object's selection, so Enter closes the view rather than using the hidden object.
 - **Screen readers:** the status reads the full name and the About Me text.
 
 The card can't be used while the sign's text is open. A click on it moves the text on, as clicks anywhere in the pane do.

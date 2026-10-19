@@ -622,8 +622,9 @@ function ViewPane() {
     else if (target === 'mirror') rippleFrom(GLASS_CENTRE)
     else if (target === 'pull') switchSite()
     else {
-      // The profile view covers the room, so whatever was selected there is out of view.
-      if (!profileOpen && selected !== 'card') select(null)
+      // Opening it selects the card, however it was opened, so its carets show
+      // what the view belongs to. Whatever was selected in the room is covered.
+      if (!profileOpen && selected !== 'card') select('card')
       setProfileOpen(!profileOpen)
     }
   }

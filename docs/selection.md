@@ -24,7 +24,7 @@ The keys follow the same rules as the arrow keys ([navigation.md](navigation.md#
 - **While an animation plays:** Tab, Enter and Space are ignored, but they still don't move focus or scroll.
 - **While the text box is open:** Enter and Space move its text on, and Tab is left to the browser. Selecting the sign and pressing Enter opens the text box, and the next press moves its text on.
 
-Turning or moving clears the selection of a room object, because it leaves the view. The card stays selected, since it never leaves view. The mouse doesn't change the selection.
+Turning or moving clears the selection of a room object, because it leaves the view. The card stays selected, since it never leaves view. The mouse doesn't change the selection, except that opening the profile view with a click selects the card ([character.md](character.md#profile-view)).
 
 The visually hidden `.view-pane-status` element names the selected object ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Character card: Duncan") for screen readers, unless the text box or the profile view is open.
 

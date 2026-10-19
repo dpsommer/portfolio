@@ -4359,13 +4359,15 @@ describe('ViewPane', () => {
         (['forward', 'left', 'right'] as const).map((button) => [input.name, button, input] as const),
       ))('does not move with %s (%s)', (_, button, input) => {
         const pane = openProfile()
+        const roomBefore = fillsOn(pane.canvas).length
 
         input.use(pane, button)
         frames.flush(START + STEP_MS)
 
         expect(pane.canvas).toHaveAttribute('data-place', 'start')
         expect(pane.canvas).toHaveAttribute('data-heading', 'north')
-        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+        // The card's carets bounce on the side panel, but nothing redraws the room.
+        expect(fillsOn(pane.canvas)).toHaveLength(roomBefore)
       })
 
       it('does not open the sign\'s text with a click on the sign', () => {
@@ -4378,14 +4380,25 @@ describe('ViewPane', () => {
         expect(status()).toBe(PROFILE_STATUS)
       })
 
+      it('selects the card when a click opens it', () => {
+        const { side } = renderCard()
+        clickSide(side)
+
+        expect(status()).toBe(PROFILE_STATUS)
+        // Closing shows that the card is what was selected.
+        pressKey('Escape')
+        expect(status()).toBe(CARD_LABEL)
+      })
+
       it('selects only the card with Tab, even where the room has things to use', () => {
         const { side } = renderCard()
         walk(['ArrowUp'])
         clickSide(side)
+        // Past the card, which opening selected, the selection clears.
+        pressKey('Tab')
 
         expect(pressKey('Tab')).toBe(false)
-        expect(screen.getByRole('status').textContent).toBe(PROFILE_STATUS)
-        // Closing shows that the card is what was selected.
+        expect(status()).toBe(PROFILE_STATUS)
         pressKey('Escape')
         expect(status()).toBe(CARD_LABEL)
       })
@@ -4394,7 +4407,6 @@ describe('ViewPane', () => {
         const { side } = renderCard()
         walk(['ArrowUp'])
         clickSide(side)
-        pressKey('Tab')
 
         expect(pressKey('Tab')).toBe(true)
         pressKey('Escape')
@@ -4444,7 +4456,7 @@ describe('ViewPane', () => {
       it.each([
         ['the mirror', 1],
         ['the curtain pull', 2],
-      ])('clears %s, selected before a click opened it, so Enter does not use it', (_, tabs) => {
+      ])('swaps %s, selected before a click opened it, for the card, so Enter closes the view instead of using it', (_, tabs) => {
         const { canvas, side } = renderCard()
         walk(['ArrowLeft', 'ArrowUp'])
         for (let i = 0; i < tabs; i++) pressKey('Tab')
@@ -4454,10 +4466,55 @@ describe('ViewPane', () => {
         // Long enough for a ripple or site switch to finish, had one started.
         frames.flush(START + 10_000)
 
-        expect(status()).toBe(PROFILE_STATUS)
-        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(status()).toBe(CARD_LABEL)
+        expect(canvas).toHaveAttribute('data-view', 'room')
         expect(canvas).toHaveAttribute('data-site', MIRROR_SITES[0].name)
         expect(openUrl).not.toHaveBeenCalled()
+      })
+
+      it('draws the card\'s carets on the side panel when a click opens it', () => {
+        const { side } = renderCard()
+        const sideBefore = fillsOn(side).length
+
+        clickSide(side)
+
+        expect(fillsOn(side).slice(sideBefore)).toEqual(sidePanelFills(0))
+      })
+
+      it('moves the carets from the mirror to the card when a click opens it, leaving the profile view as the room\'s last drawing', () => {
+        const { canvas, side } = renderCard()
+        walk(['ArrowLeft', 'ArrowUp'])
+        pressKey('Tab')
+
+        clickSide(side)
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills(0))
+        // Through a bounce, which would redraw the mirror's carets if it were still selected.
+        frames.flush(START + 2 * STEP_MS + BOUNCE_PERIOD_MS + BOUNCE_MS / 2)
+
+        expect(fillsOn(canvas).slice(-profileFills().length)).toEqual(profileFills())
+      })
+
+      it('leaves the side panel alone when a click opens it with the card already selected', () => {
+        const { canvas, side } = renderCard()
+        pressKey('Tab')
+        const sideBefore = fillsOn(side).length
+
+        clickSide(side)
+
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(status()).toBe(PROFILE_STATUS)
+        expect(fillsOn(side)).toHaveLength(sideBefore)
+      })
+
+      it.each<[string, (side: HTMLElement) => void]>([
+        ['a click on the card', (side) => clickSide(side)],
+        ['Escape', () => pressKey('Escape')],
+      ])('keeps the card\'s carets on the side panel when %s closes it', (_, close) => {
+        const { side } = openProfile()
+
+        close(side)
+
+        expect(lastSideDraw(fillsOn(side))).toEqual(sidePanelFills(0))
       })
     })
 
