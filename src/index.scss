@@ -1,6 +1,27 @@
+@use './styles/pane' as *;
+
+// The pixel font page text is set in, built from the canvases' 5×7 glyphs
+// (`npm run build:font`).
+@font-face {
+  font-family: 'Pixel';
+  src: url('./assets/pixel-font.otf') format('opentype');
+  font-display: block;
+}
+
+// Outer sizes in canvas pixels: the pane with its frame, and the Controls
+// section's width with its frame.
+$pane-outer-width: $pane-width + 2 * $frame-thickness;
+$pane-outer-height: $pane-height + 2 * $frame-thickness;
+$controls-outer-width: $controls-width + 2 * $frame-thickness;
+$side-by-side-width: $pane-outer-width + $page-gap + $controls-outer-width;
+
 :root {
   --bg: #0d0d0d;
   --fg: #f2efe6;
+  --fg-worn: #9a968c;
+  // Size of one canvas pixel on screen. With the Controls section under the
+  // pane, the pane fits inside 90vw × 80vh and the page scrolls to the rest.
+  --canvas-pixel: min(calc(90vw / #{$pane-outer-width}), calc(80vh / #{$pane-outer-height}));
 
   color-scheme: dark;
   color: var(--fg);
@@ -16,4 +37,27 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+// The pane, with the Controls section under it on narrow windows and beside
+// it on wide ones.
+.app {
+  display: grid;
+  // The pane keeps its own size; the Controls section stretches to match it.
+  align-items: start;
+  gap: px($page-gap);
+  padding: px($page-gap) 0;
+}
+
+// Side by side once the window is wide enough that the pane is no smaller
+// than it would be stacked: when 90vw / (pane and Controls width) is at least
+// 80vh / (pane height).
+@media (min-aspect-ratio: #{$side-by-side-width * 80} / #{$pane-outer-height * 90}) {
+  :root {
+    --canvas-pixel: min(calc(90vw / #{$side-by-side-width}), calc(80vh / #{$pane-outer-height}));
+  }
+
+  .app {
+    grid-template-columns: auto px($controls-outer-width);
+  }
 }

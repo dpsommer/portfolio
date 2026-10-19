@@ -1,38 +1,10 @@
-// Sizes in canvas pixels; must match the constants in ViewPane.tsx. The room
-// takes the upper-left 70% of the pane's width, a panel as tall as the side
-// panel is wide sits below it, and another runs down the right, with dividing
-// bands taken out of the panels.
-$room-width: 320;
-$room-height: 240;
-$pane-width: 457;
-// Must match the frame thickness in frame.svg (5 of its 12 pixels on each side).
-$frame-thickness: 5;
-$divider: $frame-thickness;
-$side-width: $pane-width - $room-width - $divider;
-$lower-height: $side-width;
-$pane-height: $room-height + $divider + $lower-height;
-// Size of one canvas pixel on screen: the largest that fits the pane inside
-// 80vw × 80vh. The frame and dividers are drawn in the same units so their
-// pixels line up with the scene's.
-$canvas-pixel: min(calc(80vw / #{$pane-width}), calc(80vh / #{$pane-height}));
-
-@function px($count) {
-  @return calc(#{$canvas-pixel} * #{$count});
-}
-
-$frame-black: #000000;
-$frame-worn: #9a968c;
-$frame-light: #f2efe6;
+@use '../styles/pane' as *;
 
 .view-pane-frame {
   display: grid;
   grid-template-columns: px($room-width) px($divider) px($side-width);
   grid-template-rows: px($room-height) px($divider) px($lower-height);
-  // frame.svg is a 12×12 pixel-art frame: the 5px corners stay fixed and the
-  // middle pixels stretch along each edge. It's an SVG of crisp-edged rects, so
-  // it stays sharp at any scale.
-  border: px($frame-thickness) solid transparent;
-  border-image: url('./frame.svg') $frame-thickness;
+  @include pixel-frame;
 }
 
 %panel {

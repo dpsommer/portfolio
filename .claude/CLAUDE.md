@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run lint` — run oxlint (type-aware; config in `.oxlintrc.json`)
 - `npm run preview` — serve the production build locally
 - `npm test` — run the Vitest suite
+- `npm run build:font` — rebuild `src/assets/pixel-font.otf`, the page's web font, from the glyphs in `src/scene/core/pixelFont.ts`. Rerun after changing a glyph.
 - `npm run capture:preview` — re-capture the profile screenshots shown in the mirror (`src/assets/*-preview.png`, one per page in the script's `PAGES` list, via Playwright; needs `npx playwright install chromium` once)
 
 ## Docs
@@ -24,13 +25,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/mirror.md` — the mirror's sites, previews, ripple, curtain pull, logo plaque and site switching, and how to add a site.
 - `docs/text-box.md` — the lower panel's text box: the sign's pages, typing speed, caret, moving the text on (clicks, Enter, Space) and reduced motion.
 - `docs/selection.md` — selecting the room's objects with Tab, the corner carets and their bounce, using objects with Enter or Space, and how to make a new object selectable.
+- `docs/controls-panel.md` — the Controls panel, the page's grid layout and breakpoint, shared Sass sizes and the pixel web font.
 - `docs/accessibility.md` — keyboard controls, screen reader support, reduced motion and contrast in one place, plus suggested improvements. Update it when adding input, animation or colours.
 - `docs/components.md` — React component conventions: each component other than `App` goes in `src/ComponentName/` with its `.tsx`, `.test.tsx` and `.scss` files, plus where helpers go.
 - `docs/testing.md` — test commands, Vitest setup, how to handle canvas code, shared helpers and test style.
 
 ## Stack
 
-React 19 + TypeScript 6 + Vite 8, linted with oxlint (no ESLint/Prettier). The entry point is `index.html` → `src/main.tsx` → `src/App.tsx`. Styles are per-component `.scss` files (compiled by `sass-embedded`); `src/index.css` holds only global page styles and colour variables.
+React 19 + TypeScript 6 + Vite 8, linted with oxlint (no ESLint/Prettier). The entry point is `index.html` → `src/main.tsx` → `src/App.tsx`. Styles are per-component `.scss` files (compiled by `sass-embedded`); `src/index.scss` holds only global page styles, the page layout, the font face and the colour and `--canvas-pixel` variables. Sizes shared between them are in `src/styles/_pane.scss`.
 
 TypeScript settings that affect how code is written (`tsconfig.app.json`):
 - `verbatimModuleSyntax`: type-only imports must use `import type`.

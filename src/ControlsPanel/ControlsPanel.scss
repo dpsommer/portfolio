@@ -1,0 +1,64 @@
+@use '../styles/pane' as *;
+
+// Text is the pixel font at 2 canvas pixels per glyph pixel, like the text
+// box in the lower panel. A glyph pixel is 0.1 em.
+$text-scale: 2;
+$padding: 8;
+
+.controls-panel {
+  position: relative;
+  @include pixel-frame;
+  box-sizing: border-box;
+  align-self: stretch;
+  padding: px($padding);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Pixel', monospace;
+  font-size: px(10 * $text-scale);
+  // One line is 12 canvas pixels of glyph rows and spacing, so all the
+  // controls fit beside the pane in one column.
+  line-height: 1.2;
+  // Keep the pixel edges crisp where the browser allows it.
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+.controls-panel-heading {
+  margin: 0 0 px($padding);
+  font-size: inherit;
+  font-weight: normal;
+}
+
+.controls-panel-list {
+  display: grid;
+  // One column beside the pane; as many as fit under it.
+  grid-template-columns: repeat(auto-fill, minmax(px($controls-width - 2 * $padding), 1fr));
+  gap: px(6) px(2 * $padding);
+  margin: 0;
+}
+
+.controls-panel-entry {
+  dt,
+  dd {
+    margin: 0;
+  }
+
+  dd {
+    color: var(--fg-worn);
+  }
+}
+
+kbd {
+  font: inherit;
+}
+
+// Visually hidden, but read by assistive tech.
+.controls-panel-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

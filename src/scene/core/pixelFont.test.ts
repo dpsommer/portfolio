@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { GLYPH_HEIGHT, GLYPH_WIDTH, textPixels, textWidth } from './pixelFont.ts'
 
 // Every glyph the font has, and those that draw something (all but space).
-const ALL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?'-:".split('')
+const ALL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?'-:/+↑↓←→".split('')
 const GLYPHS = ALL_GLYPHS.filter((char) => char !== ' ')
 
 // A glyph as rows of '#' and '.', read back from its pixels.
@@ -12,6 +12,10 @@ function rowsOf(char: string): string[] {
     Array.from({ length: GLYPH_WIDTH }, (_, x) => (filled.has(`${x},${y}`) ? '#' : '.')).join(''),
   )
 }
+
+const mirrored = (rows: string[]) => rows.map((row) => row.split('').reverse().join(''))
+const flipped = (rows: string[]) => [...rows].reverse()
+const filledCount = (row: string) => row.split('').filter((cell) => cell === '#').length
 
 describe('textWidth', () => {
   it('is 0 for an empty string', () => {
@@ -78,6 +82,45 @@ describe('textPixels', () => {
 
   it('throws for an unknown glyph', () => {
     expect(() => textPixels('WE~')).toThrow('No pixel font glyph for "~"')
+  })
+})
+
+describe('arrow glyphs', () => {
+  // Lines across the arrow, from its tip back to its tail: the head widens to
+  // its widest line, then a one-pixel shaft runs straight back from it.
+  function expectPointsAlong(lines: string[]) {
+    const spans = lines.map((line) => line.lastIndexOf('#') - line.indexOf('#') + 1)
+    const widest = spans.indexOf(Math.max(...spans))
+
+    expect(widest).toBeGreaterThan(0)
+    expect(widest).toBeLessThan(lines.length - 1)
+    for (let i = 1; i <= widest; i++) expect(spans[i]).toBeGreaterThan(spans[i - 1])
+    expect(lines.slice(widest + 1).every((line) => filledCount(line) === 1 && line === lines[lines.length - 1])).toBe(true)
+  }
+
+  it('draws ↑ with its head at the top', () => {
+    expectPointsAlong(rowsOf('↑'))
+  })
+
+  it('draws → with its head at the right', () => {
+    const rows = rowsOf('→')
+    const columns = Array.from({ length: GLYPH_WIDTH }, (_, x) => rows.map((row) => row[x]).join(''))
+
+    expectPointsAlong(columns.reverse())
+  })
+
+  it.each([
+    ['↑', mirrored],
+    ['→', flipped],
+  ])('draws %s symmetric about its shaft', (char, reflect) => {
+    expect(reflect(rowsOf(char))).toEqual(rowsOf(char))
+  })
+
+  it.each([
+    ['↓', '↑', 'upside down', flipped],
+    ['←', '→', 'mirrored', mirrored],
+  ])('draws %s as %s %s', (char, other, _how, reflect) => {
+    expect(rowsOf(char)).toEqual(reflect(rowsOf(other)))
   })
 })
 

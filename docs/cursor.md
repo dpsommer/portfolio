@@ -27,6 +27,8 @@ While an animation plays, the hands don't show: the room shows its zone cursor, 
 
 Keyboard selection ([selection.md](selection.md)) is shown with carets drawn in the room, not the cursor, and doesn't change the cursor.
 
+The Controls panel beside the pane is page content, not a canvas, so it keeps the browser's own cursor ([controls-panel.md](controls-panel.md#style)).
+
 ## Hover areas
 
 `ViewPane` converts the mouse position to canvas pixels using fractions of the canvas's on-screen size, so every area scales with the pane.

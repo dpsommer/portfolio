@@ -18,10 +18,10 @@ Only the room canvas has cursor zones and click handling. The lower panel handle
 
 ## Scaling
 
-CSS scales the whole pane to the largest size that fits inside 80vw × 80vh, centred, with `image-rendering: pixelated`. Drawing coordinates stay the same at every window size.
+CSS sizes everything in canvas pixels: `--canvas-pixel` (`src/index.scss`) is the size of one on screen, and the `px()` function in `src/styles/_pane.scss` multiplies it. It's the largest size that fits the pane, and the Controls panel when it's beside it, inside 90vw × 80vh ([controls-panel.md](controls-panel.md#layout)). The canvases use `image-rendering: pixelated`. Drawing coordinates stay the same at every window size.
 
 ## Frame and bands
 
-- **Frame:** a pixel-art `border-image` (`src/ViewPane/frame.svg`) with stepped corners, a black outer outline, an off-white band with a worn bevel, and a black inner outline. It's 5 frame pixels thick, and each frame pixel is sized to match one canvas pixel on screen.
+- **Frame:** a pixel-art `border-image` (`src/assets/frame.svg`, through the `pixel-frame` mixin) with stepped corners, a black outer outline, an off-white band with a worn bevel, and a black inner outline. It's 5 frame pixels thick, and each frame pixel is sized to match one canvas pixel on screen.
 - **Bands:** the areas are divided by 5-pixel bands in the same colours, bevelled on both sides (`.view-pane-divider`). The vertical band runs unbroken past the end of the horizontal one.
 - **Cursor:** the wrapper sets the blocked cursor, which the frame, bands and side panel inherit (see [cursor.md](cursor.md)).

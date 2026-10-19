@@ -4,7 +4,7 @@ How the code is organised and how a frame gets drawn. For the room's geometry se
 
 ## Overview
 
-`App` renders a single component, `ViewPane` (`src/ViewPane/ViewPane.tsx`). It owns all state (place, heading, current site, pointer, animations), handles input, and draws three canvases: the room, the lower panel and the side panel. Everything it draws comes from pure functions in `src/scene/`.
+`App` renders the view pane, `ViewPane` (`src/ViewPane/ViewPane.tsx`), and the Controls panel beside it (`src/ControlsPanel/`, [controls-panel.md](controls-panel.md)). It owns all state (place, heading, current site, pointer, animations), handles input, and draws three canvases: the room, the lower panel and the side panel. Everything it draws comes from pure functions in `src/scene/`.
 
 ## Scene modules
 
@@ -28,7 +28,7 @@ The modules are grouped by what they draw:
 
 ## Art rules
 
-- **Palette:** four tones in `src/scene/core/palette.ts`: `BACKGROUND`, then `FOREGROUND_DIM`, `FOREGROUND_WORN` and `FOREGROUND`. Draw only in these. `src/index.css` repeats the background and foreground as CSS variables for the page.
+- **Palette:** four tones in `src/scene/core/palette.ts`: `BACKGROUND`, then `FOREGROUND_DIM`, `FOREGROUND_WORN` and `FOREGROUND`. Draw only in these. `src/index.scss` repeats the background, worn and foreground tones as CSS variables for the page.
 - **Text:** use the 5×7 bitmap font in `src/scene/core/pixelFont.ts`, not canvas text, which would be anti-aliased. Add glyphs there as needed.
 - **Randomness:** never use `Math.random`. Use the seeded `createRandom` for one-off sprites, or `hashRandom`/`hashSeed` keyed to something fixed (world coordinates, a notch's place on the compass) for anything that moves between frames, so the wear stays put instead of shimmering.
 - **Weathering:** sprites and panel art are worn by dropping some pixels and fading others a tone (`weather` in `src/scene/panels/panelCanvas.ts`).

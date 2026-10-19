@@ -1,0 +1,32 @@
+// Sizes in canvas pixels shared by the page's framed areas; the pane's must
+// match the constants in ViewPane.tsx. Everything is drawn in canvas pixels
+// (`px()`), which `--canvas-pixel` on :root sizes to fit the window.
+
+$room-width: 320;
+$room-height: 240;
+$pane-width: 457;
+// Must match the frame thickness in frame.svg (5 of its 12 pixels on each side).
+$frame-thickness: 5;
+$divider: $frame-thickness;
+$side-width: $pane-width - $room-width - $divider;
+$lower-height: $side-width;
+$pane-height: $room-height + $divider + $lower-height;
+// The Controls section's width beside the pane, and the gap between them.
+$controls-width: 150;
+$page-gap: 12;
+
+$frame-black: #000000;
+$frame-worn: #9a968c;
+$frame-light: #f2efe6;
+
+@function px($count) {
+  @return calc(var(--canvas-pixel) * #{$count});
+}
+
+// The pixel-art frame: frame.svg is a 12×12 frame whose 5px corners stay fixed
+// while the middle pixels stretch along each edge. It's an SVG of crisp-edged
+// rects, so it stays sharp at any scale.
+@mixin pixel-frame {
+  border: px($frame-thickness) solid transparent;
+  border-image: url('../assets/frame.svg') $frame-thickness;
+}

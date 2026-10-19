@@ -26,6 +26,13 @@ A component's directory can also hold modules, data and assets that only it uses
 - `mirrorSites.ts` — the mirror's profiles and `openUrl`
 - `signText.ts` — the sign's pages and the text box's typing and caret timing
 - `siteLogos.ts` — the profiles' logo pixel maps
-- `frame.svg` — the pane frame's `border-image`
+
+`src/ControlsPanel/` holds `controls.ts`, the list of keyboard controls.
+
+Shared styles and assets:
+
+- `src/styles/_pane.scss` — sizes in canvas pixels, the `px()` function and the `pixel-frame` mixin, `@use`d by components and `index.scss`
+- `src/assets/frame.svg` — the pixel frame's `border-image`
+- `src/assets/pixel-font.otf` — the page's pixel web font, built by `npm run build:font`
 
 Code that draws the scene goes in `src/scene/` instead, as pure functions that don't depend on React or the DOM (see [architecture.md](architecture.md#scene-modules)). Put it in the component's directory when it's about the page around the scene (cursors, links, site data), and in `src/scene/` when it produces pixels.
