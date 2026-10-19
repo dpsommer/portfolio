@@ -20,7 +20,7 @@ The modules are grouped by what they draw:
 | `sign/` | The welcome sign hanging on the far wall: its shape (`board.ts`) and its pixels (`pixels.ts`). |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
 | `selection/` | The carets around the object selected with the keyboard, their bounce, and `pixelBounds`. |
-| `character/` | The character card in the side panel, its keyboard and mouse icons, the profile view, and photos quantised to the palette (`picture.ts`). |
+| `character/` | The character card in the side panel, the icons (keyboard, mouse, headphones, hoodie), the profile view with its health potion and equipment table, and photos quantised to the palette (`picture.ts`). |
 | `textBox/` | The text box the lower panel shows while the sign's text is open: wrapping, layout, text and caret. |
 | `panels/` | Logic shared by the panels beside the room, such as `clearPanel`. |
 | `draw.ts` | `drawScene`, which paints everything in the room canvas in order (see [layout.md](layout.md#draw-order)), and sprite placement. |

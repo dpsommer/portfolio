@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeContext, toFills } from '../../test/fakeContext.ts'
-import { HEIGHT, WIDTH, expectOnCanvas, extent } from '../../test/pixels.ts'
-import { BACKGROUND, FOREGROUND, FOREGROUND_DIM } from '../core/palette.ts'
-import { textPixels } from '../core/pixelFont.ts'
+import { HEIGHT, WIDTH, expectOnCanvas, expectPlaced, extent } from '../../test/pixels.ts'
+import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
+import { GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
-import { FULL_NAME } from '../../ViewPane/aboutText.ts'
+import { FULL_NAME, PROFILE } from '../../ViewPane/aboutText.ts'
+import { equipmentPixels } from './equipment.ts'
+import { POTION_HEIGHT, POTION_WIDTH, potionPixels } from './potion.ts'
 import { AVATAR_PROFILE_SIZE, drawProfile, profilePixels } from './profile.ts'
+import type { Profile } from './profile.ts'
 import { picturePixels } from './picture.ts'
 import type { Picture } from './picture.ts'
 
@@ -24,12 +27,27 @@ const inside = (pixels: Pixel[], { left, top, right, bottom }: ReturnType<typeof
   pixels.filter(({ x, y }) => x >= left && x <= right && y >= top && y <= bottom)
 
 // Where the avatar goes: the cells a full avatar adds to the view.
-const taken = new Set(profilePixels(FULL_NAME, null).map(key))
-const SQUARE = extent(profilePixels(FULL_NAME, AVATAR).filter((pixel) => !taken.has(key(pixel))))
+const taken = new Set(profilePixels(PROFILE, null).map(key))
+const SQUARE = extent(profilePixels(PROFILE, AVATAR).filter((pixel) => !taken.has(key(pixel))))
+
+// The rules: across, RULE_GAP (6) under the avatar's outline (2 px out from
+// its square), from the outline's left to its mirror on the right; then down
+// the middle to the bottom of the area under it, 8 px above the canvas's.
+const RULE_Y = SQUARE.bottom + 2 + 6
+const RULE_LEFT = SQUARE.left - 2
+const RULE_RIGHT = WIDTH - 1 - RULE_LEFT
+const DIVIDER_X = Math.floor((RULE_LEFT + RULE_RIGHT) / 2)
+const LOWER_BOTTOM = HEIGHT - 1 - 8
+// The equipment table's space from the rules and the area's edges.
+const PADDING = 6
+
+const withName = (fullName: string): Profile => ({ ...PROFILE, fullName })
+const above = (pixels: Pixel[]) => pixels.filter(({ y }) => y < RULE_Y)
+const below = (pixels: Pixel[]) => pixels.filter(({ y }) => y > RULE_Y)
 
 // The name's pixels split into lines at the empty rows between them.
 function nameLines(name: string): Pixel[][] {
-  const pixels = byPosition(profilePixels(name, null).filter(({ colour }) => colour === FOREGROUND))
+  const pixels = byPosition(above(profilePixels(withName(name), null)).filter(({ colour }) => colour === FOREGROUND))
   const lines: Pixel[][] = []
   let lastRow = Number.NEGATIVE_INFINITY
   for (const pixel of pixels) {
@@ -48,13 +66,6 @@ function origin(word: string, pixels: Pixel[]) {
 }
 
 describe('profilePixels', () => {
-  it.each([
-    ['without the avatar', null],
-    ['with the avatar', AVATAR],
-  ])('keeps the view on the room canvas %s', (_, avatar) => {
-    expectOnCanvas(profilePixels(FULL_NAME, avatar), WIDTH, HEIGHT)
-  })
-
   describe('avatar', () => {
     it('is a square AVATAR_PROFILE_SIZE wide in the upper left, as far from the top as the left', () => {
       expect(SQUARE.right - SQUARE.left + 1).toBe(AVATAR_PROFILE_SIZE)
@@ -68,18 +79,18 @@ describe('profilePixels', () => {
     it('is drawn from the picture given, at its square', () => {
       const avatar: Picture = { ...AVATAR, tones: AVATAR.tones.map((_, index) => index % 4) }
 
-      expect(byPosition(inside(profilePixels(FULL_NAME, avatar), SQUARE))).toEqual(
+      expect(byPosition(inside(profilePixels(PROFILE, avatar), SQUARE))).toEqual(
         byPosition(picturePixels(avatar, SQUARE.left, SQUARE.top)),
       )
     })
 
     it('is left out until it is given, leaving its square empty', () => {
-      expect(inside(profilePixels(FULL_NAME, null), SQUARE)).toEqual([])
+      expect(inside(profilePixels(PROFILE, null), SQUARE)).toEqual([])
     })
 
     it('has a dim outline around its square, leaving out the corner pixels', () => {
       const ring = { left: SQUARE.left - 2, top: SQUARE.top - 2, right: SQUARE.right + 2, bottom: SQUARE.bottom + 2 }
-      const outline = inside(profilePixels(FULL_NAME, null), ring)
+      const outline = inside(profilePixels(PROFILE, null), ring)
       const corners = [
         key({ x: ring.left, y: ring.top }),
         key({ x: ring.right, y: ring.top }),
@@ -118,6 +129,66 @@ describe('profilePixels', () => {
         expect(left).toBeGreaterThan(SQUARE.right + 2)
       }
     })
+
+    it('puts the title under the name in worn text at the font\'s size, lined up with it on the left', () => {
+      const lines = nameLines(name)
+      const title = above(profilePixels(withName(name), null)).filter(({ colour }) => colour === FOREGROUND_WORN)
+
+      const { left, top } = expectPlaced(title, textPixels(PROFILE.title))
+
+      expect(left).toBe(origin(words[0], lines[0]).left)
+      expect(top).toBeGreaterThan(extent(lines[lines.length - 1]).bottom)
+      expect(top + GLYPH_HEIGHT).toBeLessThan(RULE_Y)
+    })
+  })
+
+  // The profile's own, the widest health readout, and an empty potion.
+  describe.each([
+    ['the profile', PROFILE],
+    ['the widest health', { ...PROFILE, health: { current: 9999, total: 9999 } }],
+    ['no health', { ...PROFILE, health: { current: 0, total: 0 } }],
+  ])('under the avatar, for %s', (_, profile) => {
+    const pixels = profilePixels(profile, AVATAR)
+
+    it('draws a dim rule across, 6 px under the avatar\'s outline, from its left to the mirror of that', () => {
+      const rule = byPosition(pixels.filter(({ y }) => y === RULE_Y))
+
+      expect(rule).toEqual(Array.from({ length: RULE_RIGHT - RULE_LEFT + 1 }, (_, i) => ({ x: RULE_LEFT + i, y: RULE_Y, colour: FOREGROUND_DIM })))
+    })
+
+    it('draws a dim rule down the middle, from under the rule across to the bottom of the area, that nothing crosses', () => {
+      const rule = byPosition(below(pixels).filter(({ x }) => x === DIVIDER_X))
+
+      expect(rule).toEqual(Array.from({ length: LOWER_BOTTOM - RULE_Y }, (_, i) => ({ x: DIVIDER_X, y: RULE_Y + 1 + i, colour: FOREGROUND_DIM })))
+    })
+
+    it('draws the potion, and nothing else, centred in the left section', () => {
+      const left = below(pixels).filter(({ x }) => x < DIVIDER_X)
+      const potion = potionPixels(profile.health)
+
+      const place = expectPlaced(left, potion)
+
+      expect(byPosition(left)).toEqual(byPosition(potion.map(({ x, y, colour }) => ({ x: x + place.left, y: y + place.top, colour }))))
+      expect(Math.abs(place.left - RULE_LEFT - 1 - (DIVIDER_X - 1 - (place.left + POTION_WIDTH - 1)))).toBeLessThanOrEqual(1)
+      expect(Math.abs(place.top - RULE_Y - 1 - (LOWER_BOTTOM - (place.top + POTION_HEIGHT - 1)))).toBeLessThanOrEqual(1)
+    })
+
+    it('draws the equipment table, and nothing else, in the right section inside its padding', () => {
+      const tableLeft = DIVIDER_X + 1 + PADDING
+      const tableTop = RULE_Y + 1 + PADDING
+      const table = equipmentPixels(profile.equipment, RULE_RIGHT - PADDING - tableLeft + 1, LOWER_BOTTOM - tableTop + 1)
+
+      expect(byPosition(below(pixels).filter(({ x }) => x > DIVIDER_X))).toEqual(
+        byPosition(table.map(({ x, y, colour }) => ({ x: x + tableLeft, y: y + tableTop, colour }))),
+      )
+    })
+
+    it.each([
+      ['without the avatar', null],
+      ['with the avatar', AVATAR],
+    ])('keeps the view on the room canvas %s', (_, avatar) => {
+      expectOnCanvas(profilePixels(profile, avatar), WIDTH, HEIGHT)
+    })
   })
 })
 
@@ -128,11 +199,11 @@ describe('drawProfile', () => {
   ])('draws the background, then the profile view, %s', (_, avatar) => {
     const { ctx, fills } = createFakeContext(WIDTH, HEIGHT)
 
-    drawProfile(ctx, FULL_NAME, avatar)
+    drawProfile(ctx, PROFILE, avatar)
 
     expect(fills).toEqual([
       { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
-      ...toFills(profilePixels(FULL_NAME, avatar)),
+      ...toFills(profilePixels(PROFILE, avatar)),
     ])
   })
 })

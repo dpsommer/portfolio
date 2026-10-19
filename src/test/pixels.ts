@@ -32,3 +32,15 @@ export function expectOnCanvas(pixels: Point[], width = WIDTH, height = HEIGHT) 
     expect(y).toBeLessThan(height)
   }
 }
+
+const byPosition = (points: Point[]) => points.map(({ x, y }) => ({ x, y })).sort((a, b) => a.y - b.y || a.x - b.x)
+
+// Expects `drawn` to be `template` (pixels drawn from the origin, such as
+// textPixels or iconPixels) moved as a whole, ignoring colour, and returns
+// where the template's origin went.
+export function expectPlaced(drawn: Point[], template: Point[]) {
+  const left = extent(drawn).left - extent(template).left
+  const top = extent(drawn).top - extent(template).top
+  expect(byPosition(drawn)).toEqual(byPosition(template.map(({ x, y }) => ({ x: x + left, y: y + top }))))
+  return { left, top }
+}

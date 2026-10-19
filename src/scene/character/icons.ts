@@ -1,9 +1,10 @@
 import { PREVIEW_COLOURS } from '../mirror/preview.ts'
 import type { Pixel } from '../core/types.ts'
 
-// Small keyboard and mouse icons for the character card, hinting at the two
-// ways to play. Maps are grids of strings like the site logos: '#' is the
-// full foreground, '+' worn, '-' dim and '.' empty, one cell per canvas pixel.
+// Small icons: a keyboard and mouse for the character card, hinting at the
+// two ways to play, and the profile view's equipment. Maps are grids of
+// strings like the site logos: '#' is the full foreground, '+' worn, '-' dim
+// and '.' empty, one cell per canvas pixel.
 export type IconMap = string[]
 
 const ICON_TONES: Record<string, number> = { '.': 0, '-': 1, '+': 2, '#': 3 }
@@ -38,6 +39,44 @@ export const MOUSE_MAP: IconMap = [
   '.#.......#.',
   '..##...##..',
   '....###....',
+]
+
+// Headphones and a hoodie for the profile view's equipment table.
+export const HEADPHONES_MAP: IconMap = [
+  '.....#######.....',
+  '...##.......##...',
+  '..#...........#..',
+  '.#.............#.',
+  '.#.............#.',
+  '#...............#',
+  '#...............#',
+  '#...............#',
+  '###...........###',
+  '#+##.........##+#',
+  '#+##.........##+#',
+  '#+##.........##+#',
+  '#+##.........##+#',
+  '.###.........###.',
+]
+
+export const HOODIE_MAP: IconMap = [
+  '......#######......',
+  '....##.......##....',
+  '...#...-----...#...',
+  '.###..-.....-..###.',
+  '#.....-.....-.....#',
+  '#......-...-......#',
+  '#..#....+.+....#..#',
+  '#..#....+.+....#..#',
+  '#..#...........#..#',
+  '#..#...........#..#',
+  '#..#..-------..#..#',
+  '#..#..-.....-..#..#',
+  '###..-.......-..###',
+  '..#..---------..#..',
+  '..#.............#..',
+  '..#+++++++++++++#..',
+  '..###############..',
 ]
 
 export const iconWidth = (map: IconMap) => map[0].length

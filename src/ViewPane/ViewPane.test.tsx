@@ -33,7 +33,7 @@ import { quantisePicture } from '../scene/character/picture.ts'
 import type { Picture } from '../scene/character/picture.ts'
 import { AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
 import avatarSrc from '../assets/avatar.jpg'
-import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, FULL_NAME } from './aboutText.ts'
+import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, CHARACTER_TITLE, EQUIPMENT, FULL_NAME, PROFILE, PROFILE_DESCRIPTION } from './aboutText.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -2941,7 +2941,7 @@ describe('ViewPane', () => {
       // The fills drawProfile makes on the room canvas.
       function profileFills(avatar: Picture | null): Fill[] {
         const { ctx, fills } = createFakeContext(VIEW_WIDTH, VIEW_HEIGHT)
-        drawProfile(ctx, FULL_NAME, avatar)
+        drawProfile(ctx, PROFILE, avatar)
         return fills
       }
 
@@ -4059,7 +4059,7 @@ describe('ViewPane', () => {
     })
 
     const CARD_LABEL = `Character card: ${CARD_NAME}`
-    const PROFILE_STATUS = `${FULL_NAME}. ${ABOUT_TEXT}`
+    const PROFILE_STATUS = PROFILE_DESCRIPTION
     const ABOUT_LINES = textBoxLines(LOWER_PANEL_WIDTH, ABOUT_TEXT, 1)
     const STEP_MS = Math.max(TURN_DURATION_MS, MOVE_DURATION_MS)
     const status = () => screen.getByRole('status').textContent
@@ -4129,7 +4129,7 @@ describe('ViewPane', () => {
     // The fills drawProfile makes on the room canvas, before the avatar loads.
     function profileFills(): Fill[] {
       const { ctx, fills } = createFakeContext(VIEW_WIDTH, VIEW_HEIGHT)
-      drawProfile(ctx, FULL_NAME, null)
+      drawProfile(ctx, PROFILE, null)
       return fills
     }
 
@@ -4237,6 +4237,19 @@ describe('ViewPane', () => {
         expect(pressKey(key)).toBe(false)
         expect(canvas).toHaveAttribute('data-view', 'profile')
         expect(status()).toBe(PROFILE_STATUS)
+      })
+
+      it('describes in the status what the view shows: name, title, health, each slot\'s item and the About Me text', () => {
+        renderCard()
+        pressKey('Tab')
+        pressKey('Enter')
+
+        const text = status() ?? ''
+        expect(text).toContain(FULL_NAME)
+        expect(text).toContain(CHARACTER_TITLE)
+        expect(text).toContain(`${CARD_HEALTH.current} of ${CARD_HEALTH.total}`)
+        for (const { slot, item } of EQUIPMENT) expect(text).toContain(`${slot}: ${item}`)
+        expect(text).toContain(ABOUT_TEXT)
       })
 
       it.each(['Enter', ' '])('closes again with %j, leaving the card selected', (key) => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
-import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, FULL_NAME } from './aboutText.ts'
+import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, PROFILE, PROFILE_DESCRIPTION } from './aboutText.ts'
 import avatarSrc from '../assets/avatar.jpg'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -358,7 +358,7 @@ function ViewPane() {
       if (ctx) drawView(ctx, viewRef.current, currentLook())
       return
     }
-    if (ctx) drawProfile(ctx, FULL_NAME, avatarsRef.current.profile)
+    if (ctx) drawProfile(ctx, PROFILE, avatarsRef.current.profile)
     const lowerCtx = lowerPanelRef.current?.getContext('2d')
     if (lowerCtx) drawTextBox(lowerCtx, ABOUT_LINES, ABOUT_LINES.join('').length, false, ABOUT_SCALE)
   }, [profileOpen])
@@ -467,7 +467,7 @@ function ViewPane() {
           avatarsRef.current[key] = avatar
           if (key === 'card') drawSide()
           const ctx = canvasRef.current?.getContext('2d')
-          if (key === 'profile' && ctx && profileOpenRef.current) drawProfile(ctx, FULL_NAME, avatar)
+          if (key === 'profile' && ctx && profileOpenRef.current) drawProfile(ctx, PROFILE, avatar)
         })
         .catch(() => {})
     }
@@ -898,7 +898,7 @@ function ViewPane() {
         {dialogue
           ? SIGN_PAGES[dialogue.page]
           : profileOpen
-            ? `${FULL_NAME}. ${ABOUT_TEXT}`
+            ? PROFILE_DESCRIPTION
             : selected
               ? interactableLabels[selected]
               : ''}

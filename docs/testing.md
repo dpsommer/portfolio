@@ -27,7 +27,7 @@ jsdom has no canvas implementation. `src/test/setup.ts` stubs `HTMLCanvasElement
 ## Shared helpers
 
 - `src/test/fakeContext.ts`: `createFakeContext(width, height)` is a stand-in 2D context that records each `fillRect` as a `Fill` (`{ args, fillStyle }`), and `toFills(pixels)` gives the fills that drawing `pixels` makes. Compare the two to check what a draw function painted, and in what order.
-- `src/test/pixels.ts`: `expectOnCanvas(pixels, width, height)` checks for integer coordinates within the canvas; `extent(pixels)` gives the inclusive bounding box; `WIDTH`, `HEIGHT`, `FOCAL`, `columnAt` and `rowAt` work out where a point projects at 320×240.
+- `src/test/pixels.ts`: `expectOnCanvas(pixels, width, height)` checks for integer coordinates within the canvas; `extent(pixels)` gives the inclusive bounding box; `expectPlaced(drawn, template)` expects `drawn` to be a template drawn from the origin (such as `textPixels` or `iconPixels`) moved as a whole, and returns where its origin went; `WIDTH`, `HEIGHT`, `FOCAL`, `columnAt` and `rowAt` work out where a point projects at 320×240.
 
 ## Style
 

@@ -39,7 +39,7 @@ The scene is drawn on canvases, so assistive tech can't read what's in it. The m
 - **Panels:** the lower and side panel canvases are `aria-hidden`, since they only repeat what the keys already control.
 - **Status:** a visually hidden `role="status"` paragraph (`.view-pane-status`), which screen readers announce politely when it changes:
   - while the sign's text box is open: the current page's full text, all at once rather than letter by letter
-  - while the profile view is open: the full name and the About Me text
+  - while the profile view is open: the full name, title, health, equipment and About Me text (`PROFILE_DESCRIPTION`)
   - otherwise, while something is selected: its name ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Character card: Duncan")
   - otherwise: empty
 - **Language:** `index.html` sets `lang="en"`.

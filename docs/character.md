@@ -32,13 +32,20 @@ The avatar is the GitHub profile picture, committed as `src/assets/avatar.jpg` (
 
 Clicking the card, or pressing Enter or Space with it selected, opens the profile view. Doing either again closes it, and so does Escape.
 
-- **Room canvas:** `drawProfile` (`profile.ts`) draws in place of the room. It shows the avatar, `AVATAR_PROFILE_SIZE` (96) square, in the upper left with a dim outline. To its right is `FULL_NAME`, one word per line, at twice the font's size. The canvas's `data-view` is `profile`, or `room` otherwise.
+- **Room canvas:** `drawProfile` (`profile.ts`) draws in place of the room, from `PROFILE` (`src/ViewPane/aboutText.ts`). The canvas's `data-view` is `profile`, or `room` otherwise. The view shows:
+  - **Avatar:** `AVATAR_PROFILE_SIZE` (96) square, in the upper left with a dim outline.
+  - **Name:** `FULL_NAME` to the avatar's right, one word per line, at twice the font's size.
+  - **Title:** `CHARACTER_TITLE` ("Human Wizard") under the name, in worn text at the font's own size.
+  - **Rules:** a dim rule under the avatar runs across the view. A dim rule down the middle splits the area below it into two sections.
+  - **Potion:** `potionPixels` (`potion.ts`), centred in the left section. It's a corked, round-bottomed flask with a bright outline. Worn liquid with a bright surface fills it to `current / total` of the glass's inside height, neck included. A worn glint shows on the empty glass. The current and total health (`CARD_HEALTH`) are under it at twice the font's size.
+  - **Equipment:** `equipmentPixels` (`equipment.ts`) in the right section. A worn "Equipment" heading sits over a 2×2 grid of dim, corner-less boxes. Each box has its item's icon over the slot's name, in worn text. Every slot reserves the tallest icon's height, so the names line up.
+  - **Slots:** `EQUIPMENT` in `aboutText.ts` lists them: Weapon (keyboard), Off-Hand (mouse), Head (headphones, `HEADPHONES_MAP`) and Chest (hoodie, `HOODIE_MAP`). Each slot also has an `item` name for screen readers.
 - **Lower panel:** `ABOUT_TEXT` in the text box ([text-box.md](text-box.md)), at the font's own size (`ABOUT_SCALE`). It all shows at once, with no typing and no caret.
 - **Input:** the room takes no clicks and shows the blocked hand. The navigation buttons and movement keys do nothing. The card stays usable, and it's the only thing Tab selects. Opening the view selects the card, however it was opened, so its carets show on the side panel. That also replaces a room object's selection, so Enter closes the view rather than using the hidden object.
-- **Screen readers:** the status reads the full name and the About Me text.
+- **Screen readers:** the status reads `PROFILE_DESCRIPTION`. It gives the full name and title, the health, each equipment slot and its item, then the About Me text.
 
 The card can't be used while the sign's text is open. A click on it moves the text on, as clicks anywhere in the pane do.
 
 ## Editing the text
 
-`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.
+`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME`, `CHARACTER_TITLE`, `EQUIPMENT` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
-import { KEYBOARD_MAP, MOUSE_MAP, iconHeight, iconPixels, iconWidth } from './icons.ts'
+import { HEADPHONES_MAP, HOODIE_MAP, KEYBOARD_MAP, MOUSE_MAP, iconHeight, iconPixels, iconWidth } from './icons.ts'
 import type { IconMap } from './icons.ts'
 
 describe.each([
   ['keyboard', KEYBOARD_MAP],
   ['mouse', MOUSE_MAP],
+  ['headphones', HEADPHONES_MAP],
+  ['hoodie', HOODIE_MAP],
 ])('the %s map', (_, map) => {
   it('is rectangular', () => {
     expect(map.every((row) => row.length === map[0].length)).toBe(true)
