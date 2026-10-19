@@ -33,7 +33,7 @@ import { quantisePicture } from '../scene/character/picture.ts'
 import type { Picture } from '../scene/character/picture.ts'
 import { AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
 import avatarSrc from '../assets/avatar.jpg'
-import { ABOUT_TEXT, CARD_NAME, FULL_NAME } from './aboutText.ts'
+import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, FULL_NAME } from './aboutText.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -342,10 +342,10 @@ const SIGN_NORTH: Enabled = { forward: false, back: true, left: true, right: tru
 const NOOK_WEST_FORWARD_HELD: Enabled = { ...NOOK_WEST, forward: true }
 
 // The fills drawSidePanel makes on a canvas the side panel's size: the card,
-// with carets `inset` in while it's selected (null otherwise).
+// showing CARD_NAME and CARD_HEALTH, with carets `inset` in while it's selected (null otherwise).
 function sidePanelFills(inset: number | null = null, avatar: Picture | null = null): Fill[] {
   const { ctx, fills } = createFakeContext(SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT)
-  drawSidePanel(ctx, CARD_NAME, avatar, inset)
+  drawSidePanel(ctx, CARD_NAME, CARD_HEALTH, avatar, inset)
   return fills
 }
 

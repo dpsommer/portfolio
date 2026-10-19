@@ -1,6 +1,6 @@
 # Character card
 
-The character card fills the top of the side panel. It shows the owner's name, their GitHub avatar and small keyboard and mouse icons. Using it opens the profile view, which covers the room with a larger avatar and the full name and puts an About Me text in the lower panel. The drawing code is in `src/scene/character/`. `ViewPane` holds the state and handles input.
+The character card fills the top of the side panel. It shows the owner's name, their GitHub avatar, small keyboard and mouse icons and a health readout. Using it opens the profile view, which covers the room with a larger avatar and the full name and puts an About Me text in the lower panel. The drawing code is in `src/scene/character/`. `ViewPane` holds the state and handles input.
 
 ## Card
 
@@ -9,7 +9,11 @@ The character card fills the top of the side panel. It shows the owner's name, t
 - **Border:** a one-pixel worn outline with its corner pixels left out. It sits `CARD_MARGIN` (9) in from the panel's edges, which leaves room for the selection carets.
 - **Name:** `CARD_NAME` ("Duncan", `src/ViewPane/aboutText.ts`), centred at the top at twice the font's size. Below it is a dim rule.
 - **Avatar:** a square `AVATAR_CARD_SIZE` (72) cells wide, below the name on the left, in a dim outline.
-- **Icons:** `KEYBOARD_MAP` and `MOUSE_MAP` (`icons.ts`), stacked keyboard over mouse. They're centred in the column to the avatar's right and on the avatar's height. The maps use the logos' format: `#` full, `+` worn, `-` dim, `.` empty.
+- **Icons and health:** `KEYBOARD_MAP` and `MOUSE_MAP` (`icons.ts`), then the health readout (`CARD_HEALTH`, `src/ViewPane/aboutText.ts`), stacked in that order.
+  - **Rules:** a dim rule separates each one from the next, with `RULE_GAP` (3) pixels above and below it, and stops `RULE_INSET` (2) short of the column's edges.
+  - **Placement:** the icons are centred in the column between the avatar's outline and the card's border. The stack as a whole is centred on the avatar's height.
+  - **Health:** `healthPixels` draws the readout as a diagonal fraction. The current is in the top left and the total in the bottom right, both bold at `HEALTH_SCALE` (1). A worn slash sits centred between them, `HEALTH_SLASH_GAP` (1) row from each. The numbers are inset `HEALTH_INSET` (3) from the column's edges. The readout sits `HEALTH_GAP` (6) below the second rule, twice the other rules' gaps, so it stands apart. Bold widens every pixel of the glyphs by one to the right.
+  - **Map format:** the icons use the logos' format: `#` full, `+` worn, `-` dim, `.` empty.
 
 `drawSidePanel` clears the panel, draws the card and, while it's selected, draws the selection carets around `CARD_BOUNDS`.
 
@@ -37,4 +41,4 @@ The card can't be used while the sign's text is open. A click on it moves the te
 
 ## Editing the text
 
-`CARD_NAME`, `FULL_NAME` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.
+`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.

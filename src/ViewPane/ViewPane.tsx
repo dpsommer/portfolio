@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
-import { ABOUT_TEXT, CARD_NAME, FULL_NAME } from './aboutText.ts'
+import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, FULL_NAME } from './aboutText.ts'
 import avatarSrc from '../assets/avatar.jpg'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -325,7 +325,7 @@ function ViewPane() {
   const drawSide = () => {
     const ctx = sidePanelRef.current?.getContext('2d')
     const selection = selectionRef.current
-    if (ctx) drawSidePanel(ctx, CARD_NAME, avatarsRef.current.card, selection?.target === 'card' ? selection.inset : null)
+    if (ctx) drawSidePanel(ctx, CARD_NAME, CARD_HEALTH, avatarsRef.current.card, selection?.target === 'card' ? selection.inset : null)
   }
 
   useEffect(() => {

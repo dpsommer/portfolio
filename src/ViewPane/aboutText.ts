@@ -1,8 +1,10 @@
-// The character card's name, and what the profile view it opens shows: the
+// The character card's name and health, and what the profile view it opens shows: the
 // full name beside the avatar and the About Me text in the lower panel's text
 // box. The text is drawn at a small scale and shown all at once; it must fit
 // the box (about 47 characters a line, 9 lines). A newline starts a new line.
 export const CARD_NAME = 'Duncan'
+// The health readout under the card's icons, current over total.
+export const CARD_HEALTH = { current: 19, total: 92 }
 export const FULL_NAME = 'Duncan Sommerville'
 export const ABOUT_TEXT =
   "About me: placeholder text. I'm a software developer who likes building things for the web, " +
