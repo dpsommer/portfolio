@@ -16,8 +16,10 @@ import { PLACES } from '../scene/navigation/places.ts'
 import { NAV_BUTTON_BOUNDS, navButtonPixels } from '../scene/navigation/navButtons.ts'
 import type { KeyPress, NavButton } from '../scene/navigation/navButtons.ts'
 import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
+import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
+import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
 import ViewPane, {
   LOWER_PANEL_HEIGHT,
   LOWER_PANEL_WIDTH,
@@ -2769,6 +2771,380 @@ describe('ViewPane', () => {
 
         frames.flush(START + SWITCH_DURATION_MS)
         expect(room.fills).toEqual(sceneFills({ preview: GREY_PREVIEW, plaque: NEXT_PLAQUE }))
+      })
+    })
+  })
+
+  describe('sign text', () => {
+    useAnimation({ withContext: false })
+    let fillsOn: ReturnType<typeof contextPerCanvas>
+
+    beforeEach(() => {
+      fillsOn = contextPerCanvas()
+    })
+
+    const [FIRST_PAGE] = SIGN_PAGES
+    const pageLength = (page: string) => textBoxLines(LOWER_PANEL_WIDTH, page).join('').length
+    // When a page's last character is typed, after it starts at START.
+    const typedAt = (page: string) => START + (pageLength(page) - 1) * TYPING_MS_PER_CHAR
+
+    // The fills drawTextBox makes on a canvas the lower panel's size.
+    function textBoxFills(page: string, shown: number, caretOn: boolean): Fill[] {
+      const { ctx, fills } = createFakeContext(LOWER_PANEL_WIDTH, LOWER_PANEL_HEIGHT)
+      drawTextBox(ctx, textBoxLines(LOWER_PANEL_WIDTH, page), shown, caretOn)
+      return fills
+    }
+
+    // Renders the pane and clicks the welcome sign.
+    function openSign() {
+      const pane = renderWithPanel()
+      clickAt(pane.canvas, SIGN_X, SIGN_Y)
+      return pane
+    }
+
+    const frame = (container: HTMLElement) => container.querySelector<HTMLElement>('.view-pane-frame')!
+    const lowerPanelDraw = (container: HTMLElement) => lastPanelDraw(fillsOn(lowerPanel(container)))
+    const status = () => screen.getByRole('status')
+
+    // The places in the pane a click can land to move the text on.
+    const TARGETS: [string, (pane: Pane) => void][] = [
+      ['the sign', ({ canvas }) => clickAt(canvas, SIGN_X, SIGN_Y)],
+      ['the room', ({ canvas }) => clickAt(canvas, LEFT_X)],
+      ['the lower panel', ({ panel }) => clickButton(panel, 'left')],
+      ['the side panel', ({ container }) => fireEvent.click(sidePanel(container))],
+      ['the frame', ({ container }) => fireEvent.click(frame(container))],
+    ]
+
+    describe('opening', () => {
+      it('has an empty, visually hidden status before the sign is clicked', () => {
+        renderWithPanel()
+
+        expect(status().tagName).toBe('P')
+        expect(status()).toHaveClass('view-pane-status')
+        expect(status()).toHaveTextContent(/^$/)
+      })
+
+      it('puts the first page in the status when the sign is clicked', () => {
+        openSign()
+
+        expect(status()).toHaveTextContent(FIRST_PAGE)
+      })
+
+      it('draws the first character of the first page in place of the navigation panel at once', () => {
+        const { container } = openSign()
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, 1, false))
+      })
+
+      it('requests an animation frame to carry on typing', () => {
+        openSign()
+
+        expect(frames.pending()).toBe(1)
+      })
+
+      it.each([
+        ['west', LEFT_X],
+        ['east', RIGHT_X],
+      ])('does not open from the sign\'s position facing %s', (_, x) => {
+        const { canvas } = renderWithPanel()
+        clickAt(canvas, x)
+        frames.flush(START + TURN_DURATION_MS)
+
+        clickAt(canvas, SIGN_X, SIGN_Y)
+
+        expect(status()).toHaveTextContent(/^$/)
+      })
+    })
+
+    describe('typing', () => {
+      it.each([
+        ['one more character a character\'s time later', START + TYPING_MS_PER_CHAR, 2],
+        ['whole characters only, part way through one', START + 2.5 * TYPING_MS_PER_CHAR, 3],
+        ['one character before the end', typedAt(FIRST_PAGE) - TYPING_MS_PER_CHAR, pageLength(FIRST_PAGE) - 1],
+      ])('shows %s', (_, time, shown) => {
+        const { container } = openSign()
+
+        frames.flush(time)
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, shown, false))
+      })
+
+      it('shows the whole page with the caret on once the last character is due', () => {
+        const { container } = openSign()
+
+        frames.flush(typedAt(FIRST_PAGE))
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, pageLength(FIRST_PAGE), true))
+      })
+
+      it('does not redraw on a frame where nothing has changed', () => {
+        const { container } = openSign()
+        const before = panelDraws(fillsOn(lowerPanel(container)))
+
+        frames.flush(START + TYPING_MS_PER_CHAR / 2)
+
+        expect(panelDraws(fillsOn(lowerPanel(container)))).toBe(before)
+      })
+
+      it('keeps requesting frames once the page is typed, to blink the caret', () => {
+        openSign()
+
+        frames.flush(typedAt(FIRST_PAGE) + 3 * CARET_BLINK_MS)
+
+        expect(frames.pending()).toBe(1)
+      })
+
+      it.each([
+        ['on until a blink has passed', CARET_BLINK_MS - 1, true],
+        ['off for the next blink', CARET_BLINK_MS, false],
+        ['still off just before the second blink ends', 2 * CARET_BLINK_MS - 1, false],
+        ['on again after that', 2 * CARET_BLINK_MS, true],
+      ])('keeps the caret %s after the page is typed', (_, sinceTyped, caretOn) => {
+        const { container } = openSign()
+
+        frames.flush(typedAt(FIRST_PAGE) + sinceTyped)
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, pageLength(FIRST_PAGE), caretOn))
+      })
+    })
+
+    describe.each(TARGETS)('clicking %s', (_, click) => {
+      it('finishes typing the page at once, with the caret on, while it is typing', () => {
+        const pane = openSign()
+
+        click(pane)
+
+        expect(lowerPanelDraw(pane.container)).toEqual(textBoxFills(FIRST_PAGE, pageLength(FIRST_PAGE), true))
+        expect(status()).toHaveTextContent(FIRST_PAGE)
+      })
+
+      it('closes the text after the last page is typed and redraws the navigation panel', () => {
+        const pane = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+
+        click(pane)
+
+        expect(lowerPanelDraw(pane.container)).toEqual(navPanelFills(0, START_NORTH))
+        expect(status()).toHaveTextContent(/^$/)
+      })
+
+      it('stops requesting frames once the text is closed', () => {
+        const pane = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+
+        click(pane)
+
+        expect(frames.pending()).toBe(0)
+      })
+    })
+
+    it('leaves the navigation panel alone when the frame or side panel is clicked with the text closed', () => {
+      const { container } = renderWithPanel()
+
+      fireEvent.click(sidePanel(container))
+      fireEvent.click(frame(container))
+
+      expect(status()).toHaveTextContent(/^$/)
+      expect(lowerPanelDraw(container)).toEqual(navPanelFills(0, START_NORTH))
+    })
+
+    it('blinks the caret from when a click finished the page', () => {
+      const pane = openSign()
+      clickAt(pane.canvas, SIGN_X, SIGN_Y)
+
+      frames.flush(START + CARET_BLINK_MS)
+
+      expect(lowerPanelDraw(pane.container)).toEqual(textBoxFills(FIRST_PAGE, pageLength(FIRST_PAGE), false))
+    })
+
+    it('takes two clicks to close a page that is still typing', () => {
+      const pane = openSign()
+
+      clickAt(pane.canvas, SIGN_X, SIGN_Y)
+      expect(status()).toHaveTextContent(FIRST_PAGE)
+      clickAt(pane.canvas, SIGN_X, SIGN_Y)
+
+      expect(status()).toHaveTextContent(/^$/)
+    })
+
+    it('stops requesting frames when the pane is unmounted with the text open', () => {
+      const { unmount } = openSign()
+
+      unmount()
+
+      expect(frames.pending()).toBe(0)
+    })
+
+    describe('with more than one page', () => {
+      const SECOND_PAGE = 'Second page'
+
+      beforeEach(() => {
+        SIGN_PAGES.push(SECOND_PAGE)
+      })
+
+      afterEach(() => {
+        SIGN_PAGES.splice(SIGN_PAGES.indexOf(SECOND_PAGE), 1)
+      })
+
+      it('goes on to type the next page from its first character', () => {
+        const pane = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+
+        fireEvent.click(frame(pane.container))
+
+        expect(status()).toHaveTextContent(SECOND_PAGE)
+        expect(lowerPanelDraw(pane.container)).toEqual(textBoxFills(SECOND_PAGE, 1, false))
+      })
+
+      it('types the next page out over the following frames', () => {
+        const pane = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+        fireEvent.click(frame(pane.container))
+
+        frames.flush(START + 2 * TYPING_MS_PER_CHAR)
+
+        expect(lowerPanelDraw(pane.container)).toEqual(textBoxFills(SECOND_PAGE, 3, false))
+      })
+
+      it('types the next page even when the one before was finished with a click', () => {
+        const pane = openSign()
+        fireEvent.click(frame(pane.container))
+
+        fireEvent.click(frame(pane.container))
+
+        expect(lowerPanelDraw(pane.container)).toEqual(textBoxFills(SECOND_PAGE, 1, false))
+      })
+
+      it('closes after the last page', () => {
+        const pane = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+        fireEvent.click(frame(pane.container))
+        frames.flush(typedAt(SECOND_PAGE))
+
+        fireEvent.click(frame(pane.container))
+
+        expect(status()).toHaveTextContent(/^$/)
+        expect(lowerPanelDraw(pane.container)).toEqual(navPanelFills(0, START_NORTH))
+      })
+    })
+
+    describe('while open', () => {
+      it.each([PANEL_INPUT, KEY_INPUT, ROOM_INPUT])('does not turn with $name', (input) => {
+        const pane = openSign()
+
+        input.use(pane, 'left')
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(pane.canvas).toHaveAttribute('data-heading', 'north')
+      })
+
+      it('does not move the text on with a key press', () => {
+        const { container } = openSign()
+
+        pressKey(ARROW_KEYS.left)
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, 1, false))
+      })
+
+      it('turns again once the text is closed', () => {
+        const pane = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+        clickAt(pane.canvas, SIGN_X, SIGN_Y)
+
+        clickAt(pane.canvas, LEFT_X)
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(pane.canvas).toHaveAttribute('data-heading', 'west')
+      })
+
+      it('shows the hand over the frame, which the side panel inherits', () => {
+        const { container } = openSign()
+
+        expect(frame(container).style.cursor).toBe(HAND_CURSOR)
+        expect(sidePanel(container).style.cursor).toBe('')
+      })
+
+      it.each([
+        ['turn zone', LEFT_X, MIDDLE_Y],
+        ['blocked centre', CENTRE_X, 50],
+      ])('shows the hand over the room\'s %s', (_, clientX, clientY) => {
+        const { canvas } = openSign()
+
+        fireEvent.mouseMove(canvas, { clientX, clientY })
+
+        expect(canvas.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it.each<[string, (panel: HTMLElement) => void]>([
+        ['an unusable button', (panel) => hoverButton(panel, 'forward')],
+        ['no button', (panel) => fireEvent.mouseMove(panel, { clientX: 78, clientY: 80 })],
+      ])('shows the hand over the lower panel over %s', (_, hover) => {
+        const { panel } = openSign()
+
+        hover(panel)
+
+        expect(panel.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it('goes back to the usual cursors once the text is closed', () => {
+        const { canvas, container, panel } = openSign()
+        frames.flush(typedAt(FIRST_PAGE))
+        fireEvent.mouseMove(canvas, { clientX: CENTRE_X, clientY: 50 })
+        hoverButton(panel, 'forward')
+
+        fireEvent.click(frame(container))
+
+        expect(frame(container).style.cursor).toBe(BLOCKED_CURSOR)
+        expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+        expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+    })
+
+    describe('with reduced motion', () => {
+      beforeEach(() => {
+        useReducedMotion()
+      })
+
+      it('shows the whole page at once with the caret on', () => {
+        const { container } = openSign()
+
+        expect(lowerPanelDraw(container)).toEqual(textBoxFills(FIRST_PAGE, pageLength(FIRST_PAGE), true))
+      })
+
+      it('requests no animation frames', () => {
+        openSign()
+
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it('closes with one click', () => {
+        const { container } = openSign()
+
+        fireEvent.click(frame(container))
+
+        expect(status()).toHaveTextContent(/^$/)
+        expect(lowerPanelDraw(container)).toEqual(navPanelFills(0, START_NORTH))
+      })
+    })
+
+    describe('without a canvas context', () => {
+      beforeEach(() => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      })
+
+      it('opens, putting the page in the status, without requesting animation frames', () => {
+        openSign()
+
+        expect(status()).toHaveTextContent(FIRST_PAGE)
+        expect(frames.requestAnimationFrame).not.toHaveBeenCalled()
+      })
+
+      it('closes with one click', () => {
+        const { container } = openSign()
+
+        fireEvent.click(frame(container))
+
+        expect(status()).toHaveTextContent(/^$/)
       })
     })
   })

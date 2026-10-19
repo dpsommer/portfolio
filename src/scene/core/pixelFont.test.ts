@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { GLYPH_HEIGHT, GLYPH_WIDTH, textPixels, textWidth } from './pixelFont.ts'
 
-const GLYPHS = ['C', 'E', 'L', 'M', 'N', 'O', 'S', 'W']
+// Every glyph the font has, and those that draw something (all but space).
+const ALL_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?'-:".split('')
+const GLYPHS = ALL_GLYPHS.filter((char) => char !== ' ')
+
+// A glyph as rows of '#' and '.', read back from its pixels.
+function rowsOf(char: string): string[] {
+  const filled = new Set(textPixels(char).map(({ x, y }) => `${x},${y}`))
+  return Array.from({ length: GLYPH_HEIGHT }, (_, y) =>
+    Array.from({ length: GLYPH_WIDTH }, (_, x) => (filled.has(`${x},${y}`) ? '#' : '.')).join(''),
+  )
+}
 
 describe('textWidth', () => {
   it('is 0 for an empty string', () => {
@@ -30,6 +40,26 @@ describe('textPixels', () => {
     expect(textPixels(char).length).toBeGreaterThan(0)
   })
 
+  it('draws nothing for a space, but still takes up a glyph', () => {
+    expect(textPixels(' ')).toEqual([])
+    expect(textWidth('W W')).toBe(textWidth('WWW'))
+  })
+
+  it.each(ALL_GLYPHS)('draws glyph %j within one 5x7 cell', (char) => {
+    for (const { x, y } of textPixels(char)) {
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(GLYPH_WIDTH)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(GLYPH_HEIGHT)
+    }
+  })
+
+  it('draws every glyph differently', () => {
+    const shapes = new Set(ALL_GLYPHS.map((char) => rowsOf(char).join('/')))
+
+    expect(shapes.size).toBe(ALL_GLYPHS.length)
+  })
+
   it('keeps all pixels within the text bounds', () => {
     const scale = 2
     const width = textWidth('WELCOME', scale)
@@ -47,26 +77,11 @@ describe('textPixels', () => {
   })
 
   it('throws for an unknown glyph', () => {
-    expect(() => textPixels('WEX')).toThrow('No pixel font glyph for "X"')
+    expect(() => textPixels('WE~')).toThrow('No pixel font glyph for "~"')
   })
 })
 
 describe('compass glyphs', () => {
-  // A glyph as rows of '#' and '.', read back from its pixels.
-  function rowsOf(char: string): string[] {
-    const filled = new Set(textPixels(char).map(({ x, y }) => `${x},${y}`))
-    return Array.from({ length: GLYPH_HEIGHT }, (_, y) =>
-      Array.from({ length: GLYPH_WIDTH }, (_, x) => (filled.has(`${x},${y}`) ? '#' : '.')).join(''),
-    )
-  }
-
-  it.each(['N', 'S'])('fits %s in one glyph cell', (char) => {
-    expect(textWidth(char)).toBe(GLYPH_WIDTH)
-    for (const { x, y } of textPixels(char)) {
-      expect(x).toBeLessThan(GLYPH_WIDTH)
-      expect(y).toBeLessThan(GLYPH_HEIGHT)
-    }
-  })
 
   it('draws N with solid sides joined by a diagonal from top left to bottom right', () => {
     const rows = rowsOf('N')
@@ -94,11 +109,5 @@ describe('compass glyphs', () => {
     expect(rows[4][0]).toBe('.')
     expect(rows[2][0]).toBe('#')
     expect(rows[4][GLYPH_WIDTH - 1]).toBe('#')
-  })
-
-  it.each(['N', 'S'])('makes %s different from every other glyph', (char) => {
-    for (const other of GLYPHS.filter((c) => c !== char)) {
-      expect(rowsOf(char)).not.toEqual(rowsOf(other))
-    }
   })
 })

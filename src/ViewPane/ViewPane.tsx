@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
+import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
 import { drawScene } from '../scene/draw.ts'
 import { screenToMirror, screenToWall } from '../scene/mirror/pixels.ts'
 import type { RippleState } from '../scene/mirror/pixels.ts'
@@ -21,6 +22,7 @@ import type { PlaceName } from '../scene/navigation/places.ts'
 import { clearPanel } from '../scene/panels/panelCanvas.ts'
 import { signBoardBounds } from '../scene/signpost/signpost.ts'
 import type { Bounds } from '../scene/signpost/signpost.ts'
+import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import './ViewPane.scss'
 
 // Drawing resolution of the canvas; CSS scales it up to fit the screen.
@@ -141,6 +143,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
 // usable once it's done, and the key for it, held down meanwhile.
 type PanelPress = { enabled: Record<NavButton, boolean>; pressed: NavButton }
 type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean; overPull: boolean }
+// The sign's text in the lower panel, while it's open: which of SIGN_PAGES
+// shows, and whether a click cut its typing short.
+type Dialogue = { page: number; skipped: boolean }
 // What the camera is drawing: where it stands, which way it faces, and what's
 // playing on the mirror wall.
 type View = {
@@ -203,6 +208,12 @@ function ViewPane() {
   // The navigation button under the mouse in the lower panel, if any.
   const [panelButton, setPanelButton] = useState<NavButton | null>(null)
   const [animating, setAnimating] = useState(false)
+  // While the sign's text is open, the lower panel shows it in place of the
+  // navigation panel, and a click anywhere in the pane moves it on.
+  const [dialogue, setDialogue] = useState<Dialogue | null>(null)
+  // Whether the open page has finished typing, and the text box's frame.
+  const pageDoneRef = useRef(false)
+  const textFrameRef = useRef<number | null>(null)
   // Which of MIRROR_SITES the mirror shows. The ref is for drawing mid-animation.
   const [site, setSite] = useState(0)
   const siteRef = useRef(0)
@@ -233,8 +244,53 @@ function ViewPane() {
     if (ctx) drawNavigationPanel(ctx, viewRef.current.yaw, enabled, press)
   }
   useEffect(() => {
-    drawPanel(enabledButtons(place, heading))
-  }, [place, heading])
+    if (!dialogue) drawPanel(enabledButtons(place, heading))
+  }, [place, heading, dialogue])
+
+  // Types the open page out a character at a time, then blinks the caret
+  // until the page is moved on. A skipped page, or reduced motion, shows the
+  // whole page at once; reduced motion keeps the caret on.
+  useEffect(() => {
+    if (!dialogue) return
+    const ctx = lowerPanelRef.current?.getContext('2d')
+    const lines = textBoxLines(LOWER_PANEL_WIDTH, SIGN_PAGES[dialogue.page])
+    const length = lines.join('').length
+    if (!ctx || prefersReducedMotion()) {
+      pageDoneRef.current = true
+      if (ctx) drawTextBox(ctx, lines, length, true)
+      return
+    }
+    pageDoneRef.current = false
+    const start = performance.now()
+    const doneAt = dialogue.skipped ? 0 : Math.max(0, length - 1) * TYPING_MS_PER_CHAR
+    let drawn = ''
+    const step = (now: number) => {
+      const elapsed = Math.max(0, now - start)
+      const shown = dialogue.skipped ? length : Math.min(length, Math.floor(elapsed / TYPING_MS_PER_CHAR) + 1)
+      pageDoneRef.current = shown === length
+      const caretOn = shown === length && Math.floor((elapsed - doneAt) / CARET_BLINK_MS) % 2 === 0
+      // Only redraw when a character or the caret changes.
+      const state = `${shown},${caretOn}`
+      if (state !== drawn) drawTextBox(ctx, lines, shown, caretOn)
+      drawn = state
+      textFrameRef.current = requestAnimationFrame(step)
+    }
+    step(start)
+    return () => {
+      if (textFrameRef.current !== null) cancelAnimationFrame(textFrameRef.current)
+      textFrameRef.current = null
+    }
+  }, [dialogue])
+
+  // A click while the sign's text is open finishes typing the page, or goes
+  // on to the next page, or after the last one closes the text and brings
+  // back the navigation panel.
+  function advanceDialogue() {
+    if (!dialogue) return
+    if (!pageDoneRef.current) setDialogue({ ...dialogue, skipped: true })
+    else if (dialogue.page + 1 < SIGN_PAGES.length) setDialogue({ page: dialogue.page + 1, skipped: false })
+    else setDialogue(null)
+  }
 
   // Without its picture a site shows empty glass.
   useEffect(() => {
@@ -425,7 +481,12 @@ function ViewPane() {
   function handleClick(event: MouseEvent<HTMLCanvasElement>) {
     const point = canvasPointAt(event)
     const at = pointerAt(event)
-    if (!point || !at || animating) return
+    // While the sign's text is open the click is for it, handled by the frame.
+    if (!point || !at || animating || dialogue) return
+    if (at.overSign && isSignView) {
+      setDialogue({ page: 0, skipped: false })
+      return
+    }
     if (at.overMirror && isMirrorView) {
       rippleAt(point.x, point.y)
       return
@@ -459,7 +520,7 @@ function ViewPane() {
   // or step forward, plus stepping back without turning. Clicks and the arrow
   // keys both work them.
   function pressNavButton(button: NavButton) {
-    if (animating || !enabledButtons(place, heading)[button]) return
+    if (animating || dialogue || !enabledButtons(place, heading)[button]) return
     if (button === 'left' || button === 'right') {
       turnView(button)
       return
@@ -469,6 +530,7 @@ function ViewPane() {
   }
 
   function handlePanelClick(event: MouseEvent<HTMLCanvasElement>) {
+    if (dialogue) return
     const button = panelButtonAt(event)
     if (button) pressNavButton(button)
   }
@@ -491,23 +553,36 @@ function ViewPane() {
 
   // The sign, mirror and pull are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'
+  const isSignView = place === 'start' && heading === 'north'
   const showHand =
     !animating &&
-    ((pointer.overSign && place === 'start' && heading === 'north') ||
+    ((pointer.overSign && isSignView) ||
       ((pointer.overMirror || pointer.overPull) && isMirrorView))
   const canMoveForward = forwardFrom(place, heading) !== null
-  const cursor = showHand
-    ? HAND_CURSOR
-    : pointer.zone === 'forward' && !canMoveForward
-      ? BLOCKED_CURSOR
-      : CURSORS[pointer.zone]
-  // Every panel shows the blocked hand unless something under it can be used.
+  // While the sign's text is open, a click anywhere in the pane moves it on.
+  const cursor =
+    dialogue || showHand
+      ? HAND_CURSOR
+      : pointer.zone === 'forward' && !canMoveForward
+        ? BLOCKED_CURSOR
+        : CURSORS[pointer.zone]
+  // Every panel shows the blocked hand unless something under it can be used,
+  // or the sign's text is open.
   const panelCursor =
-    panelButton !== null && !animating && enabledButtons(place, heading)[panelButton] ? HAND_CURSOR : BLOCKED_CURSOR
+    dialogue || (panelButton !== null && !animating && enabledButtons(place, heading)[panelButton])
+      ? HAND_CURSOR
+      : BLOCKED_CURSOR
   return (
-    // The frame, dividers and side panel inherit the blocked hand; the room
-    // and lower panel set their own cursors.
-    <div className="view-pane-frame" style={{ cursor: BLOCKED_CURSOR }}>
+    // The frame, dividers and side panel inherit the blocked hand, or the
+    // pointing hand while the sign's text is open; the room and lower panel
+    // set their own cursors. Clicks anywhere in the pane bubble up here to
+    // move the sign's text on. The click that opens it does too, but this
+    // handler is from the render before it opened, so it doesn't count.
+    <div
+      className="view-pane-frame"
+      style={{ cursor: dialogue ? HAND_CURSOR : BLOCKED_CURSOR }}
+      onClick={advanceDialogue}
+    >
       <canvas
         ref={canvasRef}
         className="view-pane"
@@ -542,6 +617,10 @@ function ViewPane() {
         height={SIDE_PANEL_HEIGHT}
         aria-hidden="true"
       />
+      {/* The panels are hidden from assistive tech, so the sign's text is read from here. */}
+      <p className="view-pane-status" role="status">
+        {dialogue ? SIGN_PAGES[dialogue.page] : ''}
+      </p>
     </div>
   )
 }

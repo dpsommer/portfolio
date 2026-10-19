@@ -14,6 +14,8 @@ Turns and moves follow the shared animation rules in [architecture.md](architect
 
 ## Navigation panel
 
+While the sign's text box is open ([text-box.md](text-box.md)), it takes the panel's place. The buttons, the arrow keys and the room's clicks do nothing until it closes.
+
 The lower panel shows a compass and four direction buttons, drawn by `drawNavigationPanel` (`src/scene/navigation/navigationPanel.ts`). `ViewPane` redraws it on every turn and move frame, so the compass turns in step with the view.
 
 ### Compass

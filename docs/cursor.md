@@ -13,11 +13,13 @@ Whenever the mouse is inside any canvas area (the room, the lower panel or the s
 | Room, left and right `EDGE_ZONE_FRACTION` (15%) | Turn arrow in that direction |
 | Room, middle, with a way forward | Forward arrow |
 | Room, middle, with no way forward | Blocked hand |
-| Welcome sign's board, at the start facing north | Pointing hand |
+| Welcome sign's board, at the start facing north | Pointing hand (a click opens its text box) |
 | Mirror's glass or curtain pull, in the nook facing west | Pointing hand |
 | Usable navigation button | Pointing hand |
 | Dimmed button, or anywhere on a panel with nothing usable | Blocked hand |
 | Frame, dividing bands, side panel | Blocked hand |
+
+While the sign's text box is open, the pointing hand shows everywhere in the pane, because a click anywhere moves the text on ([text-box.md](text-box.md)).
 
 While an animation plays, the hands don't show: the room shows its zone cursor, and every panel button shows the blocked hand.
 

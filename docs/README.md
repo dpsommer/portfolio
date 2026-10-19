@@ -8,6 +8,7 @@
 | [layout.md](layout.md) | The room's floor plan, places, camera and projection, visibility, room detail, object placement and draw order. |
 | [navigation.md](navigation.md) | Turning and moving, the navigation panel's compass and buttons, and the arrow keys. |
 | [cursor.md](cursor.md) | Which cursor shows where, hover areas and the cursor pixel maps. |
+| [text-box.md](text-box.md) | The lower panel's text box: the sign's pages, typing, caret and clicking through. |
 | [mirror.md](mirror.md) | The mirror's sites, previews, ripple, curtain pull, logo plaque and site switching. |
 | [components.md](components.md) | Where React components and their helpers go. |
 | [testing.md](testing.md) | Test commands, Vitest setup, canvas handling, helpers and test style. |

@@ -8,7 +8,7 @@ How the code is organised and how a frame gets drawn. For the room's geometry se
 
 ## Scene modules
 
-Drawing logic lives in `src/scene/` as pure functions that return lists of `Pixel`s (`{ x, y, colour }`, `src/scene/core/types.ts`). Only a few functions touch a canvas context: `drawPixels` and `drawScene` (`src/scene/draw.ts`), `drawNavigationPanel` and `clearPanel`. Keeping the rest pure lets it be tested without a canvas (see [testing.md](testing.md#canvas)).
+Drawing logic lives in `src/scene/` as pure functions that return lists of `Pixel`s (`{ x, y, colour }`, `src/scene/core/types.ts`). Only a few functions touch a canvas context: `drawPixels` and `drawScene` (`src/scene/draw.ts`), `drawNavigationPanel`, `drawTextBox` and `clearPanel`. Keeping the rest pure lets it be tested without a canvas (see [testing.md](testing.md#canvas)).
 
 The modules are grouped by what they draw:
 
@@ -19,10 +19,11 @@ The modules are grouped by what they draw:
 | `mirror/` | The mirror's frame, preview, ripple, curtain pull and logo plaque. `pixels.ts` projects them all onto the mirror's wall and maps canvas positions back to it. |
 | `signpost/` | The welcome sign. |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
+| `textBox/` | The text box the lower panel shows while the sign's text is open: wrapping, layout, text and caret. |
 | `panels/` | Logic shared by the panels beside the room, such as `clearPanel` and `weather`. |
 | `draw.ts` | `drawScene`, which paints everything in the room canvas in order (see [layout.md](layout.md#draw-order)), and sprite placement. |
 
-`src/ViewPane/` also holds non-drawing data and helpers used only by the pane: cursors (`cursors.ts`), the mirror's sites (`mirrorSites.ts`) and their logos (`siteLogos.ts`).
+`src/ViewPane/` also holds non-drawing data and helpers used only by the pane: cursors (`cursors.ts`), the sign's text and typing speed (`signText.ts`), the mirror's sites (`mirrorSites.ts`) and their logos (`siteLogos.ts`).
 
 ## Art rules
 
@@ -40,7 +41,7 @@ The room canvas draws at a fixed 320×240 (`VIEW_WIDTH`/`VIEW_HEIGHT`), and CSS 
 - on mount, and when a site's preview finishes loading
 - on every frame of an animation, through `runAnimation`, which calls `requestAnimationFrame` until its duration has passed and then runs a `done` callback
 
-The lower panel is redrawn with `drawNavigationPanel` whenever the place or heading changes, and on every frame of a turn or move so the compass turns with the view.
+The lower panel is redrawn with `drawNavigationPanel` whenever the place or heading changes, and on every frame of a turn or move so the compass turns with the view. While the sign's text is open it's drawn with `drawTextBox` instead, from its own frame loop ([text-box.md](text-box.md#typing)).
 
 ## Animations
 
@@ -57,3 +58,5 @@ Every animation goes through `runAnimation` and follows the same rules:
 | Key press | first and last `KEY_PRESS_MS` (60 ms) of a turn or move | `ViewPane` | [navigation.md](navigation.md#pressing) |
 | Ripple | `rippleDuration(origin)`, longer near the glass's edge | `src/scene/mirror/ripple.ts` | [mirror.md](mirror.md#ripple) |
 | Site switch | `SWITCH_DURATION_MS` (900 ms) | `ViewPane` | [mirror.md](mirror.md#switching-sites) |
+
+The text box's typing and caret blink (`TYPING_MS_PER_CHAR`, `CARET_BLINK_MS` in `src/ViewPane/signText.ts`) are the exception. They run on their own frame loop, not through `runAnimation`, and don't count as animating, because the text box takes the pane's clicks itself. They still follow reduced motion. See [text-box.md](text-box.md#typing).

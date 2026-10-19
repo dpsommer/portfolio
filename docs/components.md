@@ -24,6 +24,7 @@ A component's directory can also hold modules, data and assets that only it uses
 
 - `cursors.ts` — the cursor pixel maps and CSS cursors
 - `mirrorSites.ts` — the mirror's profiles and `openUrl`
+- `signText.ts` — the sign's pages and the text box's typing and caret timing
 - `siteLogos.ts` — the profiles' logo pixel maps
 - `frame.svg` — the pane frame's `border-image`
 
