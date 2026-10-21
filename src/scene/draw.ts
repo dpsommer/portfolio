@@ -8,6 +8,7 @@ import type { Plaque } from './mirror/plaque.ts'
 import type { Preview, Shimmer } from './mirror/preview.ts'
 import { roomPixels } from './room/room.ts'
 import { signPixels } from './sign/pixels.ts'
+import { windowPixels } from './window/pixels.ts'
 
 export function drawPixels(ctx: CanvasRenderingContext2D, pixels: Pixel[]) {
   for (const { x, y, colour } of pixels) {
@@ -40,6 +41,7 @@ export function drawScene(
   ctx.fillRect(0, 0, width, height)
   drawPixels(ctx, roomPixels(width, height, yaw, eye))
   drawPixels(ctx, signPixels(width, height, yaw, eye))
+  drawPixels(ctx, windowPixels(width, height, yaw, eye))
   // Under the mirror, so its frame covers the picture's and rings' edges.
   if (preview || shimmer) drawPixels(ctx, previewPixels(width, height, preview ?? null, yaw, eye, ripple, shimmer))
   if (ripple) drawPixels(ctx, ripplePixels(width, height, ripple, yaw, eye))

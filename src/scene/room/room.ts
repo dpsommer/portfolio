@@ -1,5 +1,7 @@
 import {
   BACK_Z,
+  BAY_CEILING_Y,
+  BAY_Z,
   CEILING_Y,
   FAR_Z,
   FLOOR_Y,
@@ -25,14 +27,17 @@ import type { MirrorPoint } from '../mirror/frame.ts'
 import { PLAQUE_BOUNDS } from '../mirror/plaque.ts'
 import { PULL_BOUNDS } from '../mirror/pull.ts'
 import { SIGN_BOUNDS } from '../sign/board.ts'
+import { WINDOW_BOUNDS } from '../window/tracery.ts'
 
 // The room is seen from inside, drawn as the classic dungeon-crawler "narrowing
 // box": facing north, the far wall is a small rectangle in the middle of the
 // view and the wall edges run out to the view's corners. A nook to the left of
-// the start and a hallway to its right break the box. Everything is sparse, so the viewer fills in the
-// rest. All detail is placed in world space with per-element seeds, so it stays
-// put while the view turns and moves. Walls run from floor to ceiling, so
-// whether something is hidden only depends on the floor plan: see `isVisible`.
+// the start and a hallway to its right break the box, and the hallway ends in
+// a bay twice as tall. Everything is sparse, so the viewer fills in the rest.
+// All detail is placed in world space with per-element seeds, so it stays put
+// while the view turns and moves. Walls run from floor to ceiling, so whether
+// something is hidden depends on the floor plan, and above the main ceiling on
+// whether the bay is in sight: see `isVisible`.
 
 const BRICK_WIDTH = 0.25
 const BRICK_HEIGHT = 0.125
@@ -49,6 +54,8 @@ const SEED = 21
 const EDGE_SEED = 1
 const BRICK_SEED = 2
 const FLOOR_SEED = 3
+// Seed for the edges across the hall where the bay rises.
+const BAY_EDGE_SEED = 100
 
 export type Segment = [Vec3, Vec3]
 
@@ -57,9 +64,9 @@ const lerp = (a: Vec3, b: Vec3, t: number): Vec3 =>
   vec(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t)
 const distance = (a: Vec3, b: Vec3) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
 
-// A wall seen from inside the room: `start` is its top-left corner and `along`
-// points to the right, so wall-local (u, v) runs right and down. `seed` keeps
-// each wall's bricks independent of the others.
+// A wall seen from inside the room: `start` is its top-left corner (so its
+// y is the wall's top) and `along` points to the right, so wall-local (u, v)
+// runs right and down. `seed` keeps each wall's bricks independent of the others.
 type Wall = { start: Vec3; along: Vec3; length: number; seed: number }
 
 const LEFT = -ROOM_HALF_WIDTH
@@ -70,7 +77,9 @@ export type WallName =
   | 'east'
   | 'hall-north'
   | 'hall-east'
+  | 'bay-east'
   | 'hall-end'
+  | 'bay-west'
   | 'hall-west'
   | 'south'
   | 'nook-back'
@@ -84,8 +93,10 @@ const PLAN: [FloorPoint, WallName, number][] = [
   [{ x: RIGHT, z: FAR_Z }, 'east', 3],
   [{ x: RIGHT, z: HALL_FRONT_Z }, 'hall-north', 6],
   [{ x: HALL_X, z: HALL_FRONT_Z }, 'hall-east', 7],
+  [{ x: HALL_X, z: BAY_Z }, 'bay-east', 10],
   [{ x: HALL_X, z: HALL_END_Z }, 'hall-end', 8],
-  [{ x: RIGHT, z: HALL_END_Z }, 'hall-west', 9],
+  [{ x: RIGHT, z: HALL_END_Z }, 'bay-west', 11],
+  [{ x: RIGHT, z: BAY_Z }, 'hall-west', 9],
   [{ x: RIGHT, z: BACK_Z }, 'south', 2],
   [{ x: NOOK_X, z: BACK_Z }, 'nook-back', 4],
   [{ x: NOOK_X, z: NOOK_FRONT_Z }, 'nook-side', 5],
@@ -93,12 +104,21 @@ const PLAN: [FloorPoint, WallName, number][] = [
 ]
 export const FLOOR_PLAN: FloorPoint[] = PLAN.map(([corner]) => corner)
 
+// The walls of the bay at the hall's end, which rise to BAY_CEILING_Y.
+const BAY_WALLS: WallName[] = ['bay-east', 'hall-end', 'bay-west']
+const wallTop = (name: WallName) => (BAY_WALLS.includes(name) ? BAY_CEILING_Y : CEILING_Y)
+
+// Whether a point on the floor is under the bay's raised ceiling.
+export function isInBay({ x, z }: FloorPoint): boolean {
+  return x >= RIGHT && x <= HALL_X && z >= HALL_END_Z && z <= BAY_Z
+}
+
 export const WALLS = Object.fromEntries(
   PLAN.map(([corner, name, seed], i) => {
     const next = FLOOR_PLAN[(i + 1) % FLOOR_PLAN.length]
     const length = Math.hypot(next.x - corner.x, next.z - corner.z)
     const along = vec((next.x - corner.x) / length, 0, (next.z - corner.z) / length)
-    return [name, { start: vec(corner.x, CEILING_Y, corner.z), along, length, seed }]
+    return [name, { start: vec(corner.x, wallTop(name), corner.z), along, length, seed }]
   }),
 ) as Record<WallName, Wall>
 
@@ -134,6 +154,14 @@ export function signToWall({ s, t }: MirrorPoint): { u: number; v: number } {
   return { u: WALLS[SIGN_WALL].length / 2 + s, v: CEILING_Y - t }
 }
 
+// The tracery window is set centred in the hall's dead end, in line with its place.
+export const WINDOW_WALL: WallName = 'hall-end'
+
+// Wall-local position of a point on the window. Its centre is at eye height.
+export function windowToWall({ s, t }: MirrorPoint): { u: number; v: number } {
+  return { u: WALLS[WINDOW_WALL].length / 2 + s, v: WALLS[WINDOW_WALL].start.y - t }
+}
+
 // Fixtures' bounds are in their own local units, which `toWall` maps onto the wall.
 type Fixtures = { toWall: (point: MirrorPoint) => { u: number; v: number }; bounds: (typeof MIRROR_BOUNDS)[] }
 
@@ -141,10 +169,12 @@ type Fixtures = { toWall: (point: MirrorPoint) => { u: number; v: number }; boun
 const FIXTURES: Partial<Record<WallName, Fixtures>> = {
   [MIRROR_WALL]: { toWall: mirrorToWall, bounds: [MIRROR_BOUNDS, PULL_BOUNDS, PLAQUE_BOUNDS] },
   [SIGN_WALL]: { toWall: signToWall, bounds: [SIGN_BOUNDS] },
+  [WINDOW_WALL]: { toWall: windowToWall, bounds: [WINDOW_BOUNDS] },
 }
 
 // Whether a wall-local rectangle overlaps something hanging on the wall (the
-// mirror, the pull and plaque beside it, or the sign), with a brick gap's margin.
+// mirror, the pull and plaque beside it, the sign or the window), with a brick
+// gap's margin.
 function isUnderFixture(wall: WallName, u0: number, u1: number, v0: number, v1: number): boolean {
   const fixtures = FIXTURES[wall]
   if (!fixtures) return false
@@ -176,23 +206,35 @@ function brokenSegment(a: Vec3, b: Vec3, seed: number, minRun: number, maxRun: n
 }
 
 // The room's edges: where each wall meets the floor and the ceiling, and the
-// vertical corner at the wall's left end.
+// vertical at the wall's left end. That's the whole corner where the wall turns,
+// or just the step up where a wall carries straight on into the bay's taller one.
+// Across the hall at BAY_Z, the main ceiling's edge and the bay ceiling's.
 function edgeSegments(): Segment[] {
-  return Object.values(WALLS).flatMap(({ start, along, length, seed }) => {
+  const walls = Object.values(WALLS)
+  const wallEdges = walls.flatMap(({ start, along, length, seed }, i) => {
     const end = vec(start.x + along.x * length, 0, start.z + along.z * length)
+    const previous = walls[(i + walls.length - 1) % walls.length]
+    const straightOn = previous.along.x === along.x && previous.along.z === along.z
+    const cornerBottom = straightOn ? Math.min(start.y, previous.start.y) : FLOOR_Y
+    const cornerTop = Math.max(start.y, previous.start.y)
     const edges: Segment[] = [
       [vec(start.x, FLOOR_Y, start.z), vec(end.x, FLOOR_Y, end.z)],
-      [vec(start.x, CEILING_Y, start.z), vec(end.x, CEILING_Y, end.z)],
-      [vec(start.x, CEILING_Y, start.z), vec(start.x, FLOOR_Y, start.z)],
+      [vec(start.x, start.y, start.z), vec(end.x, start.y, end.z)],
     ]
-    return edges.flatMap(([a, b], i) => brokenSegment(a, b, hashSeed(SEED, EDGE_SEED, seed, i), 0.1, 0.35))
+    if (cornerTop > cornerBottom) edges.push([vec(start.x, cornerTop, start.z), vec(start.x, cornerBottom, start.z)])
+    return edges.flatMap(([a, b], j) => brokenSegment(a, b, hashSeed(SEED, EDGE_SEED, seed, j), 0.1, 0.35))
   })
+  const bayEdges = [CEILING_Y, BAY_CEILING_Y].flatMap((y, j) =>
+    brokenSegment(vec(HALL_X, y, BAY_Z), vec(RIGHT, y, BAY_Z), hashSeed(SEED, EDGE_SEED, BAY_EDGE_SEED, j), 0.1, 0.35),
+  )
+  return [...wallEdges, ...bayEdges]
 }
 
 // A few scattered bricks on each wall, each drawn as just its top and left edges.
 function brickSegments(): Segment[] {
-  const rows = Math.round((CEILING_Y - FLOOR_Y) / BRICK_HEIGHT)
   return (Object.entries(WALLS) as [WallName, Wall][]).flatMap(([name, wall]) => {
+    const height = wall.start.y - FLOOR_Y
+    const rows = Math.round(height / BRICK_HEIGHT)
     const columns = Math.ceil(wall.length / BRICK_WIDTH)
     const segments: Segment[] = []
     for (let row = 0; row < rows; row++) {
@@ -204,9 +246,9 @@ function brickSegments(): Segment[] {
         const v0 = row * BRICK_HEIGHT
         const v1 = v0 + BRICK_HEIGHT - BRICK_GAP
         // Keep bricks off the wall's own edges.
-        if (u0 <= 0 || u1 >= wall.length || v0 <= 0 || v1 >= CEILING_Y - FLOOR_Y) continue
-        // Nor behind what hangs on the wall, where they'd show through the
-        // mirror's glass or between the sign's lines.
+        if (u0 <= 0 || u1 >= wall.length || v0 <= 0 || v1 >= height) continue
+        // Nor behind what hangs on or is set in the wall, where they'd show
+        // through the mirror's glass, between the sign's lines or in the window.
         if (isUnderFixture(name, u0, u1, v0, v1)) continue
         segments.push([onWall(wall, u0, v0), onWall(wall, u1, v0)], [onWall(wall, u0, v0), onWall(wall, u0, v1)])
       }
@@ -257,7 +299,14 @@ function floorSegments(): Segment[] {
 
 // Whether `point` can be seen from `eye`: the line between them on the floor
 // plan doesn't cross a wall. Points on a wall (or its corners) aren't hidden by it.
-export function isVisible(point: FloorPoint, eye: FloorPoint): boolean {
+// A point above the main ceiling (only the bay's walls reach there) is also
+// hidden unless the line clears the main ceiling's edge: where it rises past
+// CEILING_Y from eye height, it has to be under the bay's raised ceiling.
+export function isVisible(point: FloorPoint & { y?: number }, eye: FloorPoint): boolean {
+  if (point.y !== undefined && point.y > CEILING_Y) {
+    const t = CEILING_Y / point.y
+    if (!isInBay({ x: eye.x + (point.x - eye.x) * t, z: eye.z + (point.z - eye.z) * t })) return false
+  }
   const dx = point.x - eye.x
   const dz = point.z - eye.z
   for (let i = 0; i < FLOOR_PLAN.length; i++) {

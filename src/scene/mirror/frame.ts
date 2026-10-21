@@ -25,7 +25,7 @@ export function polyline(points: MirrorPoint[]): MirrorLine[] {
 // Points along a spiral around (s, t), from angle `from` to `to` (radians,
 // anticlockwise from +s) as the radius goes from `r0` to `r1`. A circular arc
 // when the radii match.
-function spiral(s: number, t: number, r0: number, r1: number, from: number, to: number): MirrorPoint[] {
+export function spiral(s: number, t: number, r0: number, r1: number, from: number, to: number): MirrorPoint[] {
   const steps = Math.max(2, Math.ceil((Math.abs(to - from) * Math.max(r0, r1)) / 0.02))
   return Array.from({ length: steps + 1 }, (_, i) => {
     const k = i / steps

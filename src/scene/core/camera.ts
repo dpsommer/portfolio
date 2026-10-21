@@ -47,6 +47,10 @@ export const HALL_FRONT_Z = WALL_VIEW_DISTANCE
 export const HALL_STEP = 4 / 3
 // The dead end, WALL_VIEW_DISTANCE beyond the hall's second step south.
 export const HALL_END_Z = -2 * HALL_STEP - WALL_VIEW_DISTANCE
+// The hall's end is a bay rising to twice the room's height, from BAY_Z (half
+// way between its two steps south) to the dead end, so its tall window fits.
+export const BAY_Z = -1.5 * HALL_STEP
+export const BAY_CEILING_Y = FLOOR_Y + 2 * (CEILING_Y - FLOOR_Y)
 
 // Points closer than this to the camera plane are clipped away.
 export const NEAR = 0.1

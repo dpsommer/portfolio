@@ -18,6 +18,7 @@ The modules are grouped by what they draw:
 | `room/` | The floor plan, walls, visibility and the room's own detail. |
 | `mirror/` | The mirror's frame, preview, ripple, curtain pull and logo plaque. `pixels.ts` projects them all onto the mirror's wall and maps canvas positions back to it. |
 | `sign/` | The welcome sign hanging on the far wall: its shape (`board.ts`), its pixels (`pixels.ts`), and its text and the text box's typing and caret timing (`signText.ts`). |
+| `window/` | The plate tracery window in the hall's dead end, with its leading and open casement: its shape (`tracery.ts`) and its pixels (`pixels.ts`). |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
 | `selection/` | The carets around the object selected with the keyboard, their bounce, and `pixelBounds`. |
 | `character/` | The character card in the side panel, the icons (keyboard, mouse, headphones, hoodie), the profile view with its health potion and equipment table, photos quantised to the palette (`picture.ts`), and the card's name and health, the profile's text and the About Me text (`aboutText.ts`). |

@@ -13,6 +13,7 @@ import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from './mirror/preview.ts'
 import { PLACES } from './navigation/places.ts'
 import { roomPixels } from './room/room.ts'
 import { signPixels } from './sign/pixels.ts'
+import { windowPixels } from './window/pixels.ts'
 
 const WIDTH = 320
 const HEIGHT = 240
@@ -20,6 +21,7 @@ const HEIGHT = 240
 const NOOK_EYE: FloorPoint = { x: PLACES.nook.x, z: PLACES.nook.z }
 
 const WEST = Math.PI / 2
+const SOUTH = Math.PI
 const EAST = (3 * Math.PI) / 2
 
 describe('drawPixels', () => {
@@ -141,6 +143,69 @@ describe('drawScene', () => {
       ...toFills(mirrorPixels(WIDTH, HEIGHT, Math.PI / 2, NOOK_EYE)),
       ...toFills(pullPixels(WIDTH, HEIGHT, 0, Math.PI / 2, NOOK_EYE)),
     ])
+  })
+
+  describe('the window', () => {
+    const HALL_END_EYE: FloorPoint = { x: PLACES['hall-end'].x, z: PLACES['hall-end'].z }
+    // Off the places, near the far wall's left end: turned south-east, the sign
+    // and the window's far end (through the hall's opening) are both in view;
+    // facing south, the mirror and the window are.
+    const SIGN_AND_WINDOW = { eye: { x: -0.5, z: 2.25 }, yaw: 1.375 * Math.PI }
+    const MIRROR_AND_WINDOW = { eye: { x: -0.25, z: 1.75 }, yaw: SOUTH }
+
+    it('draws only the background, the room and the window from the hall\'s dead end facing south', () => {
+      const { ctx, fills } = createFakeContext()
+      const tracery = windowPixels(WIDTH, HEIGHT, SOUTH, HALL_END_EYE)
+      expect(tracery.length).toBeGreaterThan(0)
+
+      drawScene(ctx, SOUTH, HALL_END_EYE)
+
+      expect(fills).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toFills(roomPixels(WIDTH, HEIGHT, SOUTH, HALL_END_EYE)),
+        ...toFills(tracery),
+      ])
+    })
+
+    it('draws the window after the sign', () => {
+      const { eye, yaw } = SIGN_AND_WINDOW
+      const { ctx, fills } = createFakeContext()
+      const sign = signPixels(WIDTH, HEIGHT, yaw, eye)
+      const tracery = windowPixels(WIDTH, HEIGHT, yaw, eye)
+      expect(sign.length).toBeGreaterThan(0)
+      expect(tracery.length).toBeGreaterThan(0)
+      expect(mirrorPixels(WIDTH, HEIGHT, yaw, eye)).toEqual([])
+
+      drawScene(ctx, yaw, eye)
+
+      expect(fills).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toFills(roomPixels(WIDTH, HEIGHT, yaw, eye)),
+        ...toFills(sign),
+        ...toFills(tracery),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw, eye)),
+      ])
+    })
+
+    it('draws the window before the mirror and the pull', () => {
+      const { eye, yaw } = MIRROR_AND_WINDOW
+      const { ctx, fills } = createFakeContext()
+      const tracery = windowPixels(WIDTH, HEIGHT, yaw, eye)
+      const mirror = mirrorPixels(WIDTH, HEIGHT, yaw, eye)
+      expect(tracery.length).toBeGreaterThan(0)
+      expect(mirror.length).toBeGreaterThan(0)
+      expect(signPixels(WIDTH, HEIGHT, yaw, eye)).toEqual([])
+
+      drawScene(ctx, yaw, eye)
+
+      expect(fills).toEqual([
+        { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+        ...toFills(roomPixels(WIDTH, HEIGHT, yaw, eye)),
+        ...toFills(tracery),
+        ...toFills(mirror),
+        ...toFills(pullPixels(WIDTH, HEIGHT, 0, yaw, eye)),
+      ])
+    })
   })
 
   describe('with a ripple', () => {

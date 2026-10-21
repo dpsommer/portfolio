@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { FOCAL, HEIGHT, WIDTH, columnAt, expectOnCanvas, extent, rowAt } from '../../test/pixels.ts'
 import {
   BACK_Z,
+  BAY_CEILING_Y,
+  BAY_Z,
   CEILING_Y,
   FAR_Z,
   FLOOR_Y,
@@ -22,7 +24,21 @@ import { PLAQUE_BOUNDS } from '../mirror/plaque.ts'
 import { PULL_BOUNDS } from '../mirror/pull.ts'
 import { PLACES } from '../navigation/places.ts'
 import { signPixels } from '../sign/pixels.ts'
-import { FLOOR_PLAN, SIGN_WALL, WALLS, cellPixels, isOnFloor, isVisible, onWall, roomPixels, signToWall } from './room.ts'
+import { WINDOW_BOUNDS } from '../window/tracery.ts'
+import {
+  FLOOR_PLAN,
+  SIGN_WALL,
+  WALLS,
+  WINDOW_WALL,
+  cellPixels,
+  isInBay,
+  isOnFloor,
+  isVisible,
+  onWall,
+  roomPixels,
+  signToWall,
+  windowToWall,
+} from './room.ts'
 import type { WallName } from './room.ts'
 
 // The far wall's rect facing north at 320x240, FAR_Z (7/3) away: 2 × 128 / FAR_Z
@@ -35,7 +51,9 @@ const WALL_ORDER: WallName[] = [
   'east',
   'hall-north',
   'hall-east',
+  'bay-east',
   'hall-end',
+  'bay-west',
   'hall-west',
   'south',
   'nook-back',
@@ -43,7 +61,9 @@ const WALL_ORDER: WallName[] = [
   'west',
 ]
 // The walls around the hall's south leg, which the hall's west wall partly hides from the start.
-const HALL_LEG_WALLS: WallName[] = ['hall-east', 'hall-end', 'hall-west']
+const HALL_LEG_WALLS: WallName[] = ['hall-east', 'bay-east', 'hall-end', 'bay-west', 'hall-west']
+// The walls of the raised bay at the hall's end.
+const BAY_WALLS: WallName[] = ['bay-east', 'hall-end', 'bay-west']
 
 const key = (p: { x: number; y: number }) => `${p.x},${p.y}`
 // The distinct pixels drawn, ignoring order and duplicates.
@@ -105,8 +125,10 @@ describe('FLOOR_PLAN', () => {
       { x: ROOM_HALF_WIDTH, z: FAR_Z },
       { x: ROOM_HALF_WIDTH, z: HALL_FRONT_Z },
       { x: HALL_X, z: HALL_FRONT_Z },
+      { x: HALL_X, z: BAY_Z },
       { x: HALL_X, z: HALL_END_Z },
       { x: ROOM_HALF_WIDTH, z: HALL_END_Z },
+      { x: ROOM_HALF_WIDTH, z: BAY_Z },
       { x: ROOM_HALF_WIDTH, z: BACK_Z },
       { x: NOOK_X, z: BACK_Z },
       { x: NOOK_X, z: NOOK_FRONT_Z },
@@ -127,17 +149,27 @@ describe('WALLS', () => {
     })
   })
 
-  it('starts every wall at the ceiling', () => {
-    for (const wall of Object.values(WALLS)) expect(wall.start.y).toBe(CEILING_Y)
+  it.each(BAY_WALLS)('starts the bay\'s %s wall at the bay\'s raised ceiling', (name) => {
+    expect(WALLS[name].start.y).toBe(BAY_CEILING_Y)
+  })
+
+  it.each(WALL_ORDER.filter((name) => !BAY_WALLS.includes(name)))('starts the %s wall at the main ceiling', (name) => {
+    expect(WALLS[name].start.y).toBe(CEILING_Y)
+  })
+
+  it('raises the bay to twice the room\'s height', () => {
+    expect(BAY_CEILING_Y - FLOOR_Y).toBeCloseTo(2 * (CEILING_Y - FLOOR_Y))
   })
 
   it('gives each wall the length of its side of the floor plan', () => {
     expect(WALLS.north.length).toBeCloseTo(2 * ROOM_HALF_WIDTH)
     expect(WALLS.east.length).toBeCloseTo(FAR_Z - HALL_FRONT_Z)
     expect(WALLS['hall-north'].length).toBeCloseTo(HALL_X - ROOM_HALF_WIDTH)
-    expect(WALLS['hall-east'].length).toBeCloseTo(HALL_FRONT_Z - HALL_END_Z)
+    expect(WALLS['hall-east'].length).toBeCloseTo(HALL_FRONT_Z - BAY_Z)
+    expect(WALLS['bay-east'].length).toBeCloseTo(BAY_Z - HALL_END_Z)
     expect(WALLS['hall-end'].length).toBeCloseTo(HALL_X - ROOM_HALF_WIDTH)
-    expect(WALLS['hall-west'].length).toBeCloseTo(BACK_Z - HALL_END_Z)
+    expect(WALLS['bay-west'].length).toBeCloseTo(BAY_Z - HALL_END_Z)
+    expect(WALLS['hall-west'].length).toBeCloseTo(BACK_Z - BAY_Z)
     expect(WALLS.south.length).toBeCloseTo(ROOM_HALF_WIDTH - NOOK_X)
     expect(WALLS['nook-back'].length).toBeCloseTo(NOOK_FRONT_Z - BACK_Z)
     expect(WALLS['nook-side'].length).toBeCloseTo(-ROOM_HALF_WIDTH - NOOK_X)
@@ -202,6 +234,32 @@ describe('isOnFloor', () => {
   })
 })
 
+describe('isInBay', () => {
+  it.each([
+    ['the hall\'s dead end\'s place', { x: PLACES['hall-end'].x, z: PLACES['hall-end'].z }],
+    ['the middle of the bay', { x: 2, z: (BAY_Z + HALL_END_Z) / 2 }],
+    ['the bay\'s corner by the hall\'s east wall', { x: HALL_X, z: BAY_Z }],
+    ['the bay\'s corner by the hall\'s west wall', { x: ROOM_HALF_WIDTH, z: BAY_Z }],
+    ['the dead end\'s east corner', { x: HALL_X, z: HALL_END_Z }],
+    ['the dead end\'s west corner', { x: ROOM_HALF_WIDTH, z: HALL_END_Z }],
+    ['a point on the line where the bay begins', { x: 2, z: BAY_Z }],
+  ])('includes %s', (_, point) => {
+    expect(isInBay(point)).toBe(true)
+  })
+
+  it.each([
+    ['the start', ORIGIN],
+    ['the hall\'s first place', { x: PLACES.hall.x, z: PLACES.hall.z }],
+    ['the middle of the hall\'s place', { x: PLACES['hall-middle'].x, z: PLACES['hall-middle'].z }],
+    ['a point just north of where the bay begins', { x: 2, z: BAY_Z + 0.01 }],
+    ['a point just beyond the dead end', { x: 2, z: HALL_END_Z - 0.01 }],
+    ['a point just west of the bay', { x: ROOM_HALF_WIDTH - 0.01, z: -3 }],
+    ['a point just east of the bay', { x: HALL_X + 0.01, z: -3 }],
+  ])('excludes %s', (_, point) => {
+    expect(isInBay(point)).toBe(false)
+  })
+})
+
 // The nook's place: WALL_VIEW_DISTANCE in front of the nook's back wall, level with the start.
 const NOOK_EYE: FloorPoint = { x: PLACES.nook.x, z: PLACES.nook.z }
 
@@ -220,12 +278,25 @@ describe('isVisible', () => {
       for (const point of pointsAlong(name)) expect(isVisible(point, ORIGIN)).toBe(true)
     })
 
-    it('sees every corner of the floor plan short of the hall\'s dead end', () => {
-      for (const corner of FLOOR_PLAN.filter(({ z }) => z > HALL_END_Z)) expect(isVisible(corner, ORIGIN)).toBe(true)
+    // The corner where the hall's west wall meets the bay's is behind the back
+    // wall's east end: the sight line to (1, -2) runs along the hall's west wall.
+    const isHallWestCorner = ({ x, z }: FloorPoint) => x === ROOM_HALF_WIDTH && z === BAY_Z
+
+    it('sees every corner of the floor plan short of the hall\'s dead end, but the hall\'s west wall\'s far end', () => {
+      for (const corner of FLOOR_PLAN.filter((corner) => corner.z > HALL_END_Z && !isHallWestCorner(corner))) {
+        expect(isVisible(corner, ORIGIN)).toBe(true)
+      }
     })
 
-    it('does not see the corners at the hall\'s dead end', () => {
-      for (const corner of FLOOR_PLAN.filter(({ z }) => z === HALL_END_Z)) expect(isVisible(corner, ORIGIN)).toBe(false)
+    it('does not see the corners at the hall\'s dead end or the far end of the hall\'s west wall', () => {
+      const hidden = FLOOR_PLAN.filter((corner) => corner.z === HALL_END_Z || isHallWestCorner(corner))
+      expect(hidden).toHaveLength(3)
+      for (const corner of hidden) expect(isVisible(corner, ORIGIN)).toBe(false)
+    })
+
+    it('sees the bay\'s east corner with the hall\'s east wall through the opening', () => {
+      // The sight line to (3, -2) crosses x 1 at z -2/3, inside the opening.
+      expect(isVisible({ x: HALL_X, z: BAY_Z }, ORIGIN)).toBe(true)
     })
 
     it('sees down the hall through its opening', () => {
@@ -316,6 +387,72 @@ describe('isVisible', () => {
     it('does not see the start behind the hall\'s west wall', () => {
       // The sight line to the start crosses x 1 at z -4/3, past the back wall's corner.
       expect(isVisible(ORIGIN, HALL_END_EYE)).toBe(false)
+    })
+  })
+
+  describe('above the main ceiling', () => {
+    const HALL_EYE: FloorPoint = { x: PLACES.hall.x, z: PLACES.hall.z }
+    const MIDDLE_EYE: FloorPoint = { x: PLACES['hall-middle'].x, z: PLACES['hall-middle'].z }
+    const END_EYE: FloorPoint = { x: PLACES['hall-end'].x, z: PLACES['hall-end'].z }
+    // The window's apex, centred in the dead end.
+    const WINDOW_TOP = { x: PLACES['hall-end'].x, y: WINDOW_BOUNDS.top, z: HALL_END_Z }
+
+    it('sees the window\'s apex from the middle of the hall, under the bay\'s raised ceiling', () => {
+      // The sight line rises past CEILING_Y at z ≈ -2.26, beyond BAY_Z.
+      expect(WINDOW_BOUNDS.top).toBeGreaterThan(CEILING_Y)
+      expect(isVisible(WINDOW_TOP, MIDDLE_EYE)).toBe(true)
+    })
+
+    it('does not see the window\'s apex from the hall\'s first place, past the main ceiling\'s edge', () => {
+      // The sight line rises past CEILING_Y at z ≈ -1.46, short of BAY_Z.
+      expect(isVisible(WINDOW_TOP, HALL_EYE)).toBe(false)
+    })
+
+    it('sees the dead end from the hall\'s first place only up to where the main ceiling\'s edge cuts it off', () => {
+      // Looking 11/3 to the dead end past the ceiling's edge 2 away, at most
+      // CEILING_Y * 11/6 = 1.375 up.
+      expect(isVisible({ x: 2, y: 1.37, z: HALL_END_Z }, HALL_EYE)).toBe(true)
+      expect(isVisible({ x: 2, y: 1.38, z: HALL_END_Z }, HALL_EYE)).toBe(false)
+    })
+
+    it('does not see the bay\'s top corner from the hall\'s first place', () => {
+      expect(isVisible({ x: HALL_X, y: BAY_CEILING_Y, z: HALL_END_Z }, HALL_EYE)).toBe(false)
+    })
+
+    it.each([
+      ['the dead end\'s east top corner', { x: HALL_X, y: BAY_CEILING_Y, z: HALL_END_Z }],
+      ['the dead end\'s west top corner', { x: ROOM_HALF_WIDTH, y: BAY_CEILING_Y, z: HALL_END_Z }],
+      ['the top of the bay\'s east wall where the bay begins', { x: HALL_X, y: BAY_CEILING_Y, z: BAY_Z }],
+      ['the top of the bay\'s west wall where the bay begins', { x: ROOM_HALF_WIDTH, y: BAY_CEILING_Y, z: BAY_Z }],
+    ])('sees %s from inside the bay', (_, point) => {
+      expect(isVisible(point, END_EYE)).toBe(true)
+    })
+
+    it('does not see the top of the bay\'s east wall from the middle of the hall, past the main ceiling', () => {
+      // The sight line rises past CEILING_Y at x ≈ 2.33, z ≈ -1.59, short of BAY_Z.
+      expect(isVisible({ x: HALL_X, y: BAY_CEILING_Y, z: -2.1 }, MIDDLE_EYE)).toBe(false)
+    })
+
+    it('still hides a point above the main ceiling behind a wall on the floor plan', () => {
+      // From inside the bay, the start is behind the hall's west wall at any height.
+      expect(isVisible({ ...ORIGIN, y: 2 }, END_EYE)).toBe(false)
+    })
+  })
+
+  describe('at or below the main ceiling', () => {
+    const points: FloorPoint[] = [ORIGIN, { x: 2.9, z: -1.5 }, { x: 1.5, z: -3 }, { x: 2, z: HALL_END_Z }, { x: -1.5, z: 2 }]
+    const eyes: FloorPoint[] = [ORIGIN, NOOK_EYE, PLACES.hall, PLACES['hall-middle'], PLACES['hall-end']]
+
+    it.each([FLOOR_Y, 0, CEILING_Y])('sees a point at height %f exactly when it sees its spot on the floor plan', (y) => {
+      for (const eye of eyes) {
+        for (const point of points) expect(isVisible({ ...point, y }, eye)).toBe(isVisible(point, eye))
+      }
+    })
+
+    it('has cases both seen and hidden among those points', () => {
+      const results = eyes.flatMap((eye) => points.map((point) => isVisible(point, eye)))
+      expect(results).toContain(true)
+      expect(results).toContain(false)
     })
   })
 
@@ -1002,5 +1139,176 @@ describe('roomPixels around the sign', () => {
       (p) => p.x > FAR_WALL.left && p.x < FAR_WALL.right && p.y > FAR_WALL.top && p.y < FAR_WALL.bottom,
     )
     expect(bricks.filter((p) => !isUnderSign(p)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('roomPixels around the window', () => {
+  const SOUTH = Math.PI
+  const HALL_END_EYE: FloorPoint = { x: PLACES['hall-end'].x, z: PLACES['hall-end'].z }
+  // The window on screen from the hall's dead end facing south, where its wall
+  // is at distance 1.
+  const WINDOW = {
+    left: columnAt(WINDOW_BOUNDS.left, 1),
+    right: columnAt(WINDOW_BOUNDS.right, 1),
+    top: rowAt(WINDOW_BOUNDS.top, 1),
+    bottom: rowAt(WINDOW_BOUNDS.bottom, 1),
+  }
+  const inWindow = (p: Pixel) => p.x >= WINDOW.left && p.x <= WINDOW.right && p.y >= WINDOW.top && p.y <= WINDOW.bottom
+  const bricks = dim(roomPixels(WIDTH, HEIGHT, SOUTH, HALL_END_EYE))
+
+  it('keeps bricks off the window from the hall\'s dead end facing south', () => {
+    expect(bricks.filter(inWindow)).toEqual([])
+  })
+
+  it('still draws bricks on the dead end\'s wall beside the window', () => {
+    // The wall spans s -1 to 1 and t -0.75 to 0.75 at distance 1.
+    const onWallBeside = bricks.filter(
+      (p) =>
+        p.x > columnAt(-1, 1) && p.x < columnAt(1, 1) && p.y > rowAt(CEILING_Y, 1) && p.y < rowAt(FLOOR_Y, 1) && !inWindow(p),
+    )
+    expect(onWallBeside.length).toBeGreaterThan(0)
+  })
+})
+
+describe('windowToWall', () => {
+  const toWorld = (s: number, t: number) => {
+    const { u, v } = windowToWall({ s, t })
+    return onWall(WALLS[WINDOW_WALL], u, v)
+  }
+
+  it('sets the window in the hall\'s dead end', () => {
+    expect(WINDOW_WALL).toBe('hall-end')
+  })
+
+  it('puts the window\'s centre in the middle of the dead end\'s wall at eye height', () => {
+    const centre = toWorld(0, 0)
+    expect(centre.x).toBeCloseTo(PLACES['hall-end'].x, 9)
+    expect(centre.y).toBeCloseTo(0, 9)
+    expect(centre.z).toBeCloseTo(HALL_END_Z, 9)
+  })
+
+  it('runs s right and t up in the world, as seen from the hall\'s dead end facing south', () => {
+    const centre = toWorld(0, 0)
+    const moved = toWorld(0.3, 0.2)
+    // Facing south, right is west (-x).
+    expect(moved.x - centre.x).toBeCloseTo(-0.3, 9)
+    expect(moved.y - centre.y).toBeCloseTo(0.2, 9)
+    expect(moved.z).toBeCloseTo(HALL_END_Z, 9)
+  })
+})
+
+describe('roomPixels in the hall\'s raised bay', () => {
+  const SOUTH = Math.PI
+  const EAST = (3 * Math.PI) / 2
+
+  describe('from the hall\'s first place facing south', () => {
+    const pixels = roomPixels(WIDTH, HEIGHT, SOUTH, { x: PLACES.hall.x, z: PLACES.hall.z })
+    // The bay begins 2 ahead, across the hall from x 3 (on the left) to x 1.
+    const depth = PLACES.hall.z - BAY_Z
+    const STEP = {
+      left: columnAt(PLACES.hall.x - HALL_X, depth),
+      right: columnAt(PLACES.hall.x - ROOM_HALF_WIDTH, depth),
+      ceiling: rowAt(CEILING_Y, depth),
+      floor: rowAt(FLOOR_Y, depth),
+    }
+
+    it('puts the bay\'s start 2 ahead, between columns 96 and 224, under the main ceiling at row 72', () => {
+      expect(STEP).toEqual({ left: 96, right: 224, ceiling: 72, floor: 168 })
+    })
+
+    it('draws the main ceiling\'s edge across the hall where the bay begins', () => {
+      const columns = new Set(
+        worn(pixels)
+          .filter((p) => Math.abs(p.y - STEP.ceiling) <= 1 && p.x > STEP.left && p.x < STEP.right)
+          .map((p) => p.x),
+      )
+      expect(columns.size).toBeGreaterThan((STEP.right - STEP.left) / 2)
+    })
+
+    it('hides the bay\'s raised walls and ceiling edge behind the main ceiling', () => {
+      expect(worn(pixels).filter((p) => p.y < STEP.ceiling - 2 && p.x > STEP.left + 4 && p.x < STEP.right - 4)).toEqual([])
+    })
+
+    it('draws no corner edge down the hall\'s walls where the bay begins', () => {
+      const down = worn(pixels).filter(
+        (p) =>
+          [STEP.left, STEP.right].some((x) => Math.abs(p.x - x) <= 1) && p.y > STEP.ceiling + 2 && p.y < STEP.floor - 2,
+      )
+      expect(down).toEqual([])
+    })
+  })
+
+  // An eye inside the bay, off the places, facing north: the bay begins 1.5
+  // ahead, so the step up from the main ceiling is in view.
+  describe('from inside the bay facing north', () => {
+    const eye: FloorPoint = { x: 2, z: -3.5 }
+    const pixels = roomPixels(WIDTH, HEIGHT, 0, eye)
+    const depth = BAY_Z - eye.z
+    const STEP = {
+      left: columnAt(ROOM_HALF_WIDTH - eye.x, depth),
+      right: columnAt(HALL_X - eye.x, depth),
+      ceiling: rowAt(CEILING_Y, depth),
+      floor: rowAt(FLOOR_Y, depth),
+    }
+
+    it('puts the step 1.5 ahead, between columns 75 and 245, at row 56', () => {
+      expect(STEP).toEqual({ left: 75, right: 245, ceiling: 56, floor: 184 })
+      expect(rowAt(BAY_CEILING_Y, depth)).toBeLessThan(0)
+    })
+
+    it.each([
+      ['west', 'left'],
+      ['east', 'right'],
+    ] as const)('draws the step on the bay\'s %s side as a vertical edge from the main ceiling up', (_, side) => {
+      const rows = wornRowsIn(pixels, STEP[side], STEP[side])
+      expect([...rows].filter((y) => y < STEP.ceiling).length).toBeGreaterThan(STEP.ceiling / 2)
+    })
+
+    it.each([
+      ['west', 'left'],
+      ['east', 'right'],
+    ] as const)('draws no corner below the main ceiling on the bay\'s %s side, where the walls carry straight on', (_, side) => {
+      const rows = [...wornRowsIn(pixels, STEP[side] - 1, STEP[side] + 1)]
+      expect(rows.filter((y) => y > STEP.ceiling + 2 && y < STEP.floor - 2)).toEqual([])
+    })
+
+    it('draws the main ceiling\'s edge across the hall where the bay begins', () => {
+      const columns = new Set(worn(pixels).filter((p) => p.y === STEP.ceiling && p.x > STEP.left && p.x < STEP.right).map((p) => p.x))
+      expect(columns.size).toBeGreaterThan((STEP.right - STEP.left) / 2)
+    })
+
+    it('draws bricks on the bay\'s walls above the main ceiling but none on the hall\'s walls beyond the step', () => {
+      // Above the step, between its sides, only the hall's walls beyond it could
+      // show, and they stop at the main ceiling.
+      const above = dim(pixels).filter((p) => p.y < STEP.ceiling)
+      expect(above.filter((p) => p.x > STEP.left && p.x < STEP.right)).toEqual([])
+      expect(above.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('from the hall\'s dead end facing east', () => {
+    // The bay's east wall is 1 away, from z BAY_Z on the left to HALL_END_Z on the right.
+    const eye: FloorPoint = { x: PLACES['hall-end'].x, z: PLACES['hall-end'].z }
+    const WALL = { left: columnAt(eye.z - BAY_Z, 1), right: columnAt(eye.z - HALL_END_Z, 1) }
+    const CEILING_ROW = rowAt(CEILING_Y, 1)
+    const bricks = dim(roomPixels(WIDTH, HEIGHT, EAST, eye))
+
+    it('puts the bay\'s east wall between columns 75 and 288', () => {
+      expect(WALL).toEqual({ left: 75, right: 288 })
+    })
+
+    it('draws bricks on the bay\'s east wall above the main ceiling', () => {
+      const above = bricks.filter((p) => p.y < CEILING_ROW)
+      expect(above.length).toBeGreaterThan(0)
+      for (const p of above) {
+        expect(p.x).toBeGreaterThanOrEqual(WALL.left)
+        expect(p.x).toBeLessThanOrEqual(WALL.right)
+      }
+    })
+
+    it('draws bricks on the bay\'s east wall below the main ceiling too, down towards the floor', () => {
+      const below = bricks.filter((p) => p.x > WALL.left && p.x < WALL.right && p.y > CEILING_ROW && p.y < rowAt(FLOOR_Y, 1))
+      expect(below.filter((p) => p.y > HEIGHT / 2).length).toBeGreaterThan(0)
+    })
   })
 })
