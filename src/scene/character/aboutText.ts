@@ -25,8 +25,9 @@ export const EQUIPMENT = [
   { slot: 'Chest', item: 'Hoodie', icon: HOODIE_MAP },
 ]
 export const ABOUT_TEXT =
-  "About me: placeholder text. I'm a software developer who likes building things for the web, " +
-  'pixel art and old dungeon crawlers.\n\nMore about me will go here.'
+  "Writer of code. Wearer of hats. Player of games. Dad-to-be." +
+  '\n\nI love pixel art and retro games, Magic the Gathering, Warhammer, and other ' +
+  'such things.'
 
 // Everything the profile view shows besides the avatar.
 export const PROFILE: Profile = { fullName: FULL_NAME, title: CHARACTER_TITLE, health: CARD_HEALTH, equipment: EQUIPMENT }
