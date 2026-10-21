@@ -5,7 +5,7 @@ import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core
 import { GLYPH_HEIGHT, textPixels, textWidth } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
 import { selectionPixels } from '../selection/selection.ts'
-import { CARD_HEALTH, CARD_NAME } from '../../ViewPane/aboutText.ts'
+import { CARD_HEALTH, CARD_NAME } from './aboutText.ts'
 import { SIDE_PANEL_HEIGHT, SIDE_PANEL_WIDTH } from '../../ViewPane/ViewPane.tsx'
 import { AVATAR_CARD_SIZE, CARD_BOUNDS, cardPixels, drawSidePanel, healthPixels } from './card.ts'
 import type { Health } from './card.ts'

@@ -4,7 +4,7 @@ The lower panel doubles as a text box. Clicking the welcome sign, from in front 
 
 ## Pages
 
-The sign's text is `SIGN_PAGES` in `src/ViewPane/signText.ts`, one page per click. A newline starts a new line. Longer lines wrap between words (`wrapText`), and a word longer than a line is broken where it overflows.
+The sign's text is `SIGN_PAGES` in `src/scene/sign/signText.ts`, one page per click. A newline starts a new line. Longer lines wrap between words (`wrapText`), and a word longer than a line is broken where it overflows.
 
 Each page must fit in the box. `textBoxLayout` gives the characters per line and the lines that fit above the caret in the panel.
 

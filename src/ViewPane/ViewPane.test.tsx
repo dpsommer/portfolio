@@ -45,10 +45,10 @@ import {
   FULL_NAME,
   PROFILE,
   PROFILE_DESCRIPTION,
-} from './aboutText.ts'
+} from '../scene/character/aboutText.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
-import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
+import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from '../scene/sign/signText.ts'
 import ViewPane, {
   LOWER_PANEL_HEIGHT,
   LOWER_PANEL_WIDTH,

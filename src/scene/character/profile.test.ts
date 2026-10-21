@@ -4,7 +4,7 @@ import { HEIGHT, WIDTH, expectOnCanvas, expectPlaced, extent } from '../../test/
 import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import { GLYPHS, GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
-import { AVATAR_MESSAGES, FULL_NAME, PROFILE } from '../../ViewPane/aboutText.ts'
+import { AVATAR_MESSAGES, FULL_NAME, PROFILE } from './aboutText.ts'
 import { BUBBLE_HEIGHT, bubblePixels } from './bubble.ts'
 import type { Bubble } from './bubble.ts'
 import { equipmentPixels } from './equipment.ts'

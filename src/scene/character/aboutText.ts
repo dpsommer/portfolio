@@ -1,5 +1,5 @@
-import { HEADPHONES_MAP, HOODIE_MAP, KEYBOARD_MAP, MOUSE_MAP } from '../scene/character/icons.ts'
-import type { Profile } from '../scene/character/profile.ts'
+import { HEADPHONES_MAP, HOODIE_MAP, KEYBOARD_MAP, MOUSE_MAP } from './icons.ts'
+import type { Profile } from './profile.ts'
 
 // The character card's name and health, and what the profile view it opens
 // shows: the full name and title beside the avatar, the health potion and

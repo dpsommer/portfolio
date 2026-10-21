@@ -7,9 +7,9 @@ The character card fills the top of the side panel. It shows the owner's name, t
 `cardPixels` (`card.ts`) draws the card inside `CARD_BOUNDS`:
 
 - **Border:** a one-pixel worn outline with its corner pixels left out. It sits `CARD_MARGIN` (9) in from the panel's edges, which leaves room for the selection carets.
-- **Name:** `CARD_NAME` ("Duncan", `src/ViewPane/aboutText.ts`), centred at the top at twice the font's size. Below it is a dim rule.
+- **Name:** `CARD_NAME` ("Duncan", `src/scene/character/aboutText.ts`), centred at the top at twice the font's size. Below it is a dim rule.
 - **Avatar:** a square `AVATAR_CARD_SIZE` (72) cells wide, below the name on the left, in a dim outline.
-- **Icons and health:** `KEYBOARD_MAP` and `MOUSE_MAP` (`icons.ts`), then the health readout (`CARD_HEALTH`, `src/ViewPane/aboutText.ts`), stacked in that order.
+- **Icons and health:** `KEYBOARD_MAP` and `MOUSE_MAP` (`icons.ts`), then the health readout (`CARD_HEALTH`, `src/scene/character/aboutText.ts`), stacked in that order.
   - **Rules:** a dim rule separates each one from the next, with `RULE_GAP` (3) pixels above and below it, and stops `RULE_INSET` (2) short of the column's edges.
   - **Placement:** the icons are centred in the column between the avatar's outline and the card's border. The stack as a whole is centred on the avatar's height.
   - **Health:** `healthPixels` draws the readout as a diagonal fraction. The current is in the top left and the total in the bottom right, both bold at `HEALTH_SCALE` (1). A worn slash sits centred between them, `HEALTH_SLASH_GAP` (1) row from each. The numbers are inset `HEALTH_INSET` (3) from the column's edges. The readout sits `HEALTH_GAP` (6) below the second rule, twice the other rules' gaps, so it stands apart. Bold widens every pixel of the glyphs by one to the right.
@@ -32,7 +32,7 @@ The avatar is the GitHub profile picture, committed as `src/assets/avatar.jpg` (
 
 Clicking the card, or pressing Enter or Space with it selected, opens the profile view. Doing either again closes it, and so does Escape. Closing with a click or Escape also clears the selection (`closeProfile`). Closing with Enter or Space keeps the card selected, so the next press opens the view again.
 
-- **Room canvas:** `drawProfile` (`profile.ts`) draws in place of the room, from `PROFILE` (`src/ViewPane/aboutText.ts`). The canvas's `data-view` is `profile`, or `room` otherwise. The view shows:
+- **Room canvas:** `drawProfile` (`profile.ts`) draws in place of the room, from `PROFILE` (`src/scene/character/aboutText.ts`). The canvas's `data-view` is `profile`, or `room` otherwise. The view shows:
   - **Avatar:** `AVATAR_PROFILE_SIZE` (96) square, in the upper left with a dim outline.
   - **Name:** `FULL_NAME` to the avatar's right, one word per line, at twice the font's size.
   - **Title:** `CHARACTER_TITLE` ("Human Wizard") under the name, in worn text at the font's own size.
@@ -60,4 +60,4 @@ An easter egg: clicking the profile view's avatar (`AVATAR_PROFILE_BOUNDS`) show
 
 ## Editing the text
 
-`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME`, `CHARACTER_TITLE`, `EQUIPMENT`, `AVATAR_MESSAGES` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.
+`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME`, `CHARACTER_TITLE`, `EQUIPMENT`, `AVATAR_MESSAGES` and `ABOUT_TEXT` are in `src/scene/character/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.
