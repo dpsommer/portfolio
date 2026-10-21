@@ -3,6 +3,9 @@ import {
   CEILING_Y,
   FAR_Z,
   FLOOR_Y,
+  HALL_END_Z,
+  HALL_FRONT_Z,
+  HALL_X,
   NOOK_FRONT_Z,
   NOOK_X,
   ORIGIN,
@@ -26,7 +29,7 @@ import { SIGN_BOUNDS } from '../sign/board.ts'
 // The room is seen from inside, drawn as the classic dungeon-crawler "narrowing
 // box": facing north, the far wall is a small rectangle in the middle of the
 // view and the wall edges run out to the view's corners. A nook to the left of
-// the start breaks the box. Everything is sparse, so the viewer fills in the
+// the start and a hallway to its right break the box. Everything is sparse, so the viewer fills in the
 // rest. All detail is placed in world space with per-element seeds, so it stays
 // put while the view turns and moves. Walls run from floor to ceiling, so
 // whether something is hidden only depends on the floor plan: see `isVisible`.
@@ -62,13 +65,27 @@ type Wall = { start: Vec3; along: Vec3; length: number; seed: number }
 const LEFT = -ROOM_HALF_WIDTH
 const RIGHT = ROOM_HALF_WIDTH
 
-export type WallName = 'north' | 'east' | 'south' | 'nook-back' | 'nook-side' | 'west'
+export type WallName =
+  | 'north'
+  | 'east'
+  | 'hall-north'
+  | 'hall-east'
+  | 'hall-end'
+  | 'hall-west'
+  | 'south'
+  | 'nook-back'
+  | 'nook-side'
+  | 'west'
 
 // The floor plan's corners, clockwise seen from above, each followed by the wall
 // that runs from it to the next corner (left to right, seen from inside).
 const PLAN: [FloorPoint, WallName, number][] = [
   [{ x: LEFT, z: FAR_Z }, 'north', 0],
   [{ x: RIGHT, z: FAR_Z }, 'east', 3],
+  [{ x: RIGHT, z: HALL_FRONT_Z }, 'hall-north', 6],
+  [{ x: HALL_X, z: HALL_FRONT_Z }, 'hall-east', 7],
+  [{ x: HALL_X, z: HALL_END_Z }, 'hall-end', 8],
+  [{ x: RIGHT, z: HALL_END_Z }, 'hall-west', 9],
   [{ x: RIGHT, z: BACK_Z }, 'south', 2],
   [{ x: NOOK_X, z: BACK_Z }, 'nook-back', 4],
   [{ x: NOOK_X, z: NOOK_FRONT_Z }, 'nook-side', 5],
@@ -199,13 +216,15 @@ function brickSegments(): Segment[] {
 }
 
 // Scattered flagstone edges on a grid of square floor tiles. Grid lines are
-// numbered from the main room's left wall, and only lines with floor on both
-// sides are drawn (not those along the walls).
+// numbered from the main room's left wall and back wall (negative down the
+// hall), and only lines with floor on both sides are drawn (not those along the
+// walls).
 function floorSegments(): Segment[] {
   const x = (column: number) => LEFT + column * FLOOR_TILE_SIZE
   const z = (row: number) => Math.min(FAR_Z, BACK_Z + row * FLOOR_TILE_SIZE)
   const firstColumn = Math.round((NOOK_X - LEFT) / FLOOR_TILE_SIZE)
-  const lastColumn = Math.round((RIGHT - LEFT) / FLOOR_TILE_SIZE)
+  const lastColumn = Math.round((HALL_X - LEFT) / FLOOR_TILE_SIZE)
+  const firstRow = Math.round((HALL_END_Z - BACK_Z) / FLOOR_TILE_SIZE)
   const rows = Math.round((FAR_Z - BACK_Z) / FLOOR_TILE_SIZE)
   const segments: Segment[] = []
   const add = (a: Vec3, b: Vec3, seed: number) => {
@@ -220,7 +239,7 @@ function floorSegments(): Segment[] {
       ? isOnFloor({ x: middle.x - nudge, z: middle.z }) && isOnFloor({ x: middle.x + nudge, z: middle.z })
       : isOnFloor({ x: middle.x, z: middle.z - nudge }) && isOnFloor({ x: middle.x, z: middle.z + nudge })
   }
-  for (let row = 0; row < rows; row++) {
+  for (let row = firstRow; row < rows; row++) {
     for (let column = firstColumn; column < lastColumn; column++) {
       // The tile's near edge and its left edge.
       const near: Segment = [vec(x(column), FLOOR_Y, z(row)), vec(x(column + 1), FLOOR_Y, z(row))]

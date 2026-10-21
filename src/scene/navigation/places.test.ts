@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { BACK_Z, FAR_Z, NOOK_X, ORIGIN, ROOM_HALF_WIDTH, SIGN_STEP, WALL_VIEW_DISTANCE } from '../core/camera.ts'
+import {
+  BACK_Z,
+  FAR_Z,
+  HALL_END_Z,
+  HALL_FRONT_Z,
+  HALL_STEP,
+  HALL_X,
+  NOOK_X,
+  ORIGIN,
+  SIGN_STEP,
+  WALL_VIEW_DISTANCE,
+} from '../core/camera.ts'
 import type { FloorPoint } from '../core/camera.ts'
 import { FLOOR_PLAN, isOnFloor } from '../room/room.ts'
 import { HEADINGS, opposite } from './heading.ts'
@@ -40,8 +51,8 @@ function distanceToWall(from: FloorPoint, heading: Heading): number {
 }
 
 describe('PLACES', () => {
-  it('has the start, the nook and the place in front of the sign', () => {
-    expect([...PLACE_NAMES].sort()).toEqual(['nook', 'sign', 'start'])
+  it('has the start, the nook, the place in front of the sign and the three hall places', () => {
+    expect([...PLACE_NAMES].sort()).toEqual(['hall', 'hall-end', 'hall-middle', 'nook', 'sign', 'start'])
   })
 
   it('puts the start at the origin', () => {
@@ -64,8 +75,38 @@ describe('PLACES', () => {
     expect(PLACES.sign.z - PLACES.start.z).toBeCloseTo(PLACES.start.x - PLACES.nook.x)
   })
 
-  it('leads west from the start to the nook and north to the sign', () => {
-    expect(PLACES.start.exits).toEqual({ west: 'nook', north: 'sign' })
+  it('puts the hall WALL_VIEW_DISTANCE from the hall\'s east and north walls, level with the start', () => {
+    expect(HALL_X - PLACES.hall.x).toBeCloseTo(WALL_VIEW_DISTANCE)
+    expect(HALL_FRONT_Z - PLACES.hall.z).toBeCloseTo(WALL_VIEW_DISTANCE)
+    expect(PLACES.hall.z).toBe(ORIGIN.z)
+  })
+
+  it.each([
+    ['hall-middle', 1],
+    ['hall-end', 2],
+  ] as const)('puts the %s %i HALL_STEP south of the hall, in line with it', (name, steps) => {
+    expect(PLACES[name].x).toBe(PLACES.hall.x)
+    expect(PLACES.hall.z - PLACES[name].z).toBeCloseTo(steps * HALL_STEP)
+  })
+
+  it('puts the hall end WALL_VIEW_DISTANCE from the dead end', () => {
+    expect(PLACES['hall-end'].z - HALL_END_Z).toBeCloseTo(WALL_VIEW_DISTANCE)
+  })
+
+  it('leads west from the start to the nook, north to the sign and east to the hall', () => {
+    expect(PLACES.start.exits).toEqual({ west: 'nook', north: 'sign', east: 'hall' })
+  })
+
+  it('leads west from the hall back to the start and south down the hall', () => {
+    expect(PLACES.hall.exits).toEqual({ west: 'start', south: 'hall-middle' })
+  })
+
+  it('leads north from the hall middle to the hall and south to the hall end', () => {
+    expect(PLACES['hall-middle'].exits).toEqual({ north: 'hall', south: 'hall-end' })
+  })
+
+  it('leads only north from the hall end', () => {
+    expect(PLACES['hall-end'].exits).toEqual({ north: 'hall-middle' })
   })
 
   it('leads south from the sign back to the start', () => {
@@ -83,7 +124,8 @@ describe('PLACES', () => {
 
 describe('distanceToWall (test helper)', () => {
   it('finds the walls straight ahead of the start', () => {
-    expect(distanceToWall(ORIGIN, 'east')).toBeCloseTo(ROOM_HALF_WIDTH)
+    // Straight east of the start is the hall's opening, then its east wall.
+    expect(distanceToWall(ORIGIN, 'east')).toBeCloseTo(HALL_X)
     expect(distanceToWall(ORIGIN, 'south')).toBeCloseTo(-BACK_Z)
     // Straight west of the start is the nook's opening, then its back wall.
     expect(distanceToWall(ORIGIN, 'west')).toBeCloseTo(-NOOK_X)
@@ -92,9 +134,12 @@ describe('distanceToWall (test helper)', () => {
 
 describe('wall view distance', () => {
   it.each([
-    ['start', ['east', 'south']],
+    ['start', ['south']],
     ['nook', ['north', 'west', 'south']],
     ['sign', ['north', 'east', 'west']],
+    ['hall', ['north', 'east']],
+    ['hall-middle', ['east', 'west']],
+    ['hall-end', ['east', 'south', 'west']],
   ] as const)('frames the %s with walls close by to the %j', (name, headings) => {
     const close = HEADINGS.filter((heading) => distanceToWall(PLACES[name], heading) <= CLOSE)
     expect([...close].sort()).toEqual([...headings].sort())
@@ -118,7 +163,7 @@ describe('forwardFrom', () => {
     ['start', 'north', 'sign'],
     ['start', 'west', 'nook'],
     ['start', 'south', null],
-    ['start', 'east', null],
+    ['start', 'east', 'hall'],
     ['nook', 'north', null],
     ['nook', 'west', null],
     ['nook', 'south', null],
@@ -127,6 +172,18 @@ describe('forwardFrom', () => {
     ['sign', 'west', null],
     ['sign', 'south', 'start'],
     ['sign', 'east', null],
+    ['hall', 'north', null],
+    ['hall', 'west', 'start'],
+    ['hall', 'south', 'hall-middle'],
+    ['hall', 'east', null],
+    ['hall-middle', 'north', 'hall'],
+    ['hall-middle', 'west', null],
+    ['hall-middle', 'south', 'hall-end'],
+    ['hall-middle', 'east', null],
+    ['hall-end', 'north', 'hall-middle'],
+    ['hall-end', 'west', null],
+    ['hall-end', 'south', null],
+    ['hall-end', 'east', null],
   ] as const)('from the %s facing %s leads to %s', (place, heading, expected) => {
     expect(forwardFrom(place, heading)).toBe(expected)
   })
@@ -169,7 +226,7 @@ describe('forwardFrom', () => {
 describe('backFrom', () => {
   it.each([
     ['start', 'north', null],
-    ['start', 'west', null],
+    ['start', 'west', 'hall'],
     ['start', 'south', 'sign'],
     ['start', 'east', 'nook'],
     ['nook', 'north', null],
@@ -180,6 +237,13 @@ describe('backFrom', () => {
     ['sign', 'west', null],
     ['sign', 'south', null],
     ['sign', 'east', null],
+    ['hall', 'north', 'hall-middle'],
+    ['hall', 'east', 'start'],
+    ['hall-middle', 'north', 'hall-end'],
+    ['hall-middle', 'south', 'hall'],
+    ['hall-middle', 'east', null],
+    ['hall-end', 'north', null],
+    ['hall-end', 'south', 'hall-middle'],
   ] as const)('from the %s facing %s leads to %s', (place, heading, expected) => {
     expect(backFrom(place, heading)).toBe(expected)
   })
@@ -188,9 +252,12 @@ describe('backFrom', () => {
     for (const heading of HEADINGS) expect(backFrom(name, heading)).toBe(forwardFrom(name, opposite(heading)))
   })
 
-  it.each(PLACE_NAMES)('never leads both forward and back from the %s facing one way', (name) => {
-    for (const heading of HEADINGS) {
-      expect(forwardFrom(name, heading) !== null && backFrom(name, heading) !== null).toBe(false)
-    }
-  })
+  it.each(['nook', 'sign', 'hall', 'hall-end'] as const)(
+    'never leads both forward and back from the %s facing one way, as it is beside a wall',
+    (name) => {
+      for (const heading of HEADINGS) {
+        expect(forwardFrom(name, heading) !== null && backFrom(name, heading) !== null).toBe(false)
+      }
+    },
+  )
 })

@@ -166,6 +166,20 @@ function approachSign(canvas: HTMLElement) {
   clickAt(canvas, CENTRE_X)
 }
 
+// Turns right to face east at the start, then steps forward into the hall.
+function enterHall(canvas: HTMLElement) {
+  clickAt(canvas, RIGHT_X)
+  clickAt(canvas, CENTRE_X)
+}
+
+// Enters the hall, turns right to face south down it, then steps twice to its dead end.
+function walkToHallEnd(canvas: HTMLElement) {
+  enterHall(canvas)
+  clickAt(canvas, RIGHT_X)
+  clickAt(canvas, CENTRE_X)
+  clickAt(canvas, CENTRE_X)
+}
+
 // Makes getContext return `ctx` for the room canvas, and null for the panels so
 // their drawing doesn't mix with the room's.
 function provideContext(ctx: CanvasRenderingContext2D) {
@@ -347,10 +361,12 @@ type Enabled = Record<NavButton, boolean>
 
 // Which buttons can be used at each place and heading the tests visit.
 const START_NORTH: Enabled = { forward: true, back: false, left: true, right: true }
-const START_WEST: Enabled = { forward: true, back: false, left: true, right: true }
-const START_EAST: Enabled = { forward: false, back: true, left: true, right: true }
+// Between the nook and the hall, facing either of them leads both forward and back.
+const START_WEST: Enabled = { forward: true, back: true, left: true, right: true }
+const START_EAST: Enabled = { forward: true, back: true, left: true, right: true }
 const NOOK_WEST: Enabled = { forward: false, back: true, left: true, right: true }
 const SIGN_NORTH: Enabled = { forward: false, back: true, left: true, right: true }
+const HALL_END_SOUTH: Enabled = { forward: false, back: true, left: true, right: true }
 // Mid-move the pressed key looks usable while it's held, even where it
 // won't be once the move ends.
 const NOOK_WEST_FORWARD_HELD: Enabled = { ...NOOK_WEST, forward: true }
@@ -485,8 +501,8 @@ describe('ViewPane', () => {
     })
 
     it.each([
-      ['west, with forward usable, after turning left', LEFT_X, Math.PI / 2, START_WEST],
-      ['east, with back usable, after turning right', RIGHT_X, -Math.PI / 2, START_EAST],
+      ['west, with forward and back usable, after turning left', LEFT_X, Math.PI / 2, START_WEST],
+      ['east, with forward and back usable, after turning right', RIGHT_X, -Math.PI / 2, START_EAST],
     ])('redraws facing %s', (_, x, yaw, enabled) => {
       useReducedMotion()
       const fillsOn = contextPerCanvas()
@@ -500,6 +516,7 @@ describe('ViewPane', () => {
     it.each([
       ['into the nook', enterNook, 'nook', Math.PI / 2, NOOK_WEST],
       ['up to the sign', approachSign, 'sign', 0, SIGN_NORTH],
+      ['down the hall to its dead end', walkToHallEnd, 'hall-end', -Math.PI, HALL_END_SOUTH],
     ])('redraws with only back usable after moving %s', (_, move, place, yaw, enabled) => {
       useReducedMotion()
       const fillsOn = contextPerCanvas()
@@ -762,9 +779,9 @@ describe('ViewPane', () => {
     })
 
     // Nowhere at the start has both ways blocked: back leads nowhere facing
-    // north, and forward nowhere facing east.
+    // north, and forward nowhere facing south.
     it.each<[NavButton, NavButton[], string]>([
-      ['forward', ['right'], 'east'],
+      ['forward', ['left', 'left'], 'south'],
       ['back', [], 'north'],
     ])('does nothing for %s with nowhere to go, after turning %j', (button, turns, heading) => {
       const { canvas } = renderAndUse(...turns, button)
@@ -783,6 +800,10 @@ describe('ViewPane', () => {
       ['steps back from the start into the nook facing east', ['right', 'back'], 'nook', 'east'],
       ['steps forward out of the nook facing east, after stepping back into it', ['right', 'back', 'forward'], 'start', 'east'],
       ['does not step back from the nook facing east, where only forward leads', ['right', 'back', 'back'], 'nook', 'east'],
+      ['steps forward into the hall facing east', ['right', 'forward'], 'hall', 'east'],
+      ['steps back from the start into the hall facing west', ['left', 'back'], 'hall', 'west'],
+      ['steps back down the hall without turning', ['right', 'forward', 'left', 'back', 'back'], 'hall-end', 'north'],
+      ['does not step back from the hall end facing north, into its dead end', ['right', 'forward', 'left', 'back', 'back', 'back'], 'hall-end', 'north'],
     ])('%s', (_, buttons, place, heading) => {
       const { canvas } = renderAndUse(...buttons)
 
@@ -814,11 +835,15 @@ describe('ViewPane', () => {
       })
 
       it.each<[NavButton, NavButton[]]>([
-        ['forward', ['right']],
+        ['forward', ['left', 'left']],
         ['back', []],
       ])('does not animate for the unusable %s, after turning %j', (button, turns) => {
-        const pane = renderAndUse(...turns)
-        frames.flush(START + TURN_DURATION_MS)
+        const pane = renderWithPanel()
+        // Each turn finishes before the next, which would otherwise be ignored.
+        for (const turn of turns) {
+          input.use(pane, turn)
+          frames.flush(START + TURN_DURATION_MS)
+        }
         frames.requestAnimationFrame.mockClear()
 
         input.use(pane, button)
@@ -1094,7 +1119,7 @@ describe('ViewPane', () => {
     })
 
     it.each<[NavButton, NavButton[]]>([
-      ['forward', ['right']],
+      ['forward', ['left', 'left']],
       ['back', []],
     ])('shows the blocked cursor over the unusable %s button, after turning %j', (button, turns) => {
       const { panel } = renderWithPanel()
@@ -1135,13 +1160,12 @@ describe('ViewPane', () => {
 
     it('updates the cursor over a button when the place changes under it', () => {
       const { canvas, panel } = renderWithPanel()
-      clickAt(canvas, LEFT_X)
       hoverButton(panel, 'back')
       expect(panel.style.cursor).toBe(BLOCKED_CURSOR)
 
-      clickAt(canvas, CENTRE_X)
+      approachSign(canvas)
 
-      expect(canvas).toHaveAttribute('data-place', 'nook')
+      expect(canvas).toHaveAttribute('data-place', 'sign')
       expect(panel.style.cursor).toBe(HAND_CURSOR)
     })
 
@@ -1278,7 +1302,7 @@ describe('ViewPane', () => {
     })
 
     it.each([
-      ['blocked', 'east', [490], BLOCKED_CURSOR],
+      ['blocked', 'south', [490, 490], BLOCKED_CURSOR],
       ['forward', 'west', [110], CURSORS.forward],
     ] as const)('returns to the %s cursor after leaving an edge zone facing %s', (_, __, clicks, cursor) => {
       const { canvas } = renderPane(WIDE)
@@ -1861,16 +1885,64 @@ describe('ViewPane', () => {
       expect(canvas).toHaveAttribute('data-place', 'sign')
     })
 
-    it.each([
-      ['east', [RIGHT_X]],
-      ['south', [LEFT_X, LEFT_X]],
-    ] as const)('does not move from the start facing %s', (_, turns) => {
+    it('does not move from the start facing south', () => {
       const { canvas } = renderPane()
-      for (const x of turns) clickAt(canvas, x)
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, LEFT_X)
 
       clickAt(canvas, CENTRE_X, 30)
 
       expect(canvas).toHaveAttribute('data-place', 'start')
+    })
+
+    it('moves into the hall when the centre is clicked from the start facing east', () => {
+      const { canvas } = renderPane()
+
+      enterHall(canvas)
+
+      expect(canvas).toHaveAttribute('data-place', 'hall')
+      expect(canvas).toHaveAttribute('data-heading', 'east')
+    })
+
+    it('moves back to the start from the hall facing west', () => {
+      const { canvas } = renderPane()
+      enterHall(canvas)
+      clickAt(canvas, LEFT_X)
+      clickAt(canvas, LEFT_X)
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(canvas).toHaveAttribute('data-place', 'start')
+      expect(canvas).toHaveAttribute('data-heading', 'west')
+    })
+
+    it('reaches the hall end after turning south in the hall and moving twice', () => {
+      const { canvas } = renderPane()
+
+      walkToHallEnd(canvas)
+
+      expect(canvas).toHaveAttribute('data-place', 'hall-end')
+      expect(canvas).toHaveAttribute('data-heading', 'south')
+    })
+
+    it('does not move from the hall end facing its dead end', () => {
+      const { canvas } = renderPane()
+      walkToHallEnd(canvas)
+
+      clickAt(canvas, CENTRE_X)
+
+      expect(canvas).toHaveAttribute('data-place', 'hall-end')
+    })
+
+    it('steps back up the hall from the hall end when the bottom centre is clicked', () => {
+      const { canvas } = renderPane()
+      walkToHallEnd(canvas)
+
+      clickAt(canvas, CENTRE_X, BOTTOM_Y)
+
+      expect(canvas).toHaveAttribute('data-place', 'hall-middle')
+      expect(canvas).toHaveAttribute('data-heading', 'south')
     })
 
     it.each([

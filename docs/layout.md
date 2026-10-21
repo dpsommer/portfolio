@@ -15,28 +15,39 @@ The room is built in world space (`src/scene/core/camera.ts`):
 `src/scene/room/room.ts` describes the room as a floor plan (`FLOOR_PLAN`, corners clockwise from above) and derives `WALLS` from it. Each wall runs from its corner to the next, left to right as seen from inside.
 
 ```
-          z
-          ^
-   FAR_Z  |          +------- north --------+
-   (7/3)  |          |         [S]          |
-          |          |                      |
-     4/3  |        west       sign ·        |
-       1  +----------+                      |
-          |  nook-side                      |
-          |                                 |
-          | [M]  nook ·      start ·      east
-          |                                 |
-          nook-back                         |
-          |                                 |
-  BACK_Z  +------------- south -------------+
-   (−1)                                         -> x
-          x −7/3     −1         0           1
+            z
+            ^
+     FAR_Z  |          +------- north --------+
+     (7/3)  |          |         [S]          |
+            |          |                      |
+       4/3  |        west       sign ·      east
+         1  +----------+                      +--- hall-north ---+
+            |  nook-side                                         |
+            |                                                    |
+            | [M]  nook ·      start ·              hall ·   hall-east
+            |                                                    |
+            nook-back                                            |
+            |                                                    |
+    BACK_Z  +------------- south -------------+                  |
+     (−1)                                     |                  |
+            |                             hall-west              |
+      −4/3                                    |    hall-middle · |
+            |                                 |                  |
+      −8/3                                    |       hall-end · |
+            |                                 |                  |
+HALL_END_Z                                    +---- hall-end ----+
+   (−11/3)                                                         -> x
+            x −7/3     −1         0           1         2        3
 ```
 
 | Wall | Runs | Notes |
 | --- | --- | --- |
 | `north` | x −1 → 1 at z `FAR_Z` | The far wall, facing north from the start, where the welcome sign hangs (`[S]`). |
-| `east` | z `FAR_Z` → `BACK_Z` at x 1 | |
+| `east` | z `FAR_Z` → `HALL_FRONT_Z` at x 1 | What's left of the main room's right wall. |
+| `hall-north` | x 1 → `HALL_X` at z `HALL_FRONT_Z` | The hall's north side. |
+| `hall-east` | z `HALL_FRONT_Z` → `HALL_END_Z` at x `HALL_X` | The hall's outer (east) wall, all the way down. |
+| `hall-end` | x `HALL_X` → 1 at z `HALL_END_Z` | The dead end. |
+| `hall-west` | z `HALL_END_Z` → `BACK_Z` at x 1 | The hall's inner wall, carrying on the right wall's line south of the back wall. |
 | `south` | x 1 → `NOOK_X` at z `BACK_Z` | The back wall, behind the start and the nook. |
 | `nook-back` | z `BACK_Z` → `NOOK_FRONT_Z` at x `NOOK_X` | The nook's back (west) wall, where the mirror hangs (`[M]`). |
 | `nook-side` | x `NOOK_X` → −1 at z `NOOK_FRONT_Z` | The nook's north side. |
@@ -47,6 +58,11 @@ The room is built in world space (`src/scene/core/camera.ts`):
 - **The nook:** a nook to the left of the start pushes the near part of the left wall back to `NOOK_X` (−7/3), from the back wall up to `NOOK_FRONT_Z` (1).
   - It's four 1/3-unit floor tiles deep, so the floor grid ends at its walls.
   - `NOOK_FRONT_Z` is just past where the left wall leaves the north view (z 0.8). So facing north, the nook's front corner shows as a vertical edge near the left of the view, hinting at the opening.
+- **The hall:** opposite the nook, the near part of the right wall opens from the back wall up to `HALL_FRONT_Z` (1) into a hall 2 wide, which turns south and ends in a dead end at `HALL_END_Z` (−11/3).
+  - Its east wall is at `HALL_X` (3), so the step in from the start is 2, not the nook's 4/3. With a shorter step the hall's south leg would sit under the main room and open a gap in the back wall; at 2 its inner wall (`hall-west`) carries on the right wall's line instead.
+  - The south leg is two `HALL_STEP`s (4/3, as far as the step into the nook) long, then `WALL_VIEW_DISTANCE` to the dead end.
+  - Like the nook's, its front corner shows facing north from the start, hinting at the opening.
+  - All its walls are a whole number of floor tiles from the main room's, so the floor grid ends at them. Floor rows down the hall are numbered back from `BACK_Z` (negative), so the main room's flagstones stay where they were.
 
 ## Places
 
@@ -54,13 +70,19 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 
 | Place | Position | Exits |
 | --- | --- | --- |
-| `start` | `ORIGIN` (0, 0) | West to the nook, north to the sign |
+| `start` | `ORIGIN` (0, 0) | West to the nook, north to the sign, east to the hall |
 | `nook` | (`NOOK_X` + `WALL_VIEW_DISTANCE`, 0) = (−4/3, 0) | East to the start |
 | `sign` | (0, `SIGN_STEP`) = (0, 4/3) | South to the start |
+| `hall` | (`HALL_X` − `WALL_VIEW_DISTANCE`, 0) = (2, 0) | West to the start, south to `hall-middle` |
+| `hall-middle` | (2, −`HALL_STEP`) = (2, −4/3) | North to `hall`, south to `hall-end` |
+| `hall-end` | (2, −2 × `HALL_STEP`) = (2, −8/3) | North to `hall-middle` |
 
 - **From the start:** the side walls and the back wall are all 1 away.
 - **From the nook:** its back wall, its side wall and the main back wall are all 1 away.
 - **From the sign:** the far wall and both side walls are all 1 away.
+- **From the hall:** its north and east walls are 1 away.
+- **From hall-middle:** both of the hall's side walls are 1 away.
+- **From hall-end:** the dead end and both of the hall's side walls are 1 away.
 
 ### Adding a place
 
@@ -77,21 +99,27 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
 - **Hidden parts:** walls run from floor to ceiling, so visibility only depends on the floor plan.
   - `isVisible` (`room.ts`) checks whether the line from the eye to a point crosses a wall.
   - `visibleParts` samples each segment every `VISIBILITY_STEP` and bisects to find where it passes behind a wall, so only visible parts are drawn.
-  - From the start everything is visible. From inside the nook, its side wall hides part of the main room.
+  - From the start almost everything is visible: only the hall's inner wall (`hall-west`) hides the far part of its south leg. From inside the nook, its side wall hides part of the main room. Down the hall, its inner wall hides the near part of the main room, but the rest shows at a slant through the opening.
 
 ## What each view shows
 
 - **From the start:**
   - Facing north: the far wall small in the middle, with the welcome sign hanging on it, too far off to read clearly or use.
   - Facing west: the nook opening, with the mirror on its back wall. The back wall shows on the left; the far wall and the sign are out of view.
-  - Facing east: the east wall, with the back wall on the right.
-  - Facing south: the back wall.
+  - Facing east: the hall's opening, with the hall's east wall beyond it and its turn south showing on the right.
+  - Facing south: the back wall, with a glimpse down the hall past its left corner.
 - **From the nook:**
   - Facing west: the mirror, which fills most of its wall.
   - Facing east: back out to the main room.
 - **From the sign:**
   - Facing north: the welcome sign close up, where it can be used.
   - Facing south: back down the room to the back wall.
+- **From the hall:**
+  - Facing south: down the hall to the dead end, with the main room through the opening on the right.
+  - Facing west: back into the main room, with the welcome sign far off on the right.
+- **From hall-middle and hall-end:**
+  - Facing south: the dead end, close up from `hall-end`.
+  - Facing north: back up the hall to its north wall, with the main room and the welcome sign at a slant through the opening on the left.
 
 ## Room detail
 

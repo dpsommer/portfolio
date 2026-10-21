@@ -37,6 +37,16 @@ export const BACK_Z = -WALL_VIEW_DISTANCE
 // wall) stands a tile inside the opening and the floor grid ends at its walls.
 export const NOOK_X = -ROOM_HALF_WIDTH - 4 / 3
 export const NOOK_FRONT_Z = WALL_VIEW_DISTANCE
+// A hallway opposite the nook: the near part of the right wall opens, from the
+// back wall up to HALL_FRONT_Z, into a hall 2 wide that turns south. Its east
+// wall is at HALL_X, so its first place is WALL_VIEW_DISTANCE from it and the
+// hall's west wall carries on the right wall's line south of the back wall.
+export const HALL_X = ROOM_HALF_WIDTH + 2 * WALL_VIEW_DISTANCE
+export const HALL_FRONT_Z = WALL_VIEW_DISTANCE
+// How far each step south down the hall goes: as far as the step into the nook.
+export const HALL_STEP = 4 / 3
+// The dead end, WALL_VIEW_DISTANCE beyond the hall's second step south.
+export const HALL_END_Z = -2 * HALL_STEP - WALL_VIEW_DISTANCE
 
 // Points closer than this to the camera plane are clipped away.
 export const NEAR = 0.1
