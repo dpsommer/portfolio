@@ -1,8 +1,10 @@
 import { drawPixels } from '../draw.ts'
 import { FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
 import { GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
-import type { Pixel } from '../core/types.ts'
+import type { Bounds, Pixel } from '../core/types.ts'
 import { clearPanel } from '../panels/panelCanvas.ts'
+import { BUBBLE_HEIGHT, bubblePixels } from './bubble.ts'
+import type { Bubble } from './bubble.ts'
 import type { Health } from './card.ts'
 import { equipmentPixels } from './equipment.ts'
 import type { EquipmentSlot } from './equipment.ts'
@@ -16,6 +18,7 @@ import type { Picture } from './picture.ts'
 // rule under the avatar runs across the view, and a dim rule down the middle
 // splits the area below it: a health potion on the left and the equipment
 // table on the right. The About Me text goes in the lower panel's text box.
+// Clicking the avatar shows a speech bubble under the title for a moment.
 
 // What the profile view shows besides the avatar.
 export type Profile = { fullName: string; title: string; health: Health; equipment: EquipmentSlot[] }
@@ -30,6 +33,16 @@ const NAME_GAP = 16
 const NAME_SCALE = 2
 const NAME_LINE_GAP = 6
 const AVATAR_OUTLINE_GAP = 2
+// The avatar's picture, inclusive, where a click shows the speech bubble.
+export const AVATAR_PROFILE_BOUNDS: Bounds = {
+  left: PROFILE_MARGIN,
+  top: PROFILE_MARGIN,
+  right: PROFILE_MARGIN + AVATAR_PROFILE_SIZE - 1,
+  bottom: PROFILE_MARGIN + AVATAR_PROFILE_SIZE - 1,
+}
+// The speech bubble's box lines up with the name on the left and the
+// avatar's bottom edge below, in the space under the title.
+const BUBBLE_TOP = AVATAR_PROFILE_BOUNDS.bottom + 1 - BUBBLE_HEIGHT
 // The rules run between the avatar outline's left edge and its mirror on the
 // right. The horizontal rule sits RULE_GAP below the outline, and the area
 // under it ends LOWER_MARGIN above the canvas's bottom.
@@ -57,8 +70,13 @@ const offset = (pixels: Pixel[], left: number, top: number) =>
   pixels.map((pixel) => ({ ...pixel, x: pixel.x + left, y: pixel.y + top }))
 
 // Pixels for the profile view showing `profile`, with `avatar`
-// (AVATAR_PROFILE_SIZE square) once it's loaded.
-export function profilePixels({ fullName, title, health, equipment }: Profile, avatar: Picture | null): Pixel[] {
+// (AVATAR_PROFILE_SIZE square) once it's loaded, and `bubble` under the title
+// while it shows.
+export function profilePixels(
+  { fullName, title, health, equipment }: Profile,
+  avatar: Picture | null,
+  bubble: Bubble | null = null,
+): Pixel[] {
   const pixels = outline(OUTLINE_LEFT, OUTLINE_LEFT, OUTLINE_LEFT + AVATAR_PROFILE_SIZE + 2 * AVATAR_OUTLINE_GAP - 1, OUTLINE_BOTTOM, FOREGROUND_DIM)
   if (avatar) pixels.push(...picturePixels(avatar, PROFILE_MARGIN, PROFILE_MARGIN))
   const nameLeft = PROFILE_MARGIN + AVATAR_PROFILE_SIZE + NAME_GAP
@@ -70,6 +88,7 @@ export function profilePixels({ fullName, title, health, equipment }: Profile, a
   })
   const titleTop = PROFILE_MARGIN + words.length * lineAdvance
   for (const { x, y } of textPixels(title)) pixels.push({ x: nameLeft + x, y: titleTop + y, colour: FOREGROUND_WORN })
+  if (bubble) pixels.push(...offset(bubblePixels(bubble), nameLeft, BUBBLE_TOP))
   // The rules: across under the avatar, then down the middle of the area below.
   for (let x = OUTLINE_LEFT; x <= RULES_RIGHT; x++) pixels.push({ x, y: RULE_Y, colour: FOREGROUND_DIM })
   for (let y = RULE_Y + 1; y <= LOWER_BOTTOM; y++) pixels.push({ x: DIVIDER_X, y, colour: FOREGROUND_DIM })
@@ -87,7 +106,12 @@ export function profilePixels({ fullName, title, health, equipment }: Profile, a
 }
 
 // Clears the room canvas and draws the profile view on it.
-export function drawProfile(ctx: CanvasRenderingContext2D, profile: Profile, avatar: Picture | null) {
+export function drawProfile(
+  ctx: CanvasRenderingContext2D,
+  profile: Profile,
+  avatar: Picture | null,
+  bubble: Bubble | null = null,
+) {
   clearPanel(ctx)
-  drawPixels(ctx, profilePixels(profile, avatar))
+  drawPixels(ctx, profilePixels(profile, avatar, bubble))
 }

@@ -7,6 +7,7 @@ import { extent } from '../test/pixels.ts'
 import type { FloorPoint } from '../scene/core/camera.ts'
 import type { Bounds } from '../scene/core/types.ts'
 import { FOREGROUND } from '../scene/core/palette.ts'
+import { createRandom } from '../scene/core/random.ts'
 import { drawScene } from '../scene/draw.ts'
 import type { MirrorExtras } from '../scene/draw.ts'
 import { GLASS_CENTRE } from '../scene/mirror/frame.ts'
@@ -31,9 +32,20 @@ import { drawTextBox, textBoxLines } from '../scene/textBox/textBox.ts'
 import { AVATAR_CARD_SIZE, CARD_BOUNDS, drawSidePanel } from '../scene/character/card.ts'
 import { quantisePicture } from '../scene/character/picture.ts'
 import type { Picture } from '../scene/character/picture.ts'
-import { AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
+import { AVATAR_PROFILE_BOUNDS, AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
 import avatarSrc from '../assets/avatar.jpg'
-import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, CHARACTER_TITLE, EQUIPMENT, FULL_NAME, PROFILE, PROFILE_DESCRIPTION } from './aboutText.ts'
+import {
+  ABOUT_TEXT,
+  AVATAR_MESSAGES,
+  BUBBLE_MS,
+  CARD_HEALTH,
+  CARD_NAME,
+  CHARACTER_TITLE,
+  EQUIPMENT,
+  FULL_NAME,
+  PROFILE,
+  PROFILE_DESCRIPTION,
+} from './aboutText.ts'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR } from './cursors.ts'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -4618,6 +4630,307 @@ describe('ViewPane', () => {
         expect(canvas).toHaveAttribute('data-view', 'profile')
         expect(status()).toBe(PROFILE_STATUS)
         expect(fillsOn(side)).toHaveLength(sideBefore)
+      })
+    })
+
+    describe('speech bubble', () => {
+      // The room's on-screen rect matches its drawing, so these are client points too.
+      const AVATAR_CENTRE = {
+        x: (AVATAR_PROFILE_BOUNDS.left + AVATAR_PROFILE_BOUNDS.right + 1) / 2,
+        y: (AVATAR_PROFILE_BOUNDS.top + AVATAR_PROFILE_BOUNDS.bottom + 1) / 2,
+      }
+      const ON_AVATAR: [string, number, number][] = [
+        ['the middle', AVATAR_CENTRE.x, AVATAR_CENTRE.y],
+        ['the top-left corner', AVATAR_PROFILE_BOUNDS.left, AVATAR_PROFILE_BOUNDS.top],
+        ['the bottom-right corner', AVATAR_PROFILE_BOUNDS.right + 0.5, AVATAR_PROFILE_BOUNDS.bottom + 0.5],
+      ]
+      const OFF_AVATAR: [string, number, number][] = [
+        ['left of the avatar', AVATAR_PROFILE_BOUNDS.left - 1, AVATAR_CENTRE.y],
+        ['right of the avatar, where the bubble shows', AVATAR_PROFILE_BOUNDS.right + 1, AVATAR_CENTRE.y],
+        ['above the avatar', AVATAR_CENTRE.x, AVATAR_PROFILE_BOUNDS.top - 1],
+        ['below the avatar', AVATAR_CENTRE.x, AVATAR_PROFILE_BOUNDS.bottom + 1],
+      ]
+      // What Date.now() reads in these tests, seeding the messages' random stream.
+      const SEED = 1234
+      let clock: MockInstance<() => number>
+      beforeEach(() => {
+        clock = vi.spyOn(Date, 'now').mockReturnValue(SEED)
+      })
+      afterEach(() => {
+        clock.mockRestore()
+      })
+
+      // The first `count` messages a visit says with the stream seeded from
+      // `seed`: each picked from the rest, so never the one before again.
+      function messagesFor(seed: number, count: number): string[] {
+        const random = createRandom(seed)
+        const said: string[] = []
+        for (let i = 0; i < count; i++) {
+          const others = AVATAR_MESSAGES.filter((message) => message !== said[i - 1])
+          said.push(others[Math.floor(random() * others.length)])
+        }
+        return said
+      }
+      const [FIRST, SECOND] = messagesFor(SEED, 2)
+      // When `text`, started at `start`, has typed out its last character.
+      const typedAt = (text: string, start = START) => start + (text.length - 1) * TYPING_MS_PER_CHAR
+
+      const poke = (canvas: HTMLElement, x = AVATAR_CENTRE.x, y = AVATAR_CENTRE.y) => clickAt(canvas, x, y)
+
+      // The fills drawProfile makes on the room canvas with `text`'s first `shown` characters in the bubble.
+      function bubbleFills(text: string, shown = text.length): Fill[] {
+        const { ctx, fills } = createFakeContext(VIEW_WIDTH, VIEW_HEIGHT)
+        drawProfile(ctx, PROFILE, null, { text, shown })
+        return fills
+      }
+
+      // The fills since the room's last background fill: its most recent drawing.
+      function lastRoomDraw(canvas: HTMLCanvasElement): Fill[] {
+        const fills = fillsOn(canvas)
+        const starts = fills.flatMap(({ args }, index) => (args.join() === `0,0,${VIEW_WIDTH},${VIEW_HEIGHT}` ? [index] : []))
+        return starts.length === 0 ? [] : fills.slice(starts[starts.length - 1])
+      }
+
+      it.each(ON_AVATAR)('shows the first message\'s first character with a click on %s of the avatar', (_, x, y) => {
+        const { canvas } = openProfile()
+
+        poke(canvas, x, y)
+
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(FIRST, 1))
+      })
+
+      it('types a character every TYPING_MS_PER_CHAR', () => {
+        const { canvas } = openProfile()
+        poke(canvas)
+
+        for (let shown = 2; shown <= FIRST.length; shown++) {
+          frames.flush(START + (shown - 1) * TYPING_MS_PER_CHAR)
+          expect(lastRoomDraw(canvas)).toEqual(bubbleFills(FIRST, shown))
+        }
+      })
+
+      it('redraws the room only when a character appears', () => {
+        const { canvas } = openProfile()
+        poke(canvas)
+        const before = fillsOn(canvas).length
+
+        frames.flush(START + TYPING_MS_PER_CHAR - 1)
+        expect(fillsOn(canvas)).toHaveLength(before)
+
+        frames.flush(START + TYPING_MS_PER_CHAR)
+        expect(fillsOn(canvas).slice(before)).toEqual(bubbleFills(FIRST, 2))
+      })
+
+      it('keeps the whole message until BUBBLE_MS after it has typed out, then redraws the profile without it', () => {
+        const { canvas } = openProfile()
+        poke(canvas)
+        frames.flush(typedAt(FIRST))
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(FIRST))
+        const typed = fillsOn(canvas).length
+
+        frames.flush(typedAt(FIRST) + BUBBLE_MS - 1)
+        expect(fillsOn(canvas)).toHaveLength(typed)
+
+        frames.flush(typedAt(FIRST) + BUBBLE_MS)
+        expect(fillsOn(canvas).slice(typed)).toEqual(profileFills())
+
+        const cleared = fillsOn(canvas).length
+        frames.flush(typedAt(FIRST) + 2 * BUBBLE_MS)
+        expect(fillsOn(canvas)).toHaveLength(cleared)
+      })
+
+      // The message the room shows in full, with reduced motion, after each of
+      // `clicks` clicks on the avatar, or undefined if it isn't just one of them.
+      function sayings(canvas: HTMLCanvasElement, clicks: number): (string | undefined)[] {
+        const drawn = new Map(AVATAR_MESSAGES.map((message) => [JSON.stringify(bubbleFills(message)), message]))
+        const said: (string | undefined)[] = []
+        for (let i = 0; i < clicks; i++) {
+          // Only this click's drawing is kept, to keep the comparisons quick.
+          fillsOn(canvas).length = 0
+          poke(canvas)
+          said.push(drawn.get(JSON.stringify(fillsOn(canvas))))
+        }
+        return said
+      }
+
+      it('types out each message picked from createRandom(Date.now()), a click each, letting each clear', () => {
+        const { canvas } = openProfile()
+        let at = START
+
+        for (const text of messagesFor(SEED, AVATAR_MESSAGES.length + 1)) {
+          now.mockReturnValue(at)
+          poke(canvas)
+          frames.flush(typedAt(text, at))
+          expect(lastRoomDraw(canvas)).toEqual(bubbleFills(text))
+          // Let it clear before the next click.
+          at = typedAt(text, at) + BUBBLE_MS
+          frames.flush(at)
+          expect(lastRoomDraw(canvas)).toEqual(profileFills())
+        }
+      })
+
+      it('never says the same message twice in a row', () => {
+        useReducedMotion()
+        const { canvas } = openProfile()
+
+        const said = sayings(canvas, 30)
+
+        expect(said).not.toContain(undefined)
+        said.slice(1).forEach((message, i) => expect(message).not.toBe(said[i]))
+      })
+
+      it('comes round to every one of AVATAR_MESSAGES', () => {
+        useReducedMotion()
+        const { canvas } = openProfile()
+
+        expect(new Set(sayings(canvas, 30))).toEqual(new Set(AVATAR_MESSAGES))
+      })
+
+      it('says a different sequence for a different Date.now()', () => {
+        useReducedMotion()
+        const visit = (seed: number) => {
+          clock.mockReturnValue(seed)
+          const pane = openProfile()
+          const said = sayings(pane.canvas, 10)
+          pane.unmount()
+          return said
+        }
+
+        const first = visit(SEED)
+        const second = visit(SEED + 1)
+
+        expect(first).toEqual(messagesFor(SEED, 10))
+        expect(second).toEqual(messagesFor(SEED + 1, 10))
+        expect(second).not.toEqual(first)
+      })
+
+      it('seeds the stream from Date.now() at the first click, not on opening, and keeps it for later clicks', () => {
+        useReducedMotion()
+        const { canvas } = openProfile()
+        clock.mockReturnValue(SEED + 1)
+        const said = sayings(canvas, 1)
+
+        clock.mockReturnValue(SEED + 2)
+        said.push(...sayings(canvas, 9))
+
+        expect(said).toEqual(messagesFor(SEED + 1, 10))
+      })
+
+      it('starts the next message from its first character with a click mid-message, timed from that click', () => {
+        const { canvas } = openProfile()
+        poke(canvas)
+        const clickedAt = START + 2 * TYPING_MS_PER_CHAR
+        frames.flush(clickedAt)
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(FIRST, 3))
+
+        now.mockReturnValue(clickedAt)
+        poke(canvas)
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(SECOND, 1))
+
+        frames.flush(clickedAt + TYPING_MS_PER_CHAR)
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(SECOND, 2))
+
+        frames.flush(typedAt(SECOND, clickedAt) + BUBBLE_MS - 1)
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(SECOND))
+
+        frames.flush(typedAt(SECOND, clickedAt) + BUBBLE_MS)
+        expect(lastRoomDraw(canvas)).toEqual(profileFills())
+      })
+
+      it.each<[string, (side: HTMLElement) => void]>([
+        ['a click on the card', (side) => clickSide(side)],
+        ['Escape', () => pressKey('Escape')],
+        ['Enter with the card selected', () => pressKey('Enter')],
+      ])('clears it, mid-message, when %s closes the view, and reopening doesn\'t bring it back', (_, close) => {
+        const { canvas, side } = openProfile()
+        poke(canvas)
+
+        close(side)
+        expect(canvas).toHaveAttribute('data-view', 'room')
+        const closed = fillsOn(canvas).length
+        // Past when the message would have typed out, and cleared.
+        frames.flush(typedAt(FIRST) + BUBBLE_MS / 2)
+        expect(fillsOn(canvas)).toHaveLength(closed)
+
+        clickSide(side)
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+        expect(lastRoomDraw(canvas)).toEqual(profileFills())
+        frames.flush(typedAt(FIRST) + 2 * BUBBLE_MS)
+        expect(lastRoomDraw(canvas)).toEqual(profileFills())
+      })
+
+      it('goes on to the next message with the first click after reopening the view', () => {
+        const { canvas, side } = openProfile()
+        poke(canvas)
+        clickSide(side)
+        clickSide(side)
+
+        poke(canvas)
+
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(SECOND, 1))
+      })
+
+      it('shows the whole message at once with reduced motion, clearing it BUBBLE_MS later', () => {
+        useReducedMotion()
+        const { canvas } = openProfile()
+
+        poke(canvas)
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(FIRST))
+
+        frames.flush(START + BUBBLE_MS - 1)
+        expect(lastRoomDraw(canvas)).toEqual(bubbleFills(FIRST))
+
+        frames.flush(START + BUBBLE_MS)
+        expect(lastRoomDraw(canvas)).toEqual(profileFills())
+      })
+
+      it.each(OFF_AVATAR)('does nothing with a click %s', (_, x, y) => {
+        const { canvas } = openProfile()
+        const before = fillsOn(canvas).length
+
+        poke(canvas, x, y)
+        frames.flush(typedAt(FIRST))
+
+        expect(fillsOn(canvas)).toHaveLength(before)
+        expect(canvas).toHaveAttribute('data-view', 'profile')
+      })
+
+      it('acts on the room as before with a click where the avatar was once the view has closed', () => {
+        const { canvas, side } = openProfile()
+        clickSide(side)
+
+        // In the forward zone, so the click steps up to the sign.
+        poke(canvas)
+        frames.flush(START + MOVE_DURATION_MS)
+
+        expect(canvas).toHaveAttribute('data-place', 'sign')
+        expect(lastRoomDraw(canvas)).toEqual(sceneFills(undefined, 0, PLACES.sign))
+      })
+
+      it.each(ON_AVATAR)('shows the hand over %s of the avatar', (_, x, y) => {
+        const { canvas } = openProfile()
+
+        fireEvent.mouseMove(canvas, { clientX: x, clientY: y })
+
+        expect(canvas.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it.each(OFF_AVATAR)('keeps the blocked cursor %s', (_, x, y) => {
+        const { canvas } = openProfile()
+        fireEvent.mouseMove(canvas, { clientX: AVATAR_CENTRE.x, clientY: AVATAR_CENTRE.y })
+
+        fireEvent.mouseMove(canvas, { clientX: x, clientY: y })
+
+        expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+
+      it('shows the room\'s cursor over where the avatar was once the view has closed', () => {
+        const { canvas, side } = openProfile()
+        fireEvent.mouseMove(canvas, { clientX: AVATAR_CENTRE.x, clientY: AVATAR_CENTRE.y })
+
+        clickSide(side)
+
+        expect(canvas.style.cursor).toBe(CURSORS.forward)
       })
     })
 

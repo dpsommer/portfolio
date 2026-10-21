@@ -31,7 +31,7 @@ The modules are grouped by what they draw:
 
 - **Palette:** four tones in `src/scene/core/palette.ts`: `BACKGROUND`, then `FOREGROUND_DIM`, `FOREGROUND_WORN` and `FOREGROUND`. Draw only in these. `src/index.scss` repeats the background, worn and foreground tones as CSS variables for the page.
 - **Text:** use the 5×7 bitmap font in `src/scene/core/pixelFont.ts`, not canvas text, which would be anti-aliased. Add glyphs there as needed.
-- **Randomness:** never use `Math.random`. Use the seeded `createRandom` for one-off sprites, or `hashRandom`/`hashSeed` keyed to something fixed (such as world coordinates) for anything that moves between frames, so it stays put instead of shimmering.
+- **Randomness:** never use `Math.random`. Use the seeded `createRandom` for one-off sprites, or `hashRandom`/`hashSeed` keyed to something fixed (such as world coordinates) for anything that moves between frames, so it stays put instead of shimmering. Something meant to differ between visits, like the avatar's speech bubble messages, seeds `createRandom` from `Date.now()`.
 - **Lines:** objects in the room and the panel's compass and buttons are one-pixel lines in solid tones: bright main outlines, worn secondary lines and dim detail, with no fills.
 
 ## Rendering loop

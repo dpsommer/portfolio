@@ -41,11 +41,23 @@ Clicking the card, or pressing Enter or Space with it selected, opens the profil
   - **Equipment:** `equipmentPixels` (`equipment.ts`) in the right section. A worn "Equipment" heading sits over a 2×2 grid of dim, corner-less boxes. Each box has its item's icon over the slot's name, in worn text. Every slot reserves the tallest icon's height, so the names line up.
   - **Slots:** `EQUIPMENT` in `aboutText.ts` lists them: Weapon (keyboard), Off-Hand (mouse), Head (headphones, `HEADPHONES_MAP`) and Chest (hoodie, `HOODIE_MAP`). Each slot also has an `item` name for screen readers.
 - **Lower panel:** `ABOUT_TEXT` in the text box ([text-box.md](text-box.md)), at the font's own size (`ABOUT_SCALE`). It all shows at once, with no typing and no caret.
-- **Input:** the room takes no clicks and shows the blocked hand. The navigation buttons and movement keys do nothing. The card stays usable, and it's the only thing Tab selects. Opening the view selects the card, however it was opened, so its carets show on the side panel. That also replaces a room object's selection, so Enter closes the view rather than using the hidden object.
+- **Input:** the room takes no clicks and shows the blocked hand, except over the avatar ([speech bubble](#speech-bubble)). The navigation buttons and movement keys do nothing. The card stays usable, and it's the only thing Tab selects. Opening the view selects the card, however it was opened, so its carets show on the side panel. That also replaces a room object's selection, so Enter closes the view rather than using the hidden object.
 - **Screen readers:** the status reads `PROFILE_DESCRIPTION`. It gives the full name and title, the health, each equipment slot and its item, then the About Me text.
 
 The card can't be used while the sign's text is open. A click on it moves the text on, as clicks anywhere in the pane do.
 
+## Speech bubble
+
+An easter egg: clicking the profile view's avatar (`AVATAR_PROFILE_BOUNDS`) shows a speech bubble under the title. The pointing hand shows over the avatar.
+
+- **Drawing:** `bubblePixels` (`bubble.ts`) draws a solid bright box with rounded corners (`CORNER_INSETS`), and a solid tail on its left pointing at the avatar, `BUBBLE_TAIL` (4) pixels long. The message is dark (`BACKGROUND`) text at twice the font's size (`BUBBLE_TEXT_SCALE`), `BUBBLE_PADDING_X` (7) and `BUBBLE_PADDING_Y` (6) in from the box's edges. The box is left out under the text's pixels, so each pixel is drawn once. The box is sized for the whole message, so it doesn't grow as the text types.
+- **Placement:** lined up with the name on the left and with the avatar's bottom edge below (`BUBBLE_TOP` in `profile.ts`). `drawProfile` takes it as an optional `bubble` argument.
+- **Messages:** `AVATAR_MESSAGES` (`aboutText.ts`). Each click picks one at random (`pickMessage` in `ViewPane`), never the one shown last, so every click shows a change. The random stream is `createRandom` seeded from `Date.now()` on the first click, so each visit's picks differ. Each message must be at most 13 characters to fit beside the avatar.
+- **Timing:** the message types out at the sign's pace (`TYPING_MS_PER_CHAR`) and clears `BUBBLE_MS` (2 s) after it's done. A click while one is showing starts the next message at once. Closing the profile view clears it.
+- **Loop:** like the text box's typing, it runs on its own `requestAnimationFrame` loop, redraws only when a character appears, and doesn't count as animating.
+- **Reduced motion:** with reduced motion, or no canvas context, the whole message shows at once.
+- It's mouse only. It can't be selected with Tab, and the status doesn't announce it.
+
 ## Editing the text
 
-`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME`, `CHARACTER_TITLE`, `EQUIPMENT` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.
+`CARD_NAME`, `CARD_HEALTH`, `FULL_NAME`, `CHARACTER_TITLE`, `EQUIPMENT`, `AVATAR_MESSAGES` and `ABOUT_TEXT` are in `src/ViewPane/aboutText.ts`. `CARD_HEALTH` is `{ current, total }`. At this size each number fits at most four digits. `ABOUT_TEXT` is placeholder text for now. It has to fit the text box: about 47 characters a line and 9 lines, where a newline starts a new line. Use only characters that have a glyph in `src/scene/core/pixelFont.ts`.

@@ -11,6 +11,12 @@ export const CARD_NAME = 'Duncan'
 export const CARD_HEALTH = { current: 19, total: 92 }
 export const FULL_NAME = 'Duncan Sommerville'
 export const CHARACTER_TITLE = 'Human Wizard'
+// What the speech bubble says when the profile view's avatar is clicked, one
+// picked at random each click. Each must fit beside the avatar: at most 13
+// characters.
+export const AVATAR_MESSAGES = ['Ouch!', 'Stop that.', 'Hey!', 'That tickles.', 'Do you mind?']
+// How long the speech bubble stays once its message has typed out, in ms.
+export const BUBBLE_MS = 2000
 // The equipment table's slots, left to right and top to bottom.
 export const EQUIPMENT = [
   { slot: 'Weapon', item: 'Keyboard', icon: KEYBOARD_MAP },

@@ -18,7 +18,8 @@ Whenever the mouse is inside any canvas area (the room, the lower panel or the s
 | Mirror's glass or curtain pull, in the nook facing west | Pointing hand |
 | Usable navigation button | Pointing hand |
 | Character card (`CARD_BOUNDS`) | Pointing hand (a click opens or closes the profile view) |
-| Room, while the profile view is open | Blocked hand |
+| Profile view's avatar (`AVATAR_PROFILE_BOUNDS`) | Pointing hand (a click shows the speech bubble) |
+| Room, while the profile view is open, away from the avatar | Blocked hand |
 | Dimmed button, or anywhere on a panel with nothing usable | Blocked hand |
 | Frame, dividing bands, side panel away from the card | Blocked hand |
 
@@ -42,6 +43,7 @@ The Controls panel beside the pane is page content, not a canvas, so it keeps th
 - **Mirror:** the glass's arch-topped shape, not the frame or ornaments. `ViewPane` checks it with `screenToMirror` (`src/scene/mirror/pixels.ts`), the same test a click uses.
 - **Curtain pull:** `PULL_HIT` (`src/scene/mirror/pull.ts`): the handle and the lower cord, padded so the one-pixel cord is easy to hit. `ViewPane` finds the point on the wall with `screenToWall` and checks it with `isOnPull`.
 - **Buttons:** `navButtonAt` (`src/scene/navigation/navButtons.ts`).
+- **Profile view's avatar:** `AVATAR_PROFILE_BOUNDS` (`src/scene/character/profile.ts`), the avatar's picture inside its outline.
 - **Character card:** `CARD_BOUNDS` (`src/scene/character/card.ts`), the card's border and everything inside it.
 
 ## Pixel maps

@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { createFakeContext, toFills } from '../../test/fakeContext.ts'
 import { HEIGHT, WIDTH, expectOnCanvas, expectPlaced, extent } from '../../test/pixels.ts'
 import { BACKGROUND, FOREGROUND, FOREGROUND_DIM, FOREGROUND_WORN } from '../core/palette.ts'
-import { GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
+import { GLYPHS, GLYPH_HEIGHT, textPixels } from '../core/pixelFont.ts'
 import type { Pixel } from '../core/types.ts'
-import { FULL_NAME, PROFILE } from '../../ViewPane/aboutText.ts'
+import { AVATAR_MESSAGES, FULL_NAME, PROFILE } from '../../ViewPane/aboutText.ts'
+import { BUBBLE_HEIGHT, bubblePixels } from './bubble.ts'
+import type { Bubble } from './bubble.ts'
 import { equipmentPixels } from './equipment.ts'
 import { POTION_HEIGHT, POTION_WIDTH, potionPixels } from './potion.ts'
-import { AVATAR_PROFILE_SIZE, drawProfile, profilePixels } from './profile.ts'
+import { AVATAR_PROFILE_BOUNDS, AVATAR_PROFILE_SIZE, drawProfile, profilePixels } from './profile.ts'
 import type { Profile } from './profile.ts'
 import { picturePixels } from './picture.ts'
 import type { Picture } from './picture.ts'
@@ -192,7 +194,80 @@ describe('profilePixels', () => {
   })
 })
 
+// The pixels `bubble` adds to the profile view: those not in the view without it.
+function bubbleAdds(bubble: Bubble): Pixel[] {
+  const plain = new Set(profilePixels(PROFILE, AVATAR).map((pixel) => `${key(pixel)},${pixel.colour}`))
+  return profilePixels(PROFILE, AVATAR, bubble).filter((pixel) => !plain.has(`${key(pixel)},${pixel.colour}`))
+}
+const fullBubble = (text: string): Bubble => ({ text, shown: text.length })
+// Where the title's text box starts.
+const TITLE = expectPlaced(
+  above(profilePixels(PROFILE, null)).filter(({ colour }) => colour === FOREGROUND_WORN),
+  textPixels(PROFILE.title),
+)
+
+describe('AVATAR_PROFILE_BOUNDS', () => {
+  it('covers the avatar\'s square, inclusive', () => {
+    expect(AVATAR_PROFILE_BOUNDS).toEqual(SQUARE)
+  })
+})
+
+describe('profilePixels with a speech bubble', () => {
+  const BUBBLE = fullBubble(AVATAR_MESSAGES[0])
+
+  it('draws no bubble without one, by default', () => {
+    expect(profilePixels(PROFILE, AVATAR)).toEqual(profilePixels(PROFILE, AVATAR, null))
+  })
+
+  it.each([0, 2, BUBBLE.text.length])('adds only the bubble, its box\'s left lined up with the title and its bottom row level with the avatar\'s, with %i characters shown', (shown) => {
+    const bubble = { ...BUBBLE, shown }
+    const top = SQUARE.bottom + 1 - BUBBLE_HEIGHT
+
+    expect(byPosition(bubbleAdds(bubble))).toEqual(
+      byPosition(bubblePixels(bubble).map(({ x, y, colour }) => ({ x: x + TITLE.left, y: y + top, colour }))),
+    )
+    expect(profilePixels(PROFILE, AVATAR, bubble)).toHaveLength(profilePixels(PROFILE, AVATAR).length + bubblePixels(bubble).length)
+  })
+
+  it('reaches past the rules\' right end with a message of more than 13 characters', () => {
+    expect(extent(bubbleAdds(fullBubble('M'.repeat(14)))).right).toBeGreaterThan(RULE_RIGHT)
+  })
+
+  // The longest a message can be, by the docs, and each one the avatar says.
+  describe.each(['M'.repeat(13), ...AVATAR_MESSAGES])('for %j', (message) => {
+    const pixels = bubbleAdds(fullBubble(message))
+
+    it('has a glyph for each character', () => {
+      for (const char of message) expect(GLYPHS).toHaveProperty([char])
+    })
+
+    it('stays right of the avatar\'s outline, below the title, above the rule across and within its right end, on empty space', () => {
+      const { left, top, right, bottom } = extent(pixels)
+
+      expect(left).toBeGreaterThan(SQUARE.right + 2)
+      expect(top).toBeGreaterThan(TITLE.top + GLYPH_HEIGHT - 1)
+      expect(right).toBeLessThanOrEqual(RULE_RIGHT)
+      expect(bottom).toBeLessThan(RULE_Y)
+      const where = new Set(pixels.map(key))
+      expect(pixels).toHaveLength(bubblePixels(fullBubble(message)).length)
+      expect(profilePixels(PROFILE, AVATAR).filter((pixel) => where.has(key(pixel)))).toEqual([])
+    })
+  })
+})
+
 describe('drawProfile', () => {
+  it('draws the background, then the profile view with the speech bubble given', () => {
+    const { ctx, fills } = createFakeContext(WIDTH, HEIGHT)
+    const bubble = { text: AVATAR_MESSAGES[0], shown: 2 }
+
+    drawProfile(ctx, PROFILE, AVATAR, bubble)
+
+    expect(fills).toEqual([
+      { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
+      ...toFills(profilePixels(PROFILE, AVATAR, bubble)),
+    ])
+  })
+
   it.each([
     ['without the avatar', null],
     ['with the avatar', AVATAR],

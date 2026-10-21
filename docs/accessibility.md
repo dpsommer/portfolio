@@ -54,6 +54,7 @@ With `prefers-reduced-motion: reduce` set, every animation snaps to its end stat
 | Mirror ripple | No ripple. Opening the mirror goes straight to the profile. |
 | Site switch | The pull doesn't tug, the plaque doesn't turn and the glass doesn't shimmer. The new site shows at once. |
 | Text box typing | The whole page appears at once. |
+| Avatar speech bubble | The whole message appears at once, and still clears after `BUBBLE_MS`. |
 | Text box caret | Shown steadily, without blinking. |
 | Selection carets | Shown still, without bouncing. |
 
@@ -73,6 +74,8 @@ The check is `prefersReducedMotion` in `ViewPane`, read when each animation star
 - **Text:** the text box uses the 5×7 bitmap font at 2× scale, so each letter is 10×14 canvas pixels before the pane is scaled up to fit the window.
 - **Scaling:** the pane, and the Controls panel beside it, scale to the largest size that fits 90% of the window's width and 80% of its height ([pane.md](pane.md#scaling)), so larger windows make everything bigger. Because the sizes come from viewport units, browser zoom doesn't enlarge them (see the suggestions below).
 - **Cursors:** the pixel-art cursors are 32 px and change with what's under them ([cursor.md](cursor.md)), so it's clear what a click will do.
+
+The profile view's speech bubble ([character.md](character.md#speech-bubble)) is a mouse-only easter egg. It isn't selectable and isn't announced, since it adds nothing to what the profile says.
 
 ## Suggested improvements
 

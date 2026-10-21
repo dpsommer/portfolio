@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { BLOCKED_CURSOR, CURSORS, HAND_CURSOR, getCursorZone } from './cursors.ts'
 import type { CursorZone } from './cursors.ts'
-import { ABOUT_TEXT, CARD_HEALTH, CARD_NAME, PROFILE, PROFILE_DESCRIPTION } from './aboutText.ts'
+import { ABOUT_TEXT, AVATAR_MESSAGES, BUBBLE_MS, CARD_HEALTH, CARD_NAME, PROFILE, PROFILE_DESCRIPTION } from './aboutText.ts'
 import avatarSrc from '../assets/avatar.jpg'
 import { MIRROR_SITES, openUrl } from './mirrorSites.ts'
 import { CARET_BLINK_MS, SIGN_PAGES, TYPING_MS_PER_CHAR } from './signText.ts'
@@ -14,7 +14,8 @@ import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/
 import { AVATAR_CARD_SIZE, CARD_BOUNDS, drawSidePanel } from '../scene/character/card.ts'
 import { quantisePicture } from '../scene/character/picture.ts'
 import type { Picture } from '../scene/character/picture.ts'
-import { AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
+import type { Bubble } from '../scene/character/bubble.ts'
+import { AVATAR_PROFILE_BOUNDS, AVATAR_PROFILE_SIZE, drawProfile } from '../scene/character/profile.ts'
 import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import type { Preview, Shimmer } from '../scene/mirror/preview.ts'
 import { isOnPull } from '../scene/mirror/pull.ts'
@@ -27,6 +28,7 @@ import { drawNavigationPanel } from '../scene/navigation/navigationPanel.ts'
 import { PLACES, backFrom, forwardFrom } from '../scene/navigation/places.ts'
 import type { PlaceName } from '../scene/navigation/places.ts'
 import { FOREGROUND } from '../scene/core/palette.ts'
+import { createRandom } from '../scene/core/random.ts'
 import { drawPixels, drawScene } from '../scene/draw.ts'
 import { caretInset, pixelBounds, selectionPixels } from '../scene/selection/selection.ts'
 import { signPixels } from '../scene/sign/pixels.ts'
@@ -194,7 +196,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 // What the navigation panel shows while a turn or step plays: the buttons
 // usable once it's done, and the key for it, held down meanwhile.
 type PanelPress = { enabled: Record<NavButton, boolean>; pressed: NavButton }
-type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean; overPull: boolean }
+type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean; overPull: boolean; overAvatar: boolean }
 // The sign's text in the lower panel, while it's open: which of SIGN_PAGES
 // shows, and whether a click cut its typing short.
 type Dialogue = { page: number; skipped: boolean }
@@ -261,6 +263,13 @@ function loadPicture<T>(
 // its own size so both stay sharp.
 type Avatars = { card: Picture | null; profile: Picture | null }
 
+// One of `messages` for `random` in [0, 1), other than `previous` unless
+// it's the only one.
+function pickMessage(messages: string[], previous: string | null, random: number): string {
+  const others = messages.length > 1 ? messages.filter((message) => message !== previous) : messages
+  return others[Math.floor(random * others.length)]
+}
+
 // The About Me text is longer than the sign's, so it's drawn at the font's own size.
 const ABOUT_SCALE = 1
 const ABOUT_LINES = textBoxLines(LOWER_PANEL_WIDTH, ABOUT_TEXT, ABOUT_SCALE)
@@ -276,6 +285,7 @@ function ViewPane() {
     overSign: false,
     overMirror: false,
     overPull: false,
+    overAvatar: false,
   })
   const [place, setPlace] = useState<PlaceName>('start')
   const [heading, setHeading] = useState<Heading>('north')
@@ -292,6 +302,14 @@ function ViewPane() {
   profileOpenRef.current = profileOpen
   // Whether the room canvas last showed the profile view.
   const drawnProfileRef = useRef(false)
+  // The message the profile view's speech bubble is showing, if any; a new
+  // object each click, so a click mid-message starts the next one afresh.
+  // The ref holds what's drawn, for redrawing when the avatar loads, and the
+  // random stream, seeded on the first click, picks each click's message.
+  const [bubble, setBubble] = useState<{ text: string } | null>(null)
+  const bubbleRef = useRef<Bubble | null>(null)
+  const messageRandomRef = useRef<(() => number) | null>(null)
+  const lastMessageRef = useRef<string | null>(null)
   const avatarsRef = useRef<Avatars>({ card: null, profile: null })
   // Whether the open page has finished typing, and the text box's frame.
   const pageDoneRef = useRef(false)
@@ -358,10 +376,58 @@ function ViewPane() {
       if (ctx) drawView(ctx, viewRef.current, currentLook())
       return
     }
-    if (ctx) drawProfile(ctx, PROFILE, avatarsRef.current.profile)
+    if (ctx) drawProfile(ctx, PROFILE, avatarsRef.current.profile, bubbleRef.current)
     const lowerCtx = lowerPanelRef.current?.getContext('2d')
     if (lowerCtx) drawTextBox(lowerCtx, ABOUT_LINES, ABOUT_LINES.join('').length, false, ABOUT_SCALE)
   }, [profileOpen])
+
+  // Types the speech bubble's message out at the sign's pace, then clears it
+  // BUBBLE_MS after it's done. With reduced motion, or no canvas context, the
+  // whole message shows at once. Closing the profile view clears it.
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!bubble || !profileOpen) {
+      // Only redraw if a bubble was showing over the profile view.
+      if (bubbleRef.current && ctx && profileOpen) drawProfile(ctx, PROFILE, avatarsRef.current.profile)
+      bubbleRef.current = null
+      return
+    }
+    const { text } = bubble
+    const typed = !ctx || prefersReducedMotion()
+    const doneAt = typed ? 0 : Math.max(0, text.length - 1) * TYPING_MS_PER_CHAR
+    const start = performance.now()
+    let frame: number | null = null
+    const step = (now: number) => {
+      const elapsed = Math.max(0, now - start)
+      if (elapsed >= doneAt + BUBBLE_MS) {
+        setBubble(null)
+        return
+      }
+      const shown = typed ? text.length : Math.min(text.length, Math.floor(elapsed / TYPING_MS_PER_CHAR) + 1)
+      // Only redraw when a character appears.
+      if (shown !== bubbleRef.current?.shown || text !== bubbleRef.current.text) {
+        bubbleRef.current = { text, shown }
+        if (ctx) drawProfile(ctx, PROFILE, avatarsRef.current.profile, bubbleRef.current)
+      }
+      frame = requestAnimationFrame(step)
+    }
+    // A new message replaces the one before at once.
+    bubbleRef.current = null
+    step(start)
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [bubble, profileOpen])
+
+  // Shows one of AVATAR_MESSAGES in the speech bubble, picked at random but
+  // never the one shown last, so every click shows a change.
+  // The stream is seeded from the clock, so each visit's picks differ.
+  function pokeAvatar() {
+    messageRandomRef.current ??= createRandom(Date.now())
+    const text = pickMessage(AVATAR_MESSAGES, lastMessageRef.current, messageRandomRef.current())
+    lastMessageRef.current = text
+    setBubble({ text })
+  }
 
   // Types the open page out a character at a time, then blinks the caret
   // until the page is moved on. A skipped page, or reduced motion, shows the
@@ -467,7 +533,7 @@ function ViewPane() {
           avatarsRef.current[key] = avatar
           if (key === 'card') drawSide()
           const ctx = canvasRef.current?.getContext('2d')
-          if (key === 'profile' && ctx && profileOpenRef.current) drawProfile(ctx, PROFILE, avatar)
+          if (key === 'profile' && ctx && profileOpenRef.current) drawProfile(ctx, PROFILE, avatar, bubbleRef.current)
         })
         .catch(() => {})
     }
@@ -625,6 +691,8 @@ function ViewPane() {
       // Opening it selects the card, however it was opened, so its carets show
       // what the view belongs to. Whatever was selected in the room is covered.
       if (!profileOpen && selected !== 'card') select('card')
+      // Closing clears the speech bubble, so it doesn't come back on reopening.
+      if (profileOpen) setBubble(null)
       setProfileOpen(!profileOpen)
     }
   }
@@ -668,6 +736,8 @@ function ViewPane() {
       overSign: isInside(SIGN_BOUNDS, x, y),
       overMirror: isOverGlass(x, y),
       overPull: isOverPull(x, y),
+      // Only the profile view's avatar takes clicks, so the room ignores the spot.
+      overAvatar: profileOpen && isInside(AVATAR_PROFILE_BOUNDS, x, y),
     }
   }
 
@@ -679,7 +749,8 @@ function ViewPane() {
       (next.zone !== pointer.zone ||
         next.overSign !== pointer.overSign ||
         next.overMirror !== pointer.overMirror ||
-        next.overPull !== pointer.overPull)
+        next.overPull !== pointer.overPull ||
+        next.overAvatar !== pointer.overAvatar)
     )
       setPointer(next)
   }
@@ -688,8 +759,12 @@ function ViewPane() {
     const point = canvasPointAt(event)
     const at = pointerAt(event)
     // While the sign's text is open the click is for it, handled by the frame.
-    // The profile view covers the room, so it takes no clicks.
-    if (!point || !at || animating || dialogue || profileOpen) return
+    // The profile view covers the room, so it takes no clicks but the avatar's.
+    if (!point || !at || animating || dialogue) return
+    if (profileOpen) {
+      if (at.overAvatar) pokeAvatar()
+      return
+    }
     if (at.overSign && isSignView) {
       interact('sign')
       return
@@ -767,6 +842,7 @@ function ViewPane() {
   // instead, keeping the card selected so the next press opens it again.
   function closeProfile() {
     setProfileOpen(false)
+    setBubble(null)
     select(null)
   }
 
@@ -850,9 +926,10 @@ function ViewPane() {
   const canMoveForward = forwardFrom(place, heading) !== null
   const canMoveBack = backFrom(place, heading) !== null
   // While the sign's text is open, a click anywhere in the pane moves it on.
-  // The profile view takes no clicks, so it shows the blocked hand.
+  // The profile view takes no clicks but the avatar's, so elsewhere it shows
+  // the blocked hand.
   const cursor =
-    dialogue || showHand
+    dialogue || showHand || (profileOpen && pointer.overAvatar)
       ? HAND_CURSOR
       : profileOpen || (pointer.zone === 'forward' && !canMoveForward) || (pointer.zone === 'back' && !canMoveBack)
         ? BLOCKED_CURSOR
