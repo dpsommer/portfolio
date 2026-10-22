@@ -22,6 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/layout.md` — the room's floor plan, places, camera and projection, visibility, room detail, object placement and draw order. Read before changing the room, places or what a view shows.
 - `docs/navigation.md` — turning and moving, the navigation panel's compass and buttons, and the arrow keys.
 - `docs/cursor.md` — which cursor shows where, hover areas and the cursor pixel maps. Anything added to a panel must set a pixel-art cursor.
+- `docs/owl.md` — the owl perched in the hall's window: its shape, poses, resting animation (blinks and head tilts), the head-turning look when used, and its frame loop.
 - `docs/mirror.md` — the mirror's sites, previews, ripple, curtain pull, logo plaque and site switching, and how to add a site.
 - `docs/character.md` — the side panel's character card, the avatar asset and its quantising, the keyboard and mouse icons, and the profile view with its About Me text.
 - `docs/text-box.md` — the lower panel's text box: the sign's pages, typing speed, caret, moving the text on (clicks, Enter, Space) and reduced motion.

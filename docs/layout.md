@@ -124,7 +124,7 @@ The spots the visitor can stand, and their exits, are in `src/scene/navigation/p
   - Facing south: down the hall to the window in the dead end, with the main room through the opening on the right.
   - Facing west: back into the main room, with the welcome sign far off on the right.
 - **From hall-middle and hall-end:**
-  - Facing south: the window in the dead end. From `hall-middle` it shows whole, with the bay's corners rising out of view; from `hall-end` its lower panes and the open casement fill the view and its top runs off it.
+  - Facing south: the window in the dead end. From `hall-middle` it shows whole, with the bay's corners rising out of view; from `hall-end` its lower panes, the open casement and the owl perched in it fill the view and its top runs off it.
   - Facing north: back up the hall to its north wall, with the main room and the welcome sign at a slant through the opening on the left.
 
 ## Room detail
@@ -147,20 +147,22 @@ Each brick, floor edge and edge-gap pattern is chosen with `hashRandom`/`hashSee
 - **Tracery window** (`src/scene/window/`): a tall medieval plate tracery window set centred in the hall's dead end (`WINDOW_WALL` in `room.ts`), in line with the `hall-end` place, rising into the bay. It's decoration only: nothing in it can be selected or used.
   - **Look:** drawn like the sign, as sparse single lines. A pointed arch on a sill and a roundel in its head, in `FOREGROUND_WORN`, are the stone plate. Cut through it, in `FOREGROUND`, are four panes and a quatrefoil, so the openings read brighter than the stone. Two lights either side of a mullion are each split by a transom into a rectangular lower pane and a round-headed upper pane (`PANES`).
   - **Detail**, in `FOREGROUND_DIM`: the closed panes are leaded in diamond quarries twice as tall as wide (`leading`, clipped to each pane with `clipToOutline`), and the quatrefoil has a boss at its heart with lead cames out to each lobe and cusp.
-  - **Open pane:** the lower right pane (`OPEN_PANE`) is a casement swung π/4 into the hall about its outer edge, so the opening shows bare behind it. Its frame and leading are turned out of the wall's plane: window points carry `d`, how far out into the room they stand, which `pixels.ts` turns into world space.
+  - **Open pane:** the lower right pane (`OPEN_PANE`) is a casement swung π/3 into the hall about its outer edge, so the opening shows bare behind it and leaves room for the owl perched there. Its frame and leading are turned out of the wall's plane: window points carry `d`, how far out into the room they stand, which `pixels.ts` turns into world space.
   - **Shape:** `tracery.ts` holds it in window-local units (s right, t up from the wall's centre at eye height), like `sign/board.ts`. The outer arch is equilateral (`pointedArch`): each half of the head is an arc centred on the other side's springing point. The sill is 0.1 above the floor, so the window reaches nearly to it, and the apex (about 1.89) is twice the first window's height above the sill, clear of the bay's ceiling. `windowToWall` sets it in the wall, measuring from the wall's own top.
   - **Other views:** `windowPixels` (`pixels.ts`) projects it like the room. From the `hall` facing south it shows small, with the main ceiling's edge hiding its top. Outside the hall, walls hide it except for a sliver of its far side seen through the hall's opening from the `sign` place facing south.
+- **Owl** (`src/scene/owl/`): perched in the window's open pane, blinking and tilting its head. It's used from `hall-end` facing south and turns its head to look at the visitor. See [owl.md](owl.md).
 
 ## Draw order
 
-`drawScene(ctx, yaw, eye, { preview?, ripple?, shimmer?, pullDrop?, plaque? })` paints in this order:
+`drawScene(ctx, yaw, eye, { preview?, ripple?, shimmer?, pullDrop?, plaque?, owl? })` paints in this order:
 
 1. the background
 2. the room
 3. the welcome sign
 4. the tracery window
-5. the current site's preview on the mirror's glass, once loaded (shimmering from the previous site's preview, or distorted by the ripple, if either is playing)
-6. the ripple's rings, if one is playing
-7. the mirror, over the preview and rings so the frame covers their edges
-8. the curtain pull, lowered by `pullDrop`
-9. the logo plaque, if given (`ViewPane` always gives one)
+5. the owl in its open pane, in the pose given (at rest if none)
+6. the current site's preview on the mirror's glass, once loaded (shimmering from the previous site's preview, or distorted by the ripple, if either is playing)
+7. the ripple's rings, if one is playing
+8. the mirror, over the preview and rings so the frame covers their edges
+9. the curtain pull, lowered by `pullDrop`
+10. the logo plaque, if given (`ViewPane` always gives one)

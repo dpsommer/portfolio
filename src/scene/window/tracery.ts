@@ -41,7 +41,7 @@ const QUARRY_WIDTH = 0.1
 const QUARRY_SLOPE = 2
 // How far the open casement is swung into the hall about its hinge, its
 // outer (right) edge.
-const OPEN_ANGLE = Math.PI / 4
+const OPEN_ANGLE = Math.PI / 3
 
 // A closed outline with straight sides from `bottom` up to `spring`, then an
 // equilateral pointed head: each half an arc centred on the other side's

@@ -16,7 +16,7 @@ Every key listener is on `window`, so the keys work without focusing anything on
 | Enter / Space | Use the selected object, as a click would, or with nothing selected select and use the first object in the room ahead | Something is selected, or the view has a room object | [selection.md](selection.md#keys) |
 | Enter / Space | Move the sign's text on | The text box is open | [text-box.md](text-box.md#moving-the-text-on) |
 
-- **Everything the mouse can do, the keyboard can too.** The arrow keys and WASD work the navigation buttons through the same `pressNavButton` path as clicks, including the key-press animation. Enter and Space call the same `interact` function as a click on the sign, mirror or pull.
+- **Everything the mouse can do, the keyboard can too.** The arrow keys and WASD work the navigation buttons through the same `pressNavButton` path as clicks, including the key-press animation. Enter and Space call the same `interact` function as a click on the sign, mirror, pull or owl.
 - **No keyboard trap:** Tab past the last object (or Shift+Tab past the first) clears the selection and lets the browser move focus on. Every view has the character card to select, so Tab always selects it before letting focus go.
 - **No accidental repeats:** held arrow and WASD keys repeat on purpose, turning or stepping each time an animation ends. A held Enter or Space acts only once, so it can't skip through the text or reopen a profile.
 - **Scrolling:** the arrow keys, and Space when the pane uses it, call `preventDefault` so the page doesn't scroll under the visitor.
@@ -40,7 +40,7 @@ The scene is drawn on canvases, so assistive tech can't read what's in it. The m
 - **Status:** a visually hidden `role="status"` paragraph (`.view-pane-status`), which screen readers announce politely when it changes:
   - while the sign's text box is open: the current page's full text, all at once rather than letter by letter
   - while the profile view is open: the full name, title, health, equipment and About Me text (`PROFILE_DESCRIPTION`)
-  - otherwise, while something is selected: its name ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Character card: Duncan")
+  - otherwise, while something is selected: its name ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Owl", "Character card: Duncan")
   - otherwise: empty
 - **Language:** `index.html` sets `lang="en"`.
 
@@ -57,6 +57,8 @@ With `prefers-reduced-motion: reduce` set, every animation snaps to its end stat
 | Avatar speech bubble | The whole message appears at once, and still clears after `BUBBLE_MS`. |
 | Text box caret | Shown steadily, without blinking. |
 | Selection carets | Shown still, without bouncing. |
+| Owl at rest | Holds still, without blinking or tilting its head. |
+| Owl's look | Its head snaps round to face the visitor, holds, then snaps back. |
 
 The check is `prefersReducedMotion` in `ViewPane`, read when each animation starts, so changing the setting takes effect from the next action without a reload.
 

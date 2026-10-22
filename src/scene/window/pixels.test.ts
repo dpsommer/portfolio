@@ -137,7 +137,11 @@ describe('windowPixels', () => {
         expect(p.x).toBeLessThanOrEqual(PANE.right)
         expect(p.x).toBeGreaterThanOrEqual(PANE.left)
       }
-      expect(Math.min(...belowSill.map((p) => p.x))).toBeLessThan(PANE.right - 10)
+      // Swung 60°, its free edge stands out w √3/2 and in w/2 from the hinge.
+      const w = OPEN.right - OPEN.left
+      const freeEdge = columnAt(OPEN.right - w / 2, 1 - (w * Math.sqrt(3)) / 2)
+      expect(freeEdge).toBeLessThan(PANE.right - 5)
+      expect(Math.abs(Math.min(...belowSill.map((p) => p.x)) - freeEdge)).toBeLessThanOrEqual(1)
     })
 
     it('draws its leading dim below the sill too', () => {

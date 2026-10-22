@@ -540,17 +540,17 @@ describe('the open casement', () => {
     expect(WORN.lines.flat().filter(isOffWall)).toEqual([])
   })
 
-  it('swings 45° about the open pane\'s right edge, so it lies on the line d = hinge - s', () => {
+  it('swings 60° about the open pane\'s right edge, so it lies on the line d = √3 (hinge - s)', () => {
     for (const p of [...frame, ...casementLeading].flat()) {
-      expect(p.d ?? 0).toBeCloseTo(HINGE_S - p.s, 9)
+      expect(p.d ?? 0).toBeCloseTo(Math.sqrt(3) * (HINGE_S - p.s), 9)
       expect(p.t).toBeGreaterThanOrEqual(OPEN.bottom - EPSILON)
       expect(p.t).toBeLessThanOrEqual(OPEN.top + EPSILON)
     }
   })
 
-  it('reaches out the pane\'s width at 45°', () => {
+  it('reaches out the pane\'s width at 60°', () => {
     const reach = Math.max(...offWall.map(({ d = 0 }) => d))
-    expect(reach).toBeCloseTo((OPEN.right - OPEN.left) * Math.SQRT1_2, 9)
+    expect(reach).toBeCloseTo(((OPEN.right - OPEN.left) * Math.sqrt(3)) / 2, 9)
   })
 
   it('keeps its hinge edge on the wall along the pane\'s right side', () => {

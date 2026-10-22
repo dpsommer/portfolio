@@ -6,6 +6,9 @@ import { mirrorPixels, plaquePixels, previewPixels, pullPixels, ripplePixels } f
 import type { RippleState } from './mirror/pixels.ts'
 import type { Plaque } from './mirror/plaque.ts'
 import type { Preview, Shimmer } from './mirror/preview.ts'
+import { REST_POSE } from './owl/owl.ts'
+import type { OwlPose } from './owl/owl.ts'
+import { owlPixels } from './owl/pixels.ts'
 import { roomPixels } from './room/room.ts'
 import { signPixels } from './sign/pixels.ts'
 import { windowPixels } from './window/pixels.ts'
@@ -20,13 +23,14 @@ export function drawPixels(ctx: CanvasRenderingContext2D, pixels: Pixel[]) {
 // What's changing on the mirror wall, beyond the camera: the preview on the
 // glass (null or absent for empty glass), a ripple or shimmer playing on it,
 // how far the curtain pull is tugged down, and the logo plaque below it
-// (not drawn when absent).
+// (not drawn when absent). And the owl's pose in the window, at rest if absent.
 export type MirrorExtras = {
   preview?: Preview | null
   ripple?: RippleState
   shimmer?: Shimmer
   pullDrop?: number
   plaque?: Plaque
+  owl?: OwlPose
 }
 
 // Draws the scene from `eye` with the camera turned `yaw` radians left of north.
@@ -34,7 +38,7 @@ export function drawScene(
   ctx: CanvasRenderingContext2D,
   yaw = 0,
   eye: FloorPoint = ORIGIN,
-  { preview, ripple, shimmer, pullDrop = 0, plaque }: MirrorExtras = {},
+  { preview, ripple, shimmer, pullDrop = 0, plaque, owl = REST_POSE }: MirrorExtras = {},
 ) {
   const { width, height } = ctx.canvas
   ctx.fillStyle = BACKGROUND
@@ -42,6 +46,7 @@ export function drawScene(
   drawPixels(ctx, roomPixels(width, height, yaw, eye))
   drawPixels(ctx, signPixels(width, height, yaw, eye))
   drawPixels(ctx, windowPixels(width, height, yaw, eye))
+  drawPixels(ctx, owlPixels(width, height, owl, yaw, eye))
   // Under the mirror, so its frame covers the picture's and rings' edges.
   if (preview || shimmer) drawPixels(ctx, previewPixels(width, height, preview ?? null, yaw, eye, ripple, shimmer))
   if (ripple) drawPixels(ctx, ripplePixels(width, height, ripple, yaw, eye))

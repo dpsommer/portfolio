@@ -30,6 +30,9 @@ import type { PlaceName } from '../scene/navigation/places.ts'
 import { FOREGROUND } from '../scene/core/palette.ts'
 import { createRandom } from '../scene/core/random.ts'
 import { drawPixels, drawScene } from '../scene/draw.ts'
+import { OWL_LOOK_MS, REST_POSE, owlPose } from '../scene/owl/owl.ts'
+import type { OwlPose } from '../scene/owl/owl.ts'
+import { owlPixels } from '../scene/owl/pixels.ts'
 import { caretInset, pixelBounds, selectionPixels } from '../scene/selection/selection.ts'
 import { signPixels } from '../scene/sign/pixels.ts'
 import type { Bounds } from '../scene/core/types.ts'
@@ -75,6 +78,9 @@ const SIGN_BOUNDS = pixelBounds(
   signPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, PLACES.sign).filter((p) => p.colour === FOREGROUND),
 )
 
+// The owl at rest, seen from the hall's end facing south, the view it's used from.
+const OWL_BOUNDS = pixelBounds(owlPixels(VIEW_WIDTH, VIEW_HEIGHT, REST_POSE, 2 * TURN_YAW.left, PLACES['hall-end']))
+
 // Whether a point in canvas pixels is inside inclusive bounds.
 function isInside(bounds: Bounds, x: number, y: number): boolean {
   const { left, top, right, bottom } = bounds
@@ -96,7 +102,7 @@ function isOverPull(x: number, y: number): boolean {
 // The things that can be used, by clicking or by selecting them with Tab and
 // pressing Enter or Space: those in the room, and the character card in the
 // side panel.
-type RoomInteractable = 'sign' | 'mirror' | 'pull'
+type RoomInteractable = 'sign' | 'mirror' | 'pull' | 'owl'
 type Interactable = RoomInteractable | 'card'
 
 // What can be used from `place` facing `heading`, in Tab order. Each thing in
@@ -107,18 +113,20 @@ function interactablesIn(place: PlaceName, heading: Heading, profileOpen: boolea
   if (profileOpen) return ['card']
   if (place === 'sign' && heading === 'north') return ['sign', 'card']
   if (place === 'nook' && heading === 'west') return ['mirror', 'pull', 'card']
+  if (place === 'hall-end' && heading === 'south') return ['owl', 'card']
   return ['card']
 }
 
 // Where each thing in the room is on the canvas in the view it's used from,
-// for the selection carets: the sign's board, the mirror with its frame, and
-// the pull's handle. The card's carets are on the side panel (CARD_BOUNDS).
+// for the selection carets: the sign's board, the mirror with its frame, the
+// pull's handle, and the owl at rest. The card's carets are on the side panel (CARD_BOUNDS).
 const INTERACTABLE_BOUNDS: Record<RoomInteractable, Bounds> = {
   sign: SIGN_BOUNDS,
   mirror: pixelBounds(mirrorPixels(VIEW_WIDTH, VIEW_HEIGHT, TURN_YAW.left, PLACES.nook)),
   pull: pixelBounds(
     pullPixels(VIEW_WIDTH, VIEW_HEIGHT, 0, TURN_YAW.left, PLACES.nook).filter((p) => p.colour === FOREGROUND),
   ),
+  owl: OWL_BOUNDS,
 }
 
 const TURNS: Partial<Record<CursorZone, TurnDirection>> = { 'turn-left': 'left', 'turn-right': 'right' }
@@ -196,7 +204,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
 // What the navigation panel shows while a turn or step plays: the buttons
 // usable once it's done, and the key for it, held down meanwhile.
 type PanelPress = { enabled: Record<NavButton, boolean>; pressed: NavButton }
-type Pointer = { zone: CursorZone; overSign: boolean; overMirror: boolean; overPull: boolean; overAvatar: boolean }
+type Pointer = {
+  zone: CursorZone
+  overSign: boolean
+  overMirror: boolean
+  overPull: boolean
+  overOwl: boolean
+  overAvatar: boolean
+}
 // The sign's text in the lower panel, while it's open: which of SIGN_PAGES
 // shows, and whether a click cut its typing short.
 type Dialogue = { page: number; skipped: boolean }
@@ -214,15 +229,16 @@ type View = {
 // The selected thing and how far in its carets are mid-bounce.
 type Selection = { target: Interactable; inset: number }
 // What's drawn beyond the view: the current site's preview on the glass and
-// logo on the plaque, and the carets around the selected thing, if any.
-type SiteLook = { preview: Preview | null; logo: LogoMap; selection: Selection | null }
+// logo on the plaque, the owl's pose, and the carets around the selected
+// thing, if any.
+type SiteLook = { preview: Preview | null; logo: LogoMap; owl: OwlPose; selection: Selection | null }
 
 function drawView(
   ctx: CanvasRenderingContext2D,
   { x, z, yaw, ripple, shimmer, pullDrop, plaque }: View,
-  { preview, logo, selection }: SiteLook,
+  { preview, logo, owl, selection }: SiteLook,
 ) {
-  drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop, plaque: plaque ?? { logo } })
+  drawScene(ctx, yaw, { x, z }, { preview, ripple, shimmer, pullDrop, plaque: plaque ?? { logo }, owl })
   if (selection && selection.target !== 'card') {
     const { width, height } = ctx.canvas
     drawPixels(ctx, selectionPixels(INTERACTABLE_BOUNDS[selection.target], selection.inset, width, height))
@@ -285,6 +301,7 @@ function ViewPane() {
     overSign: false,
     overMirror: false,
     overPull: false,
+    overOwl: false,
     overAvatar: false,
   })
   const [place, setPlace] = useState<PlaceName>('start')
@@ -333,9 +350,15 @@ function ViewPane() {
     selectionRef.current = target && { target, inset: 0 }
     setSelected(target)
   }
+  // The owl's drawn pose, its resting animation's frame, and when the look
+  // at the visitor playing started (and whether it snaps, for reduced motion).
+  const owlPoseRef = useRef<OwlPose>(REST_POSE)
+  const owlFrameRef = useRef<number | null>(null)
+  const owlLookRef = useRef<{ start: number; still: boolean } | null>(null)
   const currentLook = (): SiteLook => ({
     preview: previewsRef.current[siteRef.current],
     logo: MIRROR_SITES[siteRef.current].logo,
+    owl: owlPoseRef.current,
     selection: selectionRef.current,
   })
 
@@ -498,6 +521,37 @@ function ViewPane() {
       caretFrameRef.current = null
     }
   }, [selected])
+
+  // While the owl can be in view (anywhere in the hall facing south), it blinks
+  // and tilts its head at rest, and turns its head when used, on its own frame
+  // loop. Like the carets' bounce it doesn't count as animating, and it redraws
+  // the room only when the pose changes and no other animation is drawing it.
+  // With reduced motion it holds still, and a look turns its head straight round.
+  const owlInSight = heading === 'south' && (place === 'hall' || place === 'hall-middle' || place === 'hall-end')
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!owlInSight || !ctx) return
+    const still = prefersReducedMotion()
+    const start = performance.now()
+    const step = (now: number) => {
+      const look = owlLookRef.current
+      if (look && now - look.start >= OWL_LOOK_MS) owlLookRef.current = null
+      const pose = owlPose(now - start, look ? now - look.start : null, still || (look?.still ?? false))
+      const drawn = owlPoseRef.current
+      if (pose.turn !== drawn.turn || pose.tilt !== drawn.tilt || pose.blink !== drawn.blink) {
+        owlPoseRef.current = pose
+        if (frameRef.current === null && !profileOpenRef.current) drawView(ctx, viewRef.current, currentLook())
+      }
+      owlFrameRef.current = requestAnimationFrame(step)
+    }
+    owlFrameRef.current = requestAnimationFrame(step)
+    return () => {
+      if (owlFrameRef.current !== null) cancelAnimationFrame(owlFrameRef.current)
+      owlFrameRef.current = null
+      owlLookRef.current = null
+      owlPoseRef.current = REST_POSE
+    }
+  }, [owlInSight])
 
   // A click while the sign's text is open finishes typing the page, or goes
   // on to the next page, or after the last one closes the text and brings
@@ -680,6 +734,15 @@ function ViewPane() {
     })
   }
 
+  // Starts the owl turning its head to look at the visitor and back, unless
+  // it's already looking. Its resting loop draws the turn.
+  function lookAtVisitor() {
+    const now = performance.now()
+    const look = owlLookRef.current
+    if (look && now - look.start < OWL_LOOK_MS) return
+    owlLookRef.current = { start: now, still: prefersReducedMotion() }
+  }
+
   // Uses `target`, as a click on it or Enter or Space with it selected does.
   // From the keyboard the mirror ripples from the middle of its glass. The
   // card opens the profile view, or closes it if it's open.
@@ -687,6 +750,7 @@ function ViewPane() {
     if (target === 'sign') setDialogue({ page: 0, skipped: false })
     else if (target === 'mirror') rippleFrom(GLASS_CENTRE)
     else if (target === 'pull') switchSite()
+    else if (target === 'owl') lookAtVisitor()
     else {
       // Opening it selects the card, however it was opened, so its carets show
       // what the view belongs to. Whatever was selected in the room is covered.
@@ -736,6 +800,7 @@ function ViewPane() {
       overSign: isInside(SIGN_BOUNDS, x, y),
       overMirror: isOverGlass(x, y),
       overPull: isOverPull(x, y),
+      overOwl: isInside(OWL_BOUNDS, x, y),
       // Only the profile view's avatar takes clicks, so the room ignores the spot.
       overAvatar: profileOpen && isInside(AVATAR_PROFILE_BOUNDS, x, y),
     }
@@ -750,6 +815,7 @@ function ViewPane() {
         next.overSign !== pointer.overSign ||
         next.overMirror !== pointer.overMirror ||
         next.overPull !== pointer.overPull ||
+        next.overOwl !== pointer.overOwl ||
         next.overAvatar !== pointer.overAvatar)
     )
       setPointer(next)
@@ -777,6 +843,10 @@ function ViewPane() {
       interact('pull')
       return
     }
+    if (at.overOwl && isOwlView) {
+      interact('owl')
+      return
+    }
     const direction = TURNS[at.zone]
     if (direction) {
       turnView(direction)
@@ -788,7 +858,7 @@ function ViewPane() {
       return
     }
     const next = forwardFrom(place, heading)
-    // A click on the sign, mirror or pull is for it, even if there's a way forward behind it.
+    // A click on the sign, mirror, pull or owl is for it, even if there's a way forward behind it.
     if (!next || showHand) return
     moveTo(next, 'forward')
   }
@@ -912,17 +982,20 @@ function ViewPane() {
     sign: 'Welcome sign',
     mirror: `Mirror: ${MIRROR_SITES[site].name}`,
     pull: 'Curtain pull',
+    owl: 'Owl',
     card: `Character card: ${CARD_NAME}`,
   }
 
-  // The sign, mirror and pull are only clickable from where they were designed to be seen.
+  // The sign, mirror, pull and owl are only clickable from where they were designed to be seen.
   const isMirrorView = place === 'nook' && heading === 'west'
   const isSignView = place === 'sign' && heading === 'north'
+  const isOwlView = place === 'hall-end' && heading === 'south'
   const showHand =
     !animating &&
     !profileOpen &&
     ((pointer.overSign && isSignView) ||
-      ((pointer.overMirror || pointer.overPull) && isMirrorView))
+      ((pointer.overMirror || pointer.overPull) && isMirrorView) ||
+      (pointer.overOwl && isOwlView))
   const canMoveForward = forwardFrom(place, heading) !== null
   const canMoveBack = backFrom(place, heading) !== null
   // While the sign's text is open, a click anywhere in the pane moves it on.

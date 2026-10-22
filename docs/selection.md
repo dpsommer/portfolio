@@ -10,6 +10,7 @@ Each object can only be selected from the view it's used from, the same view whe
 | --- | --- | --- |
 | In front of the sign (`sign`), facing north | Welcome sign, then the card | The sign opens its text box ([text-box.md](text-box.md)) |
 | Nook, facing west | Mirror, then curtain pull, then the card | The mirror ripples from the centre of its glass (`GLASS_CENTRE`) and goes to its site; the pull switches site ([mirror.md](mirror.md)) |
+| Hall's end (`hall-end`), facing south | Owl, then the card | The owl turns its head to look at the visitor ([owl.md](owl.md)) |
 | Any other view, or while the profile view is open | The card | |
 
 The character card is always usable, so it's always last in the Tab order, and in a view with nothing else it's the only thing to select. Enter or Space with it selected opens the profile view, or closes it ([character.md](character.md)).
@@ -20,13 +21,13 @@ The keys follow the same rules as the arrow keys ([navigation.md](navigation.md#
 
 - **Tab / Shift+Tab:** select the next or previous object. With nothing selected they start from the first or last object. Past either end the selection clears and the key is left to the browser, so focus moves on and keyboard users are never trapped in the pane.
 - **Escape:** closes the profile view if it's open, and clears the selection either way.
-- **Enter / Space:** use the selected object. A held key acts only once. With nothing selected, they select and use the first room object in the view's Tab order (the sign, or the mirror). The card isn't in the room, so in a view with nothing else, or while the profile view is open, they do nothing and the key is left to the browser.
+- **Enter / Space:** use the selected object. A held key acts only once. With nothing selected, they select and use the first room object in the view's Tab order (the sign, the mirror or the owl). The card isn't in the room, so in a view with nothing else, or while the profile view is open, they do nothing and the key is left to the browser.
 - **While an animation plays:** Tab, Enter and Space are ignored, but they still don't move focus or scroll.
 - **While the text box is open:** Enter and Space move its text on, and Tab is left to the browser. Selecting the sign and pressing Enter opens the text box, and the next press moves its text on.
 
 Turning or moving clears the selection of a room object, because it leaves the view. The card stays selected, since it never leaves view. The mouse doesn't change the selection, except that opening the profile view with a click selects the card ([character.md](character.md#profile-view)).
 
-The visually hidden `.view-pane-status` element names the selected object ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Character card: Duncan") for screen readers, unless the text box or the profile view is open.
+The visually hidden `.view-pane-status` element names the selected object ("Welcome sign", "Mirror: GitHub", "Curtain pull", "Owl", "Character card: Duncan") for screen readers, unless the text box or the profile view is open.
 
 ## Carets
 
@@ -35,6 +36,7 @@ The visually hidden `.view-pane-status` element names the selected object ("Welc
   - the sign: its board (`pixelBounds` of `signPixels`' `FOREGROUND` pixels)
   - the mirror: its frame and ornaments (`pixelBounds` of `mirrorPixels`)
   - the pull: its handle's bright outline
+  - the owl: its outline at rest (`OWL_BOUNDS`)
   - the card: its border (`CARD_BOUNDS`), on the side panel's canvas rather than the room's
 - **Bounce:** `caretInset` sets the bounce. The carets rest for the first `BOUNCE_PERIOD_MS` (2 s) after an object is selected. After that, every period they dip `BOUNCE_DEPTH` (2) pixels in towards the object and back over `BOUNCE_MS` (300 ms).
 - **Drawing:** the carets around a room object are drawn after the scene by `drawView`, so animation frames (the ripple, the site switch) show them too. The card's are drawn by `drawSidePanel`.

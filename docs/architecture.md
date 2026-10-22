@@ -20,6 +20,7 @@ The modules are grouped by what they draw:
 | `sign/` | The welcome sign hanging on the far wall: its shape (`board.ts`), its pixels (`pixels.ts`), and its text and the text box's typing and caret timing (`signText.ts`). |
 | `window/` | The plate tracery window in the hall's dead end, with its leading and open casement: its shape (`tracery.ts`) and its pixels (`pixels.ts`). |
 | `navigation/` | Headings and places, and the navigation panel's compass and buttons. |
+| `owl/` | The owl in the window's open pane: its shape, poses and resting animation (`owl.ts`) and its pixels (`pixels.ts`). |
 | `selection/` | The carets around the object selected with the keyboard, their bounce, and `pixelBounds`. |
 | `character/` | The character card in the side panel, the icons (keyboard, mouse, headphones, hoodie), the profile view with its health potion and equipment table, photos quantised to the palette (`picture.ts`), and the card's name and health, the profile's text and the About Me text (`aboutText.ts`). |
 | `textBox/` | The text box the lower panel shows while the sign's text is open: wrapping, layout, text and caret. |
@@ -64,4 +65,4 @@ Every animation goes through `runAnimation` and follows the same rules:
 | Ripple | `rippleDuration(origin)`, longer near the glass's edge | `src/scene/mirror/ripple.ts` | [mirror.md](mirror.md#ripple) |
 | Site switch | `SWITCH_DURATION_MS` (900 ms) | `ViewPane` | [mirror.md](mirror.md#switching-sites) |
 
-The text box's typing and caret blink (`TYPING_MS_PER_CHAR`, `CARET_BLINK_MS` in `src/scene/sign/signText.ts`) are the exception. They run on their own frame loop, not through `runAnimation`, and don't count as animating, because the text box takes the pane's clicks itself. They still follow reduced motion. See [text-box.md](text-box.md#typing). The selection carets' bounce (`caretInset`, `src/scene/selection/selection.ts`) works the same way ([selection.md](selection.md#carets)).
+The text box's typing and caret blink (`TYPING_MS_PER_CHAR`, `CARET_BLINK_MS` in `src/scene/sign/signText.ts`) are the exception. They run on their own frame loop, not through `runAnimation`, and don't count as animating, because the text box takes the pane's clicks itself. They still follow reduced motion. See [text-box.md](text-box.md#typing). The selection carets' bounce (`caretInset`, `src/scene/selection/selection.ts`) works the same way ([selection.md](selection.md#carets)), and so does the owl's blinking, head tilts and look at the visitor ([owl.md](owl.md#animation-loop)).

@@ -9,7 +9,8 @@ import type { WindowLine, WindowPoint } from './tracery.ts'
 // The tracery window set in its wall, with its open casement standing out
 // into the hall.
 
-const toWorld = ({ s, t, d = 0 }: WindowPoint) => {
+// Where a window point is in the world.
+export const windowToWorld = ({ s, t, d = 0 }: WindowPoint) => {
   const wall = WALLS[WINDOW_WALL]
   const { u, v } = windowToWall({ s, t })
   const onFace = onWall(wall, u, v)
@@ -19,7 +20,7 @@ const toWorld = ({ s, t, d = 0 }: WindowPoint) => {
 
 const LAYERS = WINDOW_LAYERS.map(({ colour, lines }) => ({
   colour,
-  segments: lines.map(([a, b]: WindowLine): Segment => [toWorld(a), toWorld(b)]),
+  segments: lines.map(([a, b]: WindowLine): Segment => [windowToWorld(a), windowToWorld(b)]),
 }))
 
 // Pixels for the window, seen the same way as `roomPixels`.

@@ -16,6 +16,7 @@ Whenever the mouse is inside any canvas area (the room, the lower panel or the s
 | Room, middle, with no way forward | Blocked hand |
 | Welcome sign's board, in front of it facing north | Pointing hand (a click opens its text box) |
 | Mirror's glass or curtain pull, in the nook facing west | Pointing hand |
+| Owl (`OWL_BOUNDS`), at the hall's end facing south | Pointing hand (a click turns its head) |
 | Usable navigation button | Pointing hand |
 | Character card (`CARD_BOUNDS`) | Pointing hand (a click opens or closes the profile view) |
 | Profile view's avatar (`AVATAR_PROFILE_BOUNDS`) | Pointing hand (a click shows the speech bubble) |

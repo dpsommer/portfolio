@@ -11,6 +11,9 @@ import { createRandom } from '../scene/core/random.ts'
 import { drawScene } from '../scene/draw.ts'
 import type { MirrorExtras } from '../scene/draw.ts'
 import { GLASS_CENTRE } from '../scene/mirror/frame.ts'
+import { BLINK_MS, OWL_HOLD_MS, OWL_LOOK_MS, OWL_TURN_MS, REST_POSE, TILT_MS, owlPose } from '../scene/owl/owl.ts'
+import type { OwlPose } from '../scene/owl/owl.ts'
+import { owlPixels } from '../scene/owl/pixels.ts'
 import { mirrorPixels, plaquePixels, previewPixels, pullPixels, screenToMirror } from '../scene/mirror/pixels.ts'
 import type { LogoMap, Plaque } from '../scene/mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH, quantisePreview } from '../scene/mirror/preview.ts'
@@ -106,6 +109,15 @@ const HIGH_CORD_Y = HANDLE.top - 60
 const BELOW_HANDLE_Y = HANDLE.bottom + 12
 // On the wall between the mirror's frame and the pull.
 const BETWEEN_X = Math.round((MIRROR.right + HANDLE.left) / 2)
+// The owl at rest in the window, seen from the hall's end facing south, where
+// it's used from (around x 169-190, y 156-199 at 320x240), its centre, and a
+// point on the window left of it.
+const OWL = pixelBounds(owlPixels(VIEW_WIDTH, VIEW_HEIGHT, REST_POSE, Math.PI, PLACES['hall-end']))
+const OWL_X = Math.round((OWL.left + OWL.right) / 2)
+const OWL_Y = Math.round((OWL.top + OWL.bottom) / 2)
+const BESIDE_OWL_X = OWL.left - 15
+// The pane's yaw facing south down the hall, reached by turning right twice from north.
+const HALL_SOUTH = -Math.PI
 
 const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2
 
@@ -270,6 +282,28 @@ function renderInNook() {
   room.fills.length = 0
   return result
 }
+
+// Renders, walks into the hall, turns south and takes `steps` steps down it
+// (2 to its dead end), letting each animation finish, then clears the frames
+// requested and the room's fills so far.
+function renderInHallFacingSouth(steps = 2) {
+  const result = renderPane()
+  const settle = (x: number, ms: number) => {
+    clickAt(result.canvas, x)
+    frames.flush(START + ms)
+  }
+  settle(RIGHT_X, TURN_DURATION_MS)
+  settle(CENTRE_X, MOVE_DURATION_MS)
+  settle(RIGHT_X, TURN_DURATION_MS)
+  for (let i = 0; i < steps; i++) settle(CENTRE_X, MOVE_DURATION_MS)
+  expect(result.canvas).toHaveAttribute('data-place', ['hall', 'hall-middle', 'hall-end'][steps])
+  expect(result.canvas).toHaveAttribute('data-heading', 'south')
+  frames.requestAnimationFrame.mockClear()
+  room.fills.length = 0
+  return result
+}
+
+const renderAtHallEnd = () => renderInHallFacingSouth(2)
 
 // Renders and steps up to the sign facing north, letting the move finish,
 // then clears the frames requested and the room's fills so far.
@@ -3752,6 +3786,7 @@ describe('ViewPane', () => {
     const VIEWS: [string, () => unknown, string[]][] = [
       ['in front of the sign facing north', renderAtSign, [SIGN_LABEL, CARD_LABEL]],
       ['in the nook facing west', renderInNook, [MIRROR_LABEL, PULL_LABEL, CARD_LABEL]],
+      ['at the hall\'s end facing south', renderAtHallEnd, ['Owl', CARD_LABEL]],
     ]
 
     describe('stepping through', () => {
@@ -4083,6 +4118,7 @@ describe('ViewPane', () => {
         ['the sign', renderAtSign, 1, SIGN_BOARD, signFills],
         ['the mirror', renderInNook, 1, MIRROR, () => sceneFills()],
         ['the pull', renderInNook, 2, HANDLE, () => sceneFills()],
+        ['the owl', renderAtHallEnd, 1, OWL, () => sceneFills(undefined, HALL_SOUTH, PLACES['hall-end'])],
       ])('redraws the room once with carets around %s when it is selected', (_, setUp, tabs, bounds, scene) => {
         setUp()
         pressTimes(tabs - 1)
@@ -4209,6 +4245,286 @@ describe('ViewPane', () => {
         unmount()
 
         expect(frames.pending()).toBe(0)
+      })
+    })
+  })
+
+  describe('owl', () => {
+    useAnimation()
+
+    const FACING: OwlPose = { ...REST_POSE, turn: 0 }
+    // Midway through the first blink and the first tilt of the resting
+    // animation, from when the owl came into sight.
+    const MID_BLINK = 3200 + BLINK_MS / 2
+    const MID_TILT = 4000 + TILT_MS / 2
+    const status = () => screen.getByRole('status').textContent
+    // The room from `place` in the hall facing south with the owl in `pose`.
+    const hallFills = (pose: OwlPose, place: 'hall' | 'hall-middle' | 'hall-end' = 'hall-end') =>
+      sceneFills({ owl: pose }, HALL_SOUTH, PLACES[place])
+    const caretFills = (inset = 0) => toFills(selectionPixels(OWL, inset, VIEW_WIDTH, VIEW_HEIGHT))
+
+    it('takes its bounds from the owl at rest as the pane draws it from the hall\'s end', () => {
+      const drawn = owlPixels(VIEW_WIDTH, VIEW_HEIGHT, REST_POSE, HALL_SOUTH, PLACES['hall-end'])
+      expect(pixelBounds(drawn)).toEqual(OWL)
+      expect(OWL.left).toBeGreaterThan(CENTRE_X)
+    })
+
+    describe('looking at the visitor', () => {
+      it.each(['Enter', ' '])('selects the owl and turns its head with %j with nothing selected', (key) => {
+        renderAtHallEnd()
+
+        expect(pressKey(key)).toBe(false)
+        expect(status()).toBe('Owl')
+        room.fills.length = 0
+
+        frames.flush(START + OWL_TURN_MS)
+        expect(room.fills).toEqual([...hallFills(FACING), ...caretFills()])
+      })
+
+      it('turns its head with Enter once selected with Tab', () => {
+        renderAtHallEnd()
+        pressKey('Tab')
+        room.fills.length = 0
+
+        pressKey('Enter')
+        frames.flush(START + OWL_TURN_MS)
+
+        expect(room.fills).toEqual([...hallFills(FACING), ...caretFills()])
+      })
+
+      it('turns its head part way, round to face, and back, redrawing the room as frames advance after a click on it', () => {
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, OWL_X, OWL_Y)
+
+        frames.flush(START + OWL_TURN_MS / 2)
+        const partWay = owlPose(OWL_TURN_MS / 2, OWL_TURN_MS / 2)
+        expect(partWay.turn).toBeGreaterThan(0)
+        expect(partWay.turn).toBeLessThan(REST_POSE.turn)
+        expect(room.fills).toEqual(hallFills(partWay))
+
+        room.fills.length = 0
+        frames.flush(START + OWL_TURN_MS)
+        expect(room.fills).toEqual(hallFills(FACING))
+
+        // Held facing the visitor, it isn't redrawn.
+        room.fills.length = 0
+        frames.flush(START + OWL_TURN_MS + OWL_HOLD_MS / 2)
+        expect(room.fills).toEqual([])
+
+        frames.flush(START + OWL_LOOK_MS)
+        expect(room.fills).toEqual(hallFills(REST_POSE))
+        expect(canvas).toHaveAttribute('data-place', 'hall-end')
+      })
+
+      it('takes a click on its feet, down in the bottom strip, rather than stepping back', () => {
+        const { canvas } = renderAtHallEnd()
+        expect(OWL.bottom).toBeGreaterThan(192)
+
+        clickAt(canvas, OWL_X, OWL.bottom)
+        frames.flush(START + OWL_TURN_MS)
+
+        expect(canvas).toHaveAttribute('data-place', 'hall-end')
+        expect(room.fills).toEqual(hallFills(FACING))
+      })
+
+      it('does nothing for a click beside the owl', () => {
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, BESIDE_OWL_X, OWL_Y)
+
+        frames.flush(START + OWL_TURN_MS / 2)
+        frames.flush(START + OWL_TURN_MS)
+
+        expect(room.fills).toEqual([])
+        expect(canvas).toHaveAttribute('data-place', 'hall-end')
+        expect(canvas).toHaveAttribute('data-heading', 'south')
+      })
+
+      it('ignores another click while a look plays, turning back when the first ends', () => {
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, OWL_X, OWL_Y)
+        frames.flush(START + OWL_TURN_MS)
+        now.mockReturnValue(START + OWL_TURN_MS + OWL_HOLD_MS / 2)
+        clickAt(canvas, OWL_X, OWL_Y)
+        room.fills.length = 0
+
+        frames.flush(START + OWL_LOOK_MS)
+
+        expect(room.fills).toEqual(hallFills(REST_POSE))
+      })
+
+      it('can look again once a look has ended', () => {
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, OWL_X, OWL_Y)
+        frames.flush(START + OWL_TURN_MS)
+        frames.flush(START + OWL_LOOK_MS)
+        now.mockReturnValue(START + OWL_LOOK_MS)
+        clickAt(canvas, OWL_X, OWL_Y)
+        room.fills.length = 0
+
+        frames.flush(START + OWL_LOOK_MS + OWL_TURN_MS)
+
+        expect(room.fills).toEqual(hallFills(FACING))
+      })
+
+      it('leaves input free mid-look, so the view turns away', () => {
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, OWL_X, OWL_Y)
+        frames.flush(START + OWL_TURN_MS / 2)
+
+        pressKey('ArrowLeft')
+        frames.flush(START + TURN_DURATION_MS)
+
+        expect(canvas).toHaveAttribute('data-heading', 'east')
+      })
+
+      it('forgets a look on turning away, resting when turned back', () => {
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, OWL_X, OWL_Y)
+        frames.flush(START + OWL_TURN_MS / 2)
+        pressKey('ArrowLeft')
+        frames.flush(START + TURN_DURATION_MS)
+        pressKey('ArrowRight')
+        frames.flush(START + TURN_DURATION_MS)
+        expect(canvas).toHaveAttribute('data-heading', 'south')
+        room.fills.length = 0
+
+        // Were the look still playing, the owl would face the visitor now.
+        frames.flush(START + OWL_TURN_MS + OWL_HOLD_MS / 2)
+
+        expect(room.fills).toEqual([])
+      })
+    })
+
+    describe('cursor', () => {
+      it('shows the hand over the owl from the hall\'s end facing south', () => {
+        const { canvas } = renderAtHallEnd()
+
+        fireEvent.mouseMove(canvas, { clientX: OWL_X, clientY: OWL_Y })
+
+        expect(canvas.style.cursor).toBe(HAND_CURSOR)
+      })
+
+      it('shows the blocked cursor beside the owl there, with no way forward', () => {
+        const { canvas } = renderAtHallEnd()
+
+        fireEvent.mouseMove(canvas, { clientX: BESIDE_OWL_X, clientY: OWL_Y })
+
+        expect(canvas.style.cursor).toBe(BLOCKED_CURSOR)
+      })
+
+      it.each<[string, () => { canvas: HTMLElement }]>([
+        ['the middle of the hall facing south', () => renderInHallFacingSouth(1)],
+        ['the start facing north', () => renderPane()],
+      ])('shows no hand where the owl would be from %s', (_, setUp) => {
+        const { canvas } = setUp()
+
+        fireEvent.mouseMove(canvas, { clientX: OWL_X, clientY: OWL_Y })
+
+        expect(canvas.style.cursor).toBe(CURSORS.forward)
+      })
+    })
+
+    describe('resting', () => {
+      it.each([
+        ['the hall\'s first place', 0, 'hall'],
+        ['the middle of the hall', 1, 'hall-middle'],
+        ['the hall\'s end', 2, 'hall-end'],
+      ] as const)('blinks from %s facing south, redrawing the room shut and open again', (_, steps, place) => {
+        renderInHallFacingSouth(steps)
+
+        frames.flush(START + MID_BLINK)
+        expect(room.fills).toEqual(hallFills({ ...REST_POSE, blink: 1 }, place))
+
+        room.fills.length = 0
+        frames.flush(START + 3200 + BLINK_MS)
+        expect(room.fills).toEqual(hallFills(REST_POSE, place))
+      })
+
+      it('tilts its head', () => {
+        renderAtHallEnd()
+
+        frames.flush(START + MID_TILT)
+
+        expect(owlPose(MID_TILT, null).tilt).not.toBe(0)
+        expect(room.fills).toEqual(hallFills(owlPose(MID_TILT, null)))
+      })
+
+      it('does not redraw while the pose holds between blinks', () => {
+        renderAtHallEnd()
+
+        frames.flush(START + 1000)
+        frames.flush(START + 2000)
+
+        expect(room.fills).toEqual([])
+        expect(frames.pending()).toBe(1)
+      })
+
+      it.each<[string, () => unknown]>([
+        ['the start facing north', () => renderPane()],
+        ['the nook facing west', renderInNook],
+        [
+          'the hall facing east',
+          () => {
+            const { canvas } = renderPane()
+            clickAt(canvas, RIGHT_X)
+            frames.flush(START + TURN_DURATION_MS)
+            clickAt(canvas, CENTRE_X)
+            frames.flush(START + MOVE_DURATION_MS)
+            expect(canvas).toHaveAttribute('data-place', 'hall')
+          },
+        ],
+        [
+          'the hall\'s end facing east, turned from south',
+          () => {
+            renderAtHallEnd()
+            pressKey('ArrowLeft')
+            frames.flush(START + TURN_DURATION_MS)
+          },
+        ],
+      ])('runs no owl loop from %s', (_, setUp) => {
+        setUp()
+        room.fills.length = 0
+
+        expect(frames.pending()).toBe(0)
+        frames.flush(START + MID_BLINK)
+        expect(room.fills).toEqual([])
+      })
+
+      it('stops its loop once unmounted', () => {
+        const { unmount } = renderAtHallEnd()
+
+        unmount()
+
+        expect(frames.pending()).toBe(0)
+      })
+    })
+
+    describe('with reduced motion', () => {
+      it('does not redraw at rest, neither blinking nor tilting', () => {
+        useReducedMotion()
+        renderAtHallEnd()
+
+        frames.flush(START + MID_BLINK)
+        frames.flush(START + MID_TILT)
+
+        expect(room.fills).toEqual([])
+      })
+
+      it('faces the visitor at once on a look, redrawing once, and turns straight back after OWL_LOOK_MS', () => {
+        useReducedMotion()
+        const { canvas } = renderAtHallEnd()
+        clickAt(canvas, OWL_X, OWL_Y)
+
+        frames.flush(START + 1)
+        expect(room.fills).toEqual(hallFills(FACING))
+
+        room.fills.length = 0
+        frames.flush(START + OWL_TURN_MS / 2)
+        frames.flush(START + OWL_LOOK_MS - 1)
+        expect(room.fills).toEqual([])
+
+        frames.flush(START + OWL_LOOK_MS)
+        expect(room.fills).toEqual(hallFills(REST_POSE))
       })
     })
   })

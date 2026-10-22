@@ -11,6 +11,8 @@ import type { RippleState } from './mirror/pixels.ts'
 import type { Plaque } from './mirror/plaque.ts'
 import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from './mirror/preview.ts'
 import { PLACES } from './navigation/places.ts'
+import { REST_POSE } from './owl/owl.ts'
+import { owlPixels } from './owl/pixels.ts'
 import { roomPixels } from './room/room.ts'
 import { signPixels } from './sign/pixels.ts'
 import { windowPixels } from './window/pixels.ts'
@@ -153,10 +155,12 @@ describe('drawScene', () => {
     const SIGN_AND_WINDOW = { eye: { x: -0.5, z: 2.25 }, yaw: 1.375 * Math.PI }
     const MIRROR_AND_WINDOW = { eye: { x: -0.25, z: 1.75 }, yaw: SOUTH }
 
-    it('draws only the background, the room and the window from the hall\'s dead end facing south', () => {
+    it('draws only the background, the room, the window and then the owl at rest from the hall\'s dead end facing south', () => {
       const { ctx, fills } = createFakeContext()
       const tracery = windowPixels(WIDTH, HEIGHT, SOUTH, HALL_END_EYE)
+      const owl = owlPixels(WIDTH, HEIGHT, REST_POSE, SOUTH, HALL_END_EYE)
       expect(tracery.length).toBeGreaterThan(0)
+      expect(owl.length).toBeGreaterThan(0)
 
       drawScene(ctx, SOUTH, HALL_END_EYE)
 
@@ -164,7 +168,19 @@ describe('drawScene', () => {
         { args: [0, 0, WIDTH, HEIGHT], fillStyle: BACKGROUND },
         ...toFills(roomPixels(WIDTH, HEIGHT, SOUTH, HALL_END_EYE)),
         ...toFills(tracery),
+        ...toFills(owl),
       ])
+    })
+
+    it('draws the owl in the pose given, in place of the resting one', () => {
+      const { ctx, fills } = createFakeContext()
+      const pose = { turn: 0, tilt: 0.18, blink: 1 }
+      const owl = owlPixels(WIDTH, HEIGHT, pose, SOUTH, HALL_END_EYE)
+      expect(owl).not.toEqual(owlPixels(WIDTH, HEIGHT, REST_POSE, SOUTH, HALL_END_EYE))
+
+      drawScene(ctx, SOUTH, HALL_END_EYE, { owl: pose })
+
+      expect(fills.slice(-owl.length)).toEqual(toFills(owl))
     })
 
     it('draws the window after the sign', () => {
